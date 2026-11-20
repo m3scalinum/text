@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  dotnet-coverage settings, used by `dotnet test --coverage-settings tests/coverage.config.xml`.
+  This is not a .runsettings file: the schema is dotnet-coverage's own.
+-->
+<Configuration>
+  <CodeCoverage>
+    <ModulePaths>
+      <Include>
+        <ModulePath>.*SharpTypst\.dll$</ModulePath>
+        <ModulePath>.*SharpTypst\.DependencyInjection\.dll$</ModulePath>
+      </Include>
+      <Exclude>
+        <ModulePath>.*Tests\.dll$</ModulePath>
+        <ModulePath>.*Generator\.dll$</ModulePath>
+      </Exclude>
+    </ModulePaths>
+    <UseVerifiableInstrumentation>True</UseVerifiableInstrumentation>
+    <AllowLowIntegrityProcesses>True</AllowLowIntegrityProcesses>
+    <CollectFromChildProcesses>True</CollectFromChildProcesses>
+  </CodeCoverage>
+</Configuration>

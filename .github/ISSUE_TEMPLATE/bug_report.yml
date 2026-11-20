@@ -1,0 +1,111 @@
+name: Bug report
+description: A document compiles wrong, a signature is rejected, an invoice is refused, or something crashes.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. A minimal reproduction is what makes a fix possible — please reduce
+        it as far as you can before submitting.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Preflight
+      options:
+        - label: I searched the existing issues and this is not a duplicate.
+          required: true
+        - label: I am on the latest published version of the package.
+          required: true
+
+  - type: dropdown
+    id: package
+    attributes:
+      label: Package
+      description: The package the problem is in. Pick the outermost one — a Factur-X render goes through SharpTypst as well.
+      options:
+        - M3scalinum.Text.SharpTypst
+        - M3scalinum.Text.SharpTypst.DependencyInjection
+        - M3scalinum.Text.SharpTypst.Templates.Generator
+        - M3scalinum.Text.Pdf
+        - M3scalinum.Text.Pdf.FactureX
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happens
+    attributes:
+      label: What happens
+      description: The observed behaviour, including the exact exception type and message.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: The smallest input and code that shows the problem — Typst source, a PDF, or an invoice XML.
+      render: csharp
+      placeholder: |
+        var pdf = TypstCompiler.CompileToPdf("#set page(paper: \"a4\")\n= Hello");
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: |
+        Whatever the package reported: the `TypstDiagnostic` entries from the compiler, the
+        `FacturXIssue` codes from the validator, or the sentence a `PdfSignatureException` carries.
+      render: text
+
+  - type: input
+    id: package-version
+    attributes:
+      label: Package version
+      description: |
+        The compiler packages carry the embedded Typst version (`0.15.1.42`); the suite packages carry
+        their own (`0.51.2`).
+      placeholder: 0.15.1.42
+    validations:
+      required: true
+
+  - type: input
+    id: dotnet-version
+    attributes:
+      label: .NET version
+      placeholder: 11.0.100
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      description: Only matters for the compiler packages, which ship a native library per runtime.
+      options:
+        - Not applicable (managed only)
+        - win-x64
+        - win-arm64
+        - linux-x64
+        - linux-arm64
+        - linux-musl-x64 (Alpine)
+        - osx (Apple Silicon)
+        - osx (Intel)
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Stack traces, a link to a repository that reproduces it, related issues.

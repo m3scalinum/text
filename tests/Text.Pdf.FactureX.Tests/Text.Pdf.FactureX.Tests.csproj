@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <PackageId>M3scalinum.Text.Pdf.FactureX.Tests</PackageId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Text.Pdf.FactureX\Text.Pdf.FactureX.csproj" />
+  </ItemGroup>
+
+</Project>

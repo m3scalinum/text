@@ -1,0 +1,215 @@
+{
+  "typstVersion": "0.15.1",
+  "categories": [
+    {
+      "name": "Foundations",
+      "items": [
+        { "name": "arguments", "level": "L1" },
+        { "name": "array", "level": "L1" },
+        { "name": "assert", "level": "L1" },
+        { "name": "auto", "level": "L1" },
+        { "name": "bool", "level": "L1" },
+        { "name": "bytes", "level": "L1" },
+        { "name": "calc", "level": "L1" },
+        { "name": "content", "level": "L1" },
+        { "name": "datetime", "level": "L2" },
+        { "name": "decimal", "level": "L1" },
+        { "name": "dictionary", "level": "L1" },
+        { "name": "duration", "level": "L1" },
+        { "name": "eval", "level": "L1" },
+        { "name": "float", "level": "L1" },
+        { "name": "function", "level": "L1" },
+        { "name": "int", "level": "L1" },
+        { "name": "label", "level": "L1" },
+        { "name": "module", "level": "L1" },
+        { "name": "none", "level": "L1" },
+        { "name": "panic", "level": "L1" },
+        { "name": "path", "level": "L1" },
+        { "name": "plugin", "level": "L1" },
+        { "name": "regex", "level": "L1" },
+        { "name": "repr", "level": "L1" },
+        { "name": "selector", "level": "L1" },
+        { "name": "std", "level": "L1" },
+        { "name": "str", "level": "L1" },
+        { "name": "symbol", "level": "L1" },
+        { "name": "sys", "level": "L1" },
+        { "name": "target", "level": "L1" },
+        { "name": "type", "level": "L1" },
+        { "name": "version", "level": "L1" }
+      ]
+    },
+    {
+      "name": "Model",
+      "items": [
+        { "name": "asset", "level": "L1" },
+        { "name": "bibliography", "level": "L1" },
+        { "name": "cite", "level": "L1" },
+        { "name": "divider", "level": "L1" },
+        { "name": "document", "level": "L2" },
+        { "name": "emph", "level": "L1" },
+        { "name": "enum", "level": "L1" },
+        { "name": "figure", "level": "L1" },
+        { "name": "footnote", "level": "L1" },
+        { "name": "heading", "level": "L1" },
+        { "name": "link", "level": "L1" },
+        { "name": "list", "level": "L1" },
+        { "name": "numbering", "level": "L2" },
+        { "name": "outline", "level": "L1" },
+        { "name": "par", "level": "L1" },
+        { "name": "parbreak", "level": "L1" },
+        { "name": "quote", "level": "L1" },
+        { "name": "ref", "level": "L1" },
+        { "name": "strong", "level": "L1" },
+        { "name": "table", "level": "L1" },
+        { "name": "terms", "level": "L1" },
+        { "name": "title", "level": "L2" }
+      ]
+    },
+    {
+      "name": "Text",
+      "items": [
+        { "name": "highlight", "level": "L1" },
+        { "name": "linebreak", "level": "L1" },
+        { "name": "lorem", "level": "L1" },
+        { "name": "lower", "level": "L1" },
+        { "name": "overline", "level": "L1" },
+        { "name": "raw", "level": "L1" },
+        { "name": "smallcaps", "level": "L1" },
+        { "name": "smartquote", "level": "L1" },
+        { "name": "strike", "level": "L1" },
+        { "name": "sub", "level": "L1" },
+        { "name": "super", "level": "L1" },
+        { "name": "text", "level": "L2" },
+        { "name": "underline", "level": "L1" },
+        { "name": "upper", "level": "L1" }
+      ]
+    },
+    {
+      "name": "Math",
+      "items": [
+        { "name": "accent", "level": "L1" },
+        { "name": "attach", "level": "L1" },
+        { "name": "binom", "level": "L1" },
+        { "name": "cancel", "level": "L1" },
+        { "name": "cases", "level": "L1" },
+        { "name": "class", "level": "L1" },
+        { "name": "equation", "level": "L1" },
+        { "name": "frac", "level": "L1" },
+        { "name": "lr", "level": "L1" },
+        { "name": "mat", "level": "L1" },
+        { "name": "math", "level": "L1" },
+        { "name": "op", "level": "L1" },
+        { "name": "primes", "level": "L1" },
+        { "name": "roots", "level": "L1" },
+        { "name": "sizes", "level": "L1" },
+        { "name": "stretch", "level": "L1" },
+        { "name": "styles", "level": "L1" },
+        { "name": "underover", "level": "L1" },
+        { "name": "variants", "level": "L1" },
+        { "name": "vec", "level": "L1" }
+      ]
+    },
+    {
+      "name": "Layout",
+      "items": [
+        { "name": "align", "level": "L1" },
+        { "name": "alignment", "level": "L1" },
+        { "name": "angle", "level": "L1" },
+        { "name": "block", "level": "L1" },
+        { "name": "box", "level": "L1" },
+        { "name": "colbreak", "level": "L1" },
+        { "name": "columns", "level": "L1" },
+        { "name": "direction", "level": "L1" },
+        { "name": "fraction", "level": "L1" },
+        { "name": "grid", "level": "L1" },
+        { "name": "h", "level": "L1" },
+        { "name": "hide", "level": "L1" },
+        { "name": "length", "level": "L1" },
+        { "name": "measure", "level": "L1" },
+        { "name": "move", "level": "L1" },
+        { "name": "pad", "level": "L1" },
+        { "name": "page", "level": "L2" },
+        { "name": "pagebreak", "level": "L1" },
+        { "name": "place", "level": "L1" },
+        { "name": "ratio", "level": "L1" },
+        { "name": "relative", "level": "L1" },
+        { "name": "repeat", "level": "L1" },
+        { "name": "rotate", "level": "L1" },
+        { "name": "scale", "level": "L1" },
+        { "name": "skew", "level": "L1" },
+        { "name": "stack", "level": "L1" },
+        { "name": "v", "level": "L1" }
+      ]
+    },
+    {
+      "name": "Visualize",
+      "items": [
+        { "name": "circle", "level": "L1" },
+        { "name": "color", "level": "L1" },
+        { "name": "curve", "level": "L1" },
+        { "name": "ellipse", "level": "L1" },
+        { "name": "gradient", "level": "L1" },
+        { "name": "image", "level": "L1" },
+        { "name": "line", "level": "L1" },
+        { "name": "polygon", "level": "L1" },
+        { "name": "rect", "level": "L1" },
+        { "name": "square", "level": "L1" },
+        { "name": "stroke", "level": "L1" },
+        { "name": "tiling", "level": "L1" }
+      ]
+    },
+    {
+      "name": "Introspection",
+      "items": [
+        { "name": "counter", "level": "L1" },
+        { "name": "here", "level": "L1" },
+        { "name": "locate", "level": "L1" },
+        { "name": "location", "level": "L1" },
+        { "name": "metadata", "level": "L1" },
+        { "name": "query", "level": "L1" },
+        { "name": "state", "level": "L1" }
+      ]
+    },
+    {
+      "name": "Symbols",
+      "items": [
+        { "name": "emoji", "level": "L1" },
+        { "name": "sym", "level": "L1" }
+      ]
+    },
+    {
+      "name": "Data loading",
+      "items": [
+        { "name": "cbor", "level": "L1" },
+        { "name": "csv", "level": "L1" },
+        { "name": "json", "level": "L1" },
+        { "name": "read", "level": "L1" },
+        { "name": "toml", "level": "L1" },
+        { "name": "xml", "level": "L1" },
+        { "name": "yaml", "level": "L1" }
+      ]
+    },
+    {
+      "name": "HTML",
+      "items": [
+        { "name": "elem", "level": "L1" },
+        { "name": "frame", "level": "L1" },
+        { "name": "typed", "level": "L1" }
+      ]
+    },
+    {
+      "name": "PDF",
+      "items": [
+        { "name": "artifact", "level": "L1" },
+        { "name": "attach", "level": "L1" },
+        { "name": "data-cell", "level": "L1" },
+        { "name": "header-cell", "level": "L1" },
+        { "name": "table-summary", "level": "L1" }
+      ]
+    },
+    {
+      "name": "Bundle",
+      "items": []
+    }
+  ]
+}

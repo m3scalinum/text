@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/m3scalinum/text/security/advisories/new
+    about: Report a vulnerability privately. Please do not open a public issue for it.
+  - name: Question or usage help
+    url: https://github.com/m3scalinum/text/wiki
+    about: The user guide is organised by package — compiling, templates, fonts, diagnostics, PDF signing and Factur-X.

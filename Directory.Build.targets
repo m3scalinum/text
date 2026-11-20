@@ -1,0 +1,41 @@
+<Project>
+
+  <PropertyGroup>
+    <BuildNative Condition="'$(BuildNative)' == ''">false</BuildNative>
+    <NativeProfile Condition="'$(NativeProfile)' == ''">release</NativeProfile>
+    <NativeRoot>$(MSBuildThisFileDirectory)native/sharp-typst</NativeRoot>
+    <NativeArtifactsDir Condition="'$(NativeArtifactsDir)' == ''">$(MSBuildThisFileDirectory)native/artifacts</NativeArtifactsDir>
+    <NativeTargetTriple Condition="'$(NativeTargetTriple)' == ''"></NativeTargetTriple>
+  </PropertyGroup>
+
+  <!--
+    Only the shipped packages owe XML documentation. Test, sample and benchmark projects are not
+    packed, so CS1591 is suppressed there rather than forcing docs on every test method.
+  -->
+  <PropertyGroup Condition="'$(IsPackable)' != 'true'">
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <!--
+    ApiCompat: a package must never change or lose a public API between releases. Without a
+    PackageValidationBaselineVersion this validates the multi-targeting itself — net8.0, net9.0 and
+    net10.0 must expose exactly the surface net11.0 does — which is the mistake a conditional
+    reference or an `#if` invites. Set PackageValidationBaselineVersion once a version is on
+    nuget.org, and a breaking change then fails `dotnet pack` instead of reaching a consumer.
+  -->
+  <PropertyGroup Condition="'$(IsPackable)' == 'true'">
+    <EnablePackageValidation>true</EnablePackageValidation>
+  </PropertyGroup>
+
+  <!--
+    The Rust crate is never built implicitly: a managed build must not depend on a Rust
+    toolchain. Set BuildNative=true (or run cargo yourself) to produce the native library.
+  -->
+  <Target Name="BuildNativeLibrary"
+          Condition="'$(BuildNative)' == 'true'"
+          BeforeTargets="BeforeBuild">
+    <Exec Command="cargo build --profile $(NativeProfile) --manifest-path &quot;$(NativeRoot)/Cargo.toml&quot;"
+          WorkingDirectory="$(NativeRoot)" />
+  </Target>
+
+</Project>

@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <PublishAot Condition="'$(PublishAot)' == ''">false</PublishAot>
+    <PackageId>M3scalinum.Text.SharpTypst.Samples</PackageId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Text.SharpTypst\Text.SharpTypst.csproj" />
+    <ProjectReference Include="..\..\src\Text.SharpTypst.Templates.Generator\Text.SharpTypst.Templates.Generator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AdditionalFiles Include="..\..\templates\**\template.toml" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\..\templates\**\*"
+             Link="templates\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

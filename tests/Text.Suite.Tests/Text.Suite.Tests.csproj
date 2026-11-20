@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <PackageId>M3scalinum.Text.Suite.Tests</PackageId>
+  </PropertyGroup>
+
+  <!--
+    The tests that judge the suite as a whole: the public surface across every package, and the
+    documentation that describes it. They live here rather than in Text.SharpTypst.Tests so that a
+    change to M3scalinum.Text.Pdf does not drag the compiler pipeline through six native builds, and
+    a change to the compiler does not skip the check on the suite's docs.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Text.SharpTypst\Text.SharpTypst.csproj" />
+    <ProjectReference Include="..\..\src\Text.SharpTypst.Native\Text.SharpTypst.Native.csproj" />
+    <ProjectReference Include="..\..\src\Text.SharpTypst.DependencyInjection\Text.SharpTypst.DependencyInjection.csproj" />
+    <ProjectReference Include="..\..\src\Text.Pdf\Text.Pdf.csproj" />
+    <ProjectReference Include="..\..\src\Text.Pdf.FactureX\Text.Pdf.FactureX.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" PrivateAssets="all" />
+  </ItemGroup>
+
+</Project>

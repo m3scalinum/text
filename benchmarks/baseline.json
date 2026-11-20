@@ -1,0 +1,39 @@
+{
+  "Scenarios": {
+    "compile-small": {
+      "MinMs": 2.97,
+      "MedianMs": 3.12,
+      "OpsPerSecond": 336.7
+    },
+    "compile-report": {
+      "MinMs": 3.283,
+      "MedianMs": 4.346,
+      "OpsPerSecond": 304.6
+    },
+    "export-pdf": {
+      "MinMs": 3.901,
+      "MedianMs": 4.107,
+      "OpsPerSecond": 256.4
+    },
+    "export-png": {
+      "MinMs": 9.27,
+      "MedianMs": 10.076,
+      "OpsPerSecond": 107.9
+    },
+    "export-html": {
+      "MinMs": 2.506,
+      "MedianMs": 2.664,
+      "OpsPerSecond": 399.1
+    },
+    "export-markdown": {
+      "MinMs": 2.683,
+      "MedianMs": 2.854,
+      "OpsPerSecond": 372.7
+    },
+    "document-model": {
+      "MinMs": 1.911,
+      "MedianMs": 2.123,
+      "OpsPerSecond": 523.4
+    }
+  }
+}

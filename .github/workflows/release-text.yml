@@ -1,0 +1,197 @@
+name: release (Text suite)
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish to NuGet.org
+        type: boolean
+        default: false
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+# Read-only by default; the publish job adds id-token: write for trusted publishing.
+permissions:
+  contents: read
+
+# Everything in the suite that does not embed the compiler: today M3scalinum.Text.Pdf and
+# M3scalinum.Text.Pdf.FactureX, tomorrow whatever else lands under M3scalinum.Text. These packages do
+# not version themselves after Typst, they follow TextVersion, so they need their own tag namespace
+# and their own workflow. No six-RID matrix here — nothing in this family ships a native asset.
+jobs:
+  pack:
+    name: pack
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 11.0.x
+      - run: dotnet restore
+      - name: Tests
+        run: |
+          dotnet build -c Release --no-restore
+          dotnet test tests/Text.Pdf.Tests -c Release --no-build
+          dotnet test tests/Text.Pdf.FactureX.Tests -c Release --no-build
+      - name: Check the release notes
+        # A tag without its changelog section would reach nuget.org and only then fail to describe
+        # what it published. Checked before anything is packed, so the run stops here instead.
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          python3 - "$GITHUB_REF_NAME" <<'PY'
+          import pathlib, re, sys
+
+          version = sys.argv[1].removeprefix("v")
+          text = pathlib.Path("CHANGELOG-Text.md").read_text(encoding="utf-8")
+          section = re.search(
+              rf"^## \[{re.escape(version)}\][^\n]*\n(.*?)(?=^## \[|\Z)", text, re.M | re.S
+          )
+          if not section or not section.group(1).strip():
+              sys.exit(f"CHANGELOG-Text.md has no '## [{version}]' section with content: write it before tagging")
+          PY
+      - name: Pack
+        run: |
+          # The tag is the version, in full: v0.51.2 publishes 0.51.2, and nothing derives the number
+          # from TextVersion. The compiler train needs a fourth component to count wrapper releases
+          # under a fixed Typst; this train has nothing to mirror, so it takes whatever tag it is
+          # given. A manual dispatch has no tag and packs the local default.
+          version_args=()
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+            if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+              echo "tag v$version must be three or four numeric components; prerelease tags are not handled yet" >&2
+              exit 1
+            fi
+            version_args=(-p:SuiteVersion="$version")
+          fi
+
+          # Facture-X renders through the compiler wrapper, and this train releases on its own
+          # schedule: it must name a core version that exists on NuGet rather than the one this
+          # checkout happens to build. Resolving it here also makes a re-run reproducible, since it
+          # pins the newest stable core at the moment the tag is pushed.
+          set -o pipefail
+          core="$(curl -sSf https://api.nuget.org/v3-flatcontainer/m3scalinum.text.sharptypst/index.json \
+            | python3 -c 'import json,sys; v=[x for x in json.load(sys.stdin)["versions"] if "-" not in x]; print(v[-1])')" \
+            || { echo "M3scalinum.Text.SharpTypst is not on nuget.org: publish the compiler train first" >&2; exit 1; }
+          if [[ -z "$core" ]]; then
+            echo "no stable M3scalinum.Text.SharpTypst on nuget.org: publish the compiler train first" >&2
+            exit 1
+          fi
+          echo "packing against M3scalinum.Text.SharpTypst $core"
+
+          dotnet restore src/Text.Pdf.FactureX -p:CoreVersion="$core"
+          dotnet pack src/Text.Pdf -c Release -o artifacts/packages "${version_args[@]}"
+          dotnet pack src/Text.Pdf.FactureX -c Release --no-restore \
+            -o artifacts/packages -p:CoreVersion="$core" "${version_args[@]}"
+      - name: Verify the packages
+        run: |
+          for package in artifacts/packages/*.nupkg; do
+            python3 tests/verify-package.py "$package"
+          done
+      - uses: actions/upload-artifact@v7
+        with:
+          name: packages
+          path: artifacts/packages/*
+
+  publish:
+    name: publish
+    needs: [pack]
+    # `inputs.publish` is the string "false" in this context, which is truthy; `github.event.inputs`
+    # is the string form and compares unambiguously.
+    if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.publish == 'true'
+    runs-on: ubuntu-latest
+    environment: nuget
+    # Trusted publishing: the job asks GitHub for an OIDC token, exchanges it on nuget.org for a
+    # temporary API key, and pushes with that. No long-lived secret is stored anywhere.
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: packages
+          path: artifacts/packages
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 11.0.x
+      - name: NuGet login (OIDC → temporary API key)
+        # The key lives one hour and the token is single-use, so this step sits right before the
+        # pushes. `user` is the nuget.org profile name, not the e-mail address.
+        uses: NuGet/login@v1
+        id: login
+        with:
+          user: m3scalinum
+      - name: Push
+        env:
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
+        run: |
+          for package in artifacts/packages/*.nupkg; do
+            dotnet nuget push "$package" \
+              --api-key "$NUGET_API_KEY" \
+              --source https://api.nuget.org/v3/index.json \
+              --skip-duplicate
+          done
+      - name: Push symbols
+        env:
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
+        run: |
+          for symbols in artifacts/packages/*.snupkg; do
+            [ -e "$symbols" ] || continue
+            dotnet nuget push "$symbols" \
+              --api-key "$NUGET_API_KEY" \
+              --source https://api.nuget.org/v3/index.json \
+              --skip-duplicate
+          done
+
+  release:
+    name: release
+    needs: [publish]
+    # Only a tag names a version; a dispatch has no page to create.
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    # The one job that writes to the repository: it creates the GitHub release page.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: packages
+          path: artifacts/packages
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="${TAG#v}"
+          # The body is this build's own CHANGELOG section, so the page and the file never disagree.
+          # This train has its own file: it releases on its own tags, with its own version.
+          python3 - "$version" > notes.md <<'PY'
+          import re, sys
+          version = sys.argv[1]
+          text = open("CHANGELOG-Text.md", encoding="utf-8").read()
+          match = re.search(rf"^## \[{re.escape(version)}\][^\n]*\n(.*?)(?=^## \[|\Z)", text, re.M | re.S)
+          body = match.group(1).strip() if match else ""
+          # A missing section used to fall back to a one-line page, which publishes a release with no
+          # notes and nobody notices. The changelog is not written by CI: renaming [Unreleased] to
+          # the version being tagged is part of preparing the release, so its absence is an error.
+          if not body:
+              sys.exit("CHANGELOG-Text.md has no '## [%s]' section with content: write the release entry before tagging" % version)
+          print(body)
+          PY
+          assets=()
+          for file in artifacts/packages/*.nupkg artifacts/packages/*.snupkg; do
+            if [ -e "$file" ]; then assets+=("$file"); fi
+          done
+          # A re-run must not go red because the page already exists: edit it and replace the assets.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --notes-file notes.md
+            gh release upload "$TAG" "${assets[@]}" --clobber
+          else
+            gh release create "$TAG" "${assets[@]}" \
+              --title "M3scalinum.Text $version" --notes-file notes.md --verify-tag
+          fi

@@ -1,0 +1,351 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Text.Json;
+using M3scalinum.Text.SharpTypst.Diagnostics;
+using M3scalinum.Text.SharpTypst.Export;
+using M3scalinum.Text.SharpTypst.Internal;
+using M3scalinum.Text.SharpTypst.Native;
+
+namespace M3scalinum.Text.SharpTypst.Compilation;
+
+/// <summary>
+/// A laid-out document. Exporting is repeatable and side-effect free; the document is
+/// already laid out, so a second export costs only the encoding.
+/// </summary>
+public sealed class CompilationResult : IDisposable
+{
+    private readonly ITypstNative _native;
+    private readonly TypstDocumentHandle _handle;
+    private bool _disposed;
+
+    internal CompilationResult(
+        ITypstNative native,
+        TypstDocumentHandle handle,
+        IReadOnlyList<TypstDiagnostic> diagnostics,
+        TypstDocumentKind kind)
+    {
+        _native = native;
+        _handle = handle;
+        Diagnostics = diagnostics;
+        Kind = kind;
+    }
+
+    /// <summary>Which layout pass produced this document.</summary>
+    public TypstDocumentKind Kind { get; }
+
+    /// <summary>Number of pages. Zero for an HTML document, which has no pages.</summary>
+    public int PageCount => _handle.PageCount;
+
+    /// <summary>Warnings and hints produced by a successful compilation.</summary>
+    public IReadOnlyList<TypstDiagnostic> Diagnostics { get; }
+
+    /// <summary>Exports the document with default options for the format.</summary>
+    public byte[] Export(ExportFormat format)
+        => ExportCore(format, page: null, ppi: null, pretty: null);
+
+    /// <summary>Exports one page, or all pages merged, as SVG.</summary>
+    public byte[] Export(ExportFormat format, SvgExportOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        return ExportCore(format, options.Page, ppi: null, options.Pretty);
+    }
+
+    /// <summary>Exports one page, or all pages merged, as PNG.</summary>
+    public byte[] Export(ExportFormat format, PngExportOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        return ExportCore(format, options.Page, options.Ppi, pretty: null);
+    }
+
+    /// <summary>Exports as HTML.</summary>
+    public byte[] Export(ExportFormat format, HtmlExportOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        return ExportCore(format, page: null, ppi: null, options.Pretty);
+    }
+
+    /// <summary>Exports to PDF.</summary>
+    public byte[] ExportPdf() => Export(ExportFormat.Pdf);
+
+    /// <summary>Exports to PDF with explicit options: standards, page ranges, metadata.</summary>
+    public byte[] ExportPdf(PdfExportOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        return ExportCore(ExportFormat.Pdf, page: null, ppi: null, pretty: null, pdf: options);
+    }
+
+    /// <summary>Writes the PDF into <paramref name="destination"/> without a full managed copy.</summary>
+    public void ExportPdf(Stream destination) => Export(ExportFormat.Pdf, destination);
+
+    /// <summary>
+    /// Writes the PDF into <paramref name="destination"/> with explicit options, without a full
+    /// managed copy.
+    /// </summary>
+    public void ExportPdf(Stream destination, PdfExportOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ExportToCore(destination, ExportFormat.Pdf, options);
+    }
+
+    /// <summary>
+    /// Exports into <paramref name="destination"/> as the bytes are produced, without
+    /// materialising the output in a managed array.
+    /// </summary>
+    /// <remarks>
+    /// The encoded document still exists once, contiguously, in native memory — Typst's writers
+    /// return a whole file. What this overload avoids is the second, managed copy of the same
+    /// size, so the peak allocation of a large export is halved. Use it to write an HTTP response
+    /// body or a file.
+    /// </remarks>
+    public void Export(ExportFormat format, Stream destination)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+        ExportToCore(destination, format, pdf: null);
+    }
+
+    /// <summary>Exports one page as SVG.</summary>
+    public byte[] ExportSvg(int page = 0)
+        => Export(ExportFormat.Svg, new SvgExportOptions { Page = page });
+
+    /// <summary>Exports every page into a single SVG, stacked vertically.</summary>
+    public byte[] ExportSvgMerged()
+        => ExportCore(ExportFormat.Svg, page: null, ppi: null, pretty: null, merged: true);
+
+    /// <summary>Exports one page as PNG.</summary>
+    public byte[] ExportPng(int page = 0, float ppi = 144f)
+        => Export(ExportFormat.Png, new PngExportOptions { Page = page, Ppi = ppi });
+
+    /// <summary>Exports every page into a single PNG, stacked vertically.</summary>
+    public byte[] ExportPngMerged(float ppi = 144f)
+        => ExportCore(ExportFormat.Png, page: null, ppi: ppi, pretty: null, merged: true);
+
+    /// <summary>Exports as an HTML string.</summary>
+    public string ExportHtmlString()
+        => Encoding.UTF8.GetString(Export(ExportFormat.Html, new HtmlExportOptions()));
+
+    /// <summary>Exports as Markdown, derived from the HTML document.</summary>
+    public string ExportMarkdown() => Encoding.UTF8.GetString(Export(ExportFormat.Markdown));
+
+    /// <summary>Exports as plain text, derived from the HTML document.</summary>
+    public string ExportText() => Encoding.UTF8.GetString(Export(ExportFormat.Text));
+
+    /// <summary>
+    /// Exports the files of a bundle. Requires a document compiled with
+    /// <see cref="TypstDocumentKind.Bundle"/>.
+    /// </summary>
+    public IReadOnlyList<BundleFile> ExportBundleFiles()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        string manifestJson;
+
+        try
+        {
+            manifestJson = Encoding.UTF8.GetString(_native.Export(_handle, "bundle", optionsJson: null));
+        }
+        catch (NativeCallException exception)
+        {
+            throw NativeErrorTranslator.Translate(exception);
+        }
+
+        var manifest = JsonSerializer.Deserialize(manifestJson, TypstJsonContext.Default.BundleManifestDto)
+            ?? new BundleManifestDto();
+
+        var count = manifest.Assets?.Count ?? 0;
+        var files = new List<BundleFile>(count);
+
+        for (var index = 0; index < count; index++)
+        {
+            var entry = manifest.Assets![index];
+
+            try
+            {
+                files.Add(new BundleFile(entry.Path ?? string.Empty, _native.BundleAsset(_handle, index)));
+            }
+            catch (NativeCallException exception)
+            {
+                throw NativeErrorTranslator.Translate(exception);
+            }
+        }
+
+        return files;
+    }
+
+    /// <summary>
+    /// Reads the document's outline, labels and metadata. Requires a document compiled with
+    /// <see cref="TypstDocumentKind.Paged"/>.
+    /// </summary>
+    public TypstEvaluation Evaluate()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        string json;
+
+        try
+        {
+            json = Encoding.UTF8.GetString(_native.Evaluate(_handle));
+        }
+        catch (NativeCallException exception)
+        {
+            throw NativeErrorTranslator.Translate(exception);
+        }
+
+        var dto = JsonSerializer.Deserialize(json, TypstJsonContext.Default.EvaluationDto)
+            ?? new EvaluationDto();
+
+        return new TypstEvaluation(dto);
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _handle.Dispose();
+    }
+
+    private byte[] ExportCore(
+        ExportFormat format,
+        int? page,
+        float? ppi,
+        bool? pretty,
+        bool merged = false,
+        PdfExportOptions? pdf = null)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        var nativeFormat = ToNativeFormat(format, merged);
+        var json = BuildExportOptionsJson(page, ppi, pretty, pdf);
+        var started = Stopwatch.GetTimestamp();
+        using var activity = TypstInstrumentation.StartExport(nativeFormat);
+        byte[]? bytes = null;
+        string? failure = null;
+
+        try
+        {
+            bytes = _native.Export(_handle, nativeFormat, json);
+            return bytes;
+        }
+        catch (NativeCallException exception)
+        {
+            failure = exception.Message;
+            throw NativeErrorTranslator.Translate(exception);
+        }
+        finally
+        {
+            TypstInstrumentation.RecordExport(activity, started, nativeFormat, bytes?.LongLength, failure);
+        }
+    }
+
+    private void ExportToCore(Stream destination, ExportFormat format, PdfExportOptions? pdf)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        var nativeFormat = ToNativeFormat(format, merged: false);
+        var json = BuildExportOptionsJson(page: null, ppi: null, pretty: null, pdf);
+        var position = destination.CanSeek ? destination.Position : 0L;
+        var started = Stopwatch.GetTimestamp();
+        using var activity = TypstInstrumentation.StartExport(nativeFormat);
+        long? written = null;
+        string? failure = null;
+
+        try
+        {
+            _native.ExportTo(_handle, nativeFormat, json, destination);
+            written = destination.CanSeek ? destination.Position - position : null;
+        }
+        catch (NativeCallException exception)
+        {
+            failure = exception.Message;
+            throw NativeErrorTranslator.Translate(exception);
+        }
+        finally
+        {
+            TypstInstrumentation.RecordExport(activity, started, nativeFormat, written, failure);
+        }
+    }
+
+    private static string BuildExportOptionsJson(
+        int? page,
+        float? ppi,
+        bool? pretty,
+        PdfExportOptions? pdf)
+    {
+        var dto = new ExportOptionsDto
+        {
+            Page = page,
+            Ppi = ppi,
+            Pretty = pretty,
+            Pdf = pdf is null ? null : ToPdfDto(pdf),
+        };
+
+        return JsonSerializer.Serialize(dto, TypstJsonContext.Default.ExportOptionsDto);
+    }
+
+    private static PdfOptionsDto ToPdfDto(PdfExportOptions options) => new()
+    {
+        Standards = options.Standards.Count == 0
+            ? null
+            : [.. options.Standards.Select(ToNativeStandard)],
+        PageRanges = options.PageRanges,
+        Tagged = options.Tagged,
+        Ident = options.Ident,
+        Creator = options.Creator,
+        Pretty = options.Pretty,
+        Timestamp = options.Timestamp is { } timestamp
+            ? new TimestampDto
+            {
+                Year = timestamp.Year,
+                Month = timestamp.Month,
+                Day = timestamp.Day,
+                Hour = timestamp.Hour,
+                Minute = timestamp.Minute,
+                Second = timestamp.Second,
+            }
+            : null,
+    };
+
+    private static string ToNativeStandard(PdfStandard standard) => standard switch
+    {
+        PdfStandard.Pdf14 => "1.4",
+        PdfStandard.Pdf15 => "1.5",
+        PdfStandard.Pdf16 => "1.6",
+        PdfStandard.Pdf17 => "1.7",
+        PdfStandard.Pdf20 => "2.0",
+        PdfStandard.PdfA1b => "a-1b",
+        PdfStandard.PdfA1a => "a-1a",
+        PdfStandard.PdfA2b => "a-2b",
+        PdfStandard.PdfA2u => "a-2u",
+        PdfStandard.PdfA2a => "a-2a",
+        PdfStandard.PdfA3b => "a-3b",
+        PdfStandard.PdfA3u => "a-3u",
+        PdfStandard.PdfA3a => "a-3a",
+        PdfStandard.PdfA4 => "a-4",
+        PdfStandard.PdfA4f => "a-4f",
+        PdfStandard.PdfA4e => "a-4e",
+        PdfStandard.PdfUa1 => "ua-1",
+        _ => throw new ArgumentOutOfRangeException(nameof(standard), standard, "unknown PDF standard"),
+    };
+
+    private static string ToNativeFormat(ExportFormat format, bool merged) => (format, merged) switch
+    {
+        (ExportFormat.Svg, true) => "svg-merged",
+        (ExportFormat.Png, true) => "png-merged",
+        (ExportFormat.Pdf, _) => "pdf",
+        (ExportFormat.Svg, _) => "svg",
+        (ExportFormat.Png, _) => "png",
+        (ExportFormat.Html, _) => "html",
+        (ExportFormat.Markdown, _) => "markdown",
+        (ExportFormat.Text, _) => "text",
+        _ => throw new ArgumentOutOfRangeException(nameof(format), format, "unknown export format"),
+    };
+}

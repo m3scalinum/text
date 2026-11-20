@@ -1,0 +1,29 @@
+## Build outputs
+bin/
+obj/
+artifacts/
+*.user
+*.suo
+
+## Native build
+native/sharp-typst/target/
+native/artifacts/
+
+## Tooling
+.vs/
+.vscode/
+.idea/
+*.DotSettings.user
+
+## Test & coverage
+TestResults/
+*.coverage
+*.trx
+
+## OS
+.DS_Store
+Thumbs.db
+
+## Local only
+# Working notes on why the project exists; not part of the published specification set.
+docs/specifications/idea.md

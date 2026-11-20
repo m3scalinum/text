@@ -1,0 +1,30 @@
+**M3scalinum.Text**
+
+- [Home](Home)
+
+**SharpTypst** — compile Typst in-process
+
+- [Getting Started](SharpTypst-Getting-Started)
+- [Compiling](SharpTypst-Compiling)
+- [Document Model](SharpTypst-Document-Model)
+- [Templates](SharpTypst-Templates)
+- [Diagnostics](SharpTypst-Diagnostics)
+- [Packages and Fonts](SharpTypst-Packages-and-Fonts)
+- [Dependency Injection](SharpTypst-Dependency-Injection)
+- [Performance](SharpTypst-Performance)
+- [Troubleshooting](SharpTypst-Troubleshooting)
+- [Building from Source](SharpTypst-Building-from-Source)
+
+**Pdf** — sign a document
+
+- [Getting Started](Pdf-Getting-Started)
+- [Signing](Pdf-Signing)
+
+**FactureX** — build and read an e-invoice
+
+- [Getting Started](FactureX-Getting-Started)
+- [The invoice model](FactureX-Model)
+- [Rendering](FactureX-Rendering)
+- [Reading](FactureX-Reading)
+- [Validation](FactureX-Validation)
+- [The French profile](FactureX-French-Profile)
