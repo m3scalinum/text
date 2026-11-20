@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!--
+      This package follows the suite, not the compiler: see Directory.Build.props.
+      The release tag is the version, so a release passes -p:SuiteVersion=<tag>; nothing here derives
+      the number from anything else. A local build has no tag, so it falls back to TextVersion, which
+      is bumped to the last released version to keep an untagged build from claiming an older one.
+    -->
+    <SuiteVersion Condition="'$(SuiteVersion)' == ''">$(TextVersion)</SuiteVersion>
+    <Version>$(SuiteVersion)</Version>
+    <AssemblyVersion>$(SuiteVersion)</AssemblyVersion>
+    <FileVersion>$(SuiteVersion)</FileVersion>
+    <InformationalVersion>$(Version)</InformationalVersion>
+    <TargetFrameworks>net8.0;net9.0;net10.0;net11.0</TargetFrameworks>
+    <!-- Clears the single-TFM default Directory.Build.props sets, as the other multi-targeted
+         projects do; without it only net11.0 is built and pack fails on the missing assemblies. -->
+    <TargetFramework />
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <PackageId>M3scalinum.Text.Pdf</PackageId>
+    <Description>Sign a PDF with PAdES, and post-process the documents M3scalinum.Text.SharpTypst produces.</Description>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+
+    <PkcsVersion Condition="'$(TargetFramework)' == 'net8.0'">8.0.2</PkcsVersion>
+    <PkcsVersion Condition="'$(TargetFramework)' == 'net9.0'">9.0.23</PkcsVersion>
+    <PkcsVersion Condition="'$(TargetFramework)' == 'net10.0'">10.0.15</PkcsVersion>
+    <PkcsVersion Condition="'$(TargetFramework)' == 'net11.0'">11.0.0</PkcsVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Sized to the runtime, like the Microsoft.Extensions.* packages of the DI package. -->
+    <PackageReference Include="System.Security.Cryptography.Pkcs" VersionOverride="$(PkcsVersion)" />
+    <PackageReference Include="System.IO.Hashing" VersionOverride="8.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+</Project>

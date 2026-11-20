@@ -1,0 +1,31 @@
+version: 2
+
+updates:
+  - package-ecosystem: nuget
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      microsoft:
+        patterns:
+          - "Microsoft.*"
+          - "System.*"
+
+  - package-ecosystem: cargo
+    directory: "/native/sharp-typst"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    # The typst crates are pinned to the compiler version the package advertises: bumping one of
+    # them is a release, not a dependency update.
+    ignore:
+      - dependency-name: "typst*"
+      - dependency-name: "ecow"
+      - dependency-name: "comemo"
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

@@ -1,0 +1,10 @@
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.pdf binary
+*.ttf binary
+*.otf binary
+*.dll binary
+*.so binary
+*.dylib binary

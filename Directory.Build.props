@@ -1,0 +1,83 @@
+<Project>
+
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <AssemblyName>M3scalinum.$(MSBuildProjectName)</AssemblyName>
+    <Name>M3scalinum.$(MSBuildProjectName)</Name>
+    <RootNamespace Condition=" '$(RootNamespace)' == '' ">M3scalinum.$(MSBuildProjectName)</RootNamespace>
+
+    <!-- Quality gates -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn)</NoWarn>
+
+    <!-- Reproducibility -->
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+    <PathMap>$(MSBuildThisFileDirectory)=/_/</PathMap>
+
+    <!-- Packaging defaults; projects opt in with IsPackable -->
+    <IsPackable>false</IsPackable>
+    <Authors>m3scalinum</Authors>
+    <Company>m3scalinum</Company>
+    <Product>M3scalinum.Text.SharpTypst</Product>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RepositoryType>git</RepositoryType>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+
+    <!--
+      Versioning: the package version tracks the embedded Typst compiler, so a consumer can tell
+      which Typst a package carries from its version alone. 0.15.1.<revision>, where the revision
+      is the CI run number and 0 locally.
+
+      AssemblyVersion stays on the Typst version: a rebuild must not change the identity of the
+      assembly, or every consumer would need a binding redirect for a patch-level change.
+    -->
+    <TypstVersion>0.15.1</TypstVersion>
+    <BuildRevision Condition="'$(BuildRevision)' == ''">0</BuildRevision>
+    <Version>$(TypstVersion).$(BuildRevision)</Version>
+    <AssemblyVersion>$(TypstVersion).0</AssemblyVersion>
+    <FileVersion>$(TypstVersion).$(BuildRevision)</FileVersion>
+    <InformationalVersion>$(Version) (Typst $(TypstVersion))</InformationalVersion>
+
+    <!--
+      The packages that do not wrap the compiler have nothing to do with Typst 0.15.1: a signing fix
+      published as 0.15.1.43 would read as a compiler release, and would jump to 0.16.0 the day the
+      compiler does. M3scalinum.Text.Pdf and M3scalinum.Text.Pdf.FactureX override the four properties
+      above with SuiteVersion, which their release sets from the tag — the tag is the version.
+      This value is only what an untagged build claims: a local pack, or the pack job of ci-text.yml.
+      Bump it to the last released version so a local build never looks older than what shipped.
+    -->
+    <TextVersion>0.1.0</TextVersion>
+
+    <IsTestProject Condition="$(MSBuildProjectName.EndsWith('.Tests'))">true</IsTestProject>
+    <IsTestProject Condition="'$(IsTestProject)' == ''">false</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(IsTestProject)' == 'true'">
+    <PackageReference Include="xunit.v3"/>
+  </ItemGroup>
+
+  <!-- Test names are sentences with underscores; constant arrays in assertions are fine. -->
+  <PropertyGroup Condition="'$(IsTestProject)' == 'true'">
+    <NoWarn>$(NoWarn);CA1707;CA1861</NoWarn>
+    <!-- xunit.v3 is a Microsoft.Testing.Platform runner: an executable, not a VSTest library. -->
+    <OutputType>Exe</OutputType>
+    <IsTestingPlatformApplication>true</IsTestingPlatformApplication>
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(IsPackable)' == 'true'">
+    <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="all"/>
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,354 @@
+name: release (SharpTypst)
+
+on:
+  push:
+    tags: ['sharptypst-v*']
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish to NuGet.org
+        type: boolean
+        default: false
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+# Read-only by default; the publish job adds id-token: write for trusted publishing.
+permissions:
+  contents: read
+
+
+jobs:
+  native:
+    name: native (${{ matrix.rid }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+            lib: sharp_typst.dll
+            target: ""
+          - os: windows-11-arm
+            rid: win-arm64
+            lib: sharp_typst.dll
+            target: ""
+          - os: ubuntu-latest
+            rid: linux-x64
+            lib: libsharp_typst.so
+            target: ""
+          - os: ubuntu-24.04-arm
+            rid: linux-arm64
+            lib: libsharp_typst.so
+            target: ""
+          # Alpine and musl-based container images cannot load the glibc build, and NuGet's RID
+          # graph resolves linux-musl-x64 to linux-x64 without a word. This entry is what makes the
+          # package usable in the default .NET container image.
+          - os: ubuntu-latest
+            rid: linux-musl-x64
+            lib: libsharp_typst.so
+            target: x86_64-unknown-linux-musl
+          # The universal dylib cross-compiles from either macOS host: rustup adds the other target
+          # and lipo joins both slices. Building on the Intel pool keeps the release off the arm64
+          # macOS queue, which GitHub throttles hard enough to drop jobs before a runner is assigned.
+          - os: macos-15-intel
+            rid: osx
+            lib: libsharp_typst.dylib
+            target: ""
+    env:
+      # Empty for a host build; `--target <triple>` for the musl entry.
+      CRT_TARGET: ${{ matrix.target != '' && format('--target {0}', matrix.target) || '' }}
+      # musl-gcc comes from musl-tools: the default cc would link a glibc binary that Alpine
+      # cannot load. OpenSSL is vendored for this target in Cargo.toml, so no libssl is needed.
+      RUSTFLAGS: ${{ matrix.target != '' && '-C linker=musl-gcc' || '' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native/sharp-typst
+      - name: Install the musl toolchain
+        if: matrix.target != ''
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+          rustup target add ${{ matrix.target }}
+      - name: Format
+        run: cargo fmt --check --manifest-path native/sharp-typst/Cargo.toml
+      - name: Lint
+        run: cargo clippy $CRT_TARGET --manifest-path native/sharp-typst/Cargo.toml --all-targets -- -D warnings
+      - name: Test
+        run: cargo test $CRT_TARGET --manifest-path native/sharp-typst/Cargo.toml
+      - name: Build
+        if: matrix.rid != 'osx' && matrix.target == ''
+        run: cargo build --release --manifest-path native/sharp-typst/Cargo.toml
+      - name: Build (musl)
+        if: matrix.target != ''
+        run: |
+          # Rust cannot emit a cdylib for a musl target: it drops the crate type with a warning and
+          # produces only the staticlib. Link that into a shared object, forcing every tn_* entry
+          # point to be kept, then strip it (75 MB instead of 90).
+          cargo build --release $CRT_TARGET --manifest-path native/sharp-typst/Cargo.toml
+          archive="native/sharp-typst/target/${{ matrix.target }}/release/libsharp_typst.a"
+          symbols=$(nm -g --defined-only "$archive" | awk '$2=="T" && $3 ~ /^tn_/ {print "-Wl,-u,"$3}')
+          musl-gcc -shared -o native/sharp-typst/target/release/libsharp_typst.so \
+            $symbols "$archive" -lpthread -ldl -lm
+          strip --strip-all native/sharp-typst/target/release/libsharp_typst.so
+          ls -la native/sharp-typst/target/release/libsharp_typst.so
+      - name: Build (universal)
+        if: matrix.rid == 'osx'
+        run: |
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          cargo build --release --manifest-path native/sharp-typst/Cargo.toml --target aarch64-apple-darwin
+          cargo build --release --manifest-path native/sharp-typst/Cargo.toml --target x86_64-apple-darwin
+          mkdir -p native/sharp-typst/target/release
+          lipo -create \
+            native/sharp-typst/target/aarch64-apple-darwin/release/libsharp_typst.dylib \
+            native/sharp-typst/target/x86_64-apple-darwin/release/libsharp_typst.dylib \
+            -output native/sharp-typst/target/release/libsharp_typst.dylib
+          lipo -info native/sharp-typst/target/release/libsharp_typst.dylib
+      - uses: actions/upload-artifact@v7
+        with:
+          name: native-${{ matrix.rid }}
+          path: native/sharp-typst/target/release/${{ matrix.lib }}
+          if-no-files-found: error
+
+  pack:
+    name: pack
+    needs: [native]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 11.0.x
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: native-*
+          path: native/artifacts
+      - name: Lay out the natives
+        run: |
+          for dir in native/artifacts/native-*; do
+            rid="${dir##*/native-}"
+            mkdir -p "native/artifacts/$rid"
+            cp -r "$dir"/* "native/artifacts/$rid/"
+          done
+      - run: dotnet restore
+      - name: Check the release notes
+        # A tag without its changelog section would reach nuget.org and only then fail to describe
+        # what it published. Checked before anything is packed, so the run stops here instead.
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          python3 - "$GITHUB_REF_NAME" <<'PY'
+          import pathlib, re, sys
+
+          version = sys.argv[1].removeprefix("sharptypst-v")
+          text = pathlib.Path("CHANGELOG-SharpTypst.md").read_text(encoding="utf-8")
+          section = re.search(
+              rf"^## \[{re.escape(version)}\][^\n]*\n(.*?)(?=^## \[|\Z)", text, re.M | re.S
+          )
+          if not section or not section.group(1).strip():
+              sys.exit(f"CHANGELOG-SharpTypst.md has no '## [{version}]' section with content: write it before tagging")
+          PY
+      - name: Pack
+        run: |
+          # The tag carries the Typst version and the build revision (sharptypst-v0.15.1.4): this package
+          # family versions itself after the compiler it embeds, and the fourth component counts
+          # wrapper releases for a given compiler. A manual dispatch has no tag, so it falls back
+          # to the run number.
+          typst="$(grep -oP '(?<=<TypstVersion>)[^<]+' Directory.Build.props)"
+          revision="${{ github.run_number }}"
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            version="${GITHUB_REF_NAME#sharptypst-v}"
+            if [[ "$version" != "$typst".* ]]; then
+              echo "tag sharptypst-v$version does not start with TypstVersion $typst" >&2
+              exit 1
+            fi
+            revision="${version#"$typst".}"
+            if ! [[ "$revision" =~ ^[0-9]+$ ]]; then
+              echo "tag sharptypst-v$version: build revision '$revision' is not a number" >&2
+              exit 1
+            fi
+          fi
+          dotnet pack src/Text.SharpTypst -c Release -o artifacts/packages -p:BuildRevision="$revision"
+          dotnet pack src/Text.SharpTypst.DependencyInjection -c Release -o artifacts/packages -p:BuildRevision="$revision"
+          dotnet pack src/Text.SharpTypst.Templates.Generator -c Release -o artifacts/packages -p:BuildRevision="$revision"
+      - name: Verify the packages
+        # Never publish a package with no runtimes/ entry or a dependency on M3scalinum.Text.SharpTypst.Native.
+        run: |
+          for package in artifacts/packages/*.nupkg; do
+            python3 tests/verify-package.py "$package"
+          done
+      - uses: actions/upload-artifact@v7
+        with:
+          name: packages
+          path: artifacts/packages/*
+
+  test:
+    name: test
+    needs: [native]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 11.0.x
+      - uses: actions/download-artifact@v8
+        with:
+          name: native-linux-x64
+          path: native/artifacts/linux-x64
+      - run: dotnet restore
+      - run: dotnet build -c Release --no-restore
+      - name: Unit tests
+        run: dotnet test tests/Text.SharpTypst.Tests -c Release --no-build
+      - name: Factur-X tests
+        run: dotnet test tests/Text.Pdf.FactureX.Tests -c Release --no-build
+      - name: Generator tests
+        run: dotnet test tests/Text.SharpTypst.Templates.Generator.Tests -c Release --no-build
+      - name: Integration tests
+        env:
+          SHARPTYPST_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/linux-x64/libsharp_typst.so
+        run: dotnet test tests/Text.SharpTypst.Integration.Tests -c Release --no-build
+      - name: Factur-X conformance
+        # A release is where a claim becomes a promise: the embedded XML is validated against the
+        # official schema with the FNFE-MPE reference library before anything is pushed.
+        env:
+          SHARPTYPST_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/linux-x64/libsharp_typst.so
+        run: |
+          dotnet run --project samples/Text.Pdf.FactureX.Samples -c Release --no-build
+          python3 -m venv .venv-facturx
+          .venv-facturx/bin/pip install --quiet factur-x lxml
+          .venv-facturx/bin/python - <<'PY'
+          import glob
+          import io
+
+          from facturx import get_facturx_level, get_xml_from_pdf, xml_check_xsd
+          from lxml import etree
+
+          failures = []
+
+          for path in sorted(glob.glob("artifacts/samples/factur-x-*.pdf")):
+              result = get_xml_from_pdf(io.BytesIO(open(path, "rb").read()), check_xsd=False)
+
+              if not (isinstance(result, tuple) and isinstance(result[1], (bytes, bytearray))):
+                  failures.append(f"{path}: no Factur-X attachment found")
+                  continue
+
+              name, xml = result
+              level = get_facturx_level(etree.fromstring(xml))
+
+              try:
+                  xml_check_xsd(xml, level)
+              except Exception as error:
+                  failures.append(f"{path}: {error}")
+                  continue
+
+              print(f"{path}: {name}, {len(xml)} bytes, {level}, XSD ok")
+
+          if failures:
+              print("\n".join(failures))
+              raise SystemExit(1)
+          PY
+
+  publish:
+    name: publish
+    needs: [pack, test]
+    # `inputs.publish` is the string "false" in this context, which is truthy; `github.event.inputs`
+    # is the string form and compares unambiguously.
+    if: startsWith(github.ref, 'refs/tags/sharptypst-v') || github.event.inputs.publish == 'true'
+    runs-on: ubuntu-latest
+    environment: nuget
+    # Trusted publishing: the job asks GitHub for an OIDC token, exchanges it on nuget.org for a
+    # temporary API key, and pushes with that. No long-lived secret is stored anywhere.
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: packages
+          path: artifacts/packages
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 11.0.x
+      - name: NuGet login (OIDC → temporary API key)
+        # The key lives one hour and the token is single-use, so this step sits right before the
+        # pushes. `user` is the nuget.org profile name, not the e-mail address.
+        uses: NuGet/login@v1
+        id: login
+        with:
+          user: m3scalinum
+      - name: Push
+        env:
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
+        run: |
+          for package in artifacts/packages/*.nupkg; do
+            dotnet nuget push "$package" \
+              --api-key "$NUGET_API_KEY" \
+              --source https://api.nuget.org/v3/index.json \
+              --skip-duplicate
+          done
+      - name: Push symbols
+        env:
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
+        run: |
+          for symbols in artifacts/packages/*.snupkg; do
+            [ -e "$symbols" ] || continue
+            dotnet nuget push "$symbols" \
+              --api-key "$NUGET_API_KEY" \
+              --source https://api.nuget.org/v3/index.json \
+              --skip-duplicate
+          done
+
+  release:
+    name: release
+    needs: [publish]
+    # Only a tag names a version; a dispatch has no page to create.
+    if: startsWith(github.ref, 'refs/tags/sharptypst-v')
+    runs-on: ubuntu-latest
+    # The one job that writes to the repository: it creates the GitHub release page.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: packages
+          path: artifacts/packages
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="${TAG#sharptypst-v}"
+          # The body is this build's own CHANGELOG section, so the page and the file never disagree.
+          python3 - "$version" > notes.md <<'PY'
+          import re, sys
+          version = sys.argv[1]
+          text = open("CHANGELOG-SharpTypst.md", encoding="utf-8").read()
+          match = re.search(rf"^## \[{re.escape(version)}\][^\n]*\n(.*?)(?=^## \[|\Z)", text, re.M | re.S)
+          body = match.group(1).strip() if match else ""
+          # A missing section used to fall back to a one-line page, which publishes a release with no
+          # notes and nobody notices. The changelog is not written by CI: renaming [Unreleased] to
+          # the version being tagged is part of preparing the release, so its absence is an error.
+          if not body:
+              sys.exit("CHANGELOG-SharpTypst.md has no '## [%s]' section with content: write the release entry before tagging" % version)
+          print(body)
+          PY
+          # The generator package ships no symbols, so the snupkg list is built rather than globbed.
+          assets=()
+          for file in artifacts/packages/*.nupkg artifacts/packages/*.snupkg; do
+            if [ -e "$file" ]; then assets+=("$file"); fi
+          done
+          # A re-run must not go red because the page already exists: edit it and replace the assets.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --notes-file notes.md
+            gh release upload "$TAG" "${assets[@]}" --clobber
+          else
+            gh release create "$TAG" "${assets[@]}" \
+              --title "M3scalinum.Text.SharpTypst $version" --notes-file notes.md --verify-tag
+          fi

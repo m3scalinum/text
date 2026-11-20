@@ -1,0 +1,376 @@
+name: ci (SharpTypst)
+
+on:
+  push:
+    branches: [main]
+    # This workflow is the expensive one: six native builds, AOT, benchmarks, a leak soak. Nothing it
+    # runs reads the suite packages or the documentation — the public surface and the drift checks
+    # live in tests/Text.Suite.Tests, which ci-text.yml runs — so a change confined to those paths
+    # does not start it.
+    paths-ignore:
+      - 'CHANGELOG*.md'
+      - 'CONTRIBUTING.md'
+      - 'CODE_OF_CONDUCT.md'
+      - 'SECURITY.md'
+      - 'LICENSE'
+      - 'NOTICE'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/PULL_REQUEST_TEMPLATE.md'
+      - 'src/Text.Pdf*/**'
+      - 'tests/Text.Pdf*/**'
+      - 'samples/Text.Pdf*/**'
+      - 'tests/Text.Suite.Tests/**'
+      - 'docs/**'
+      - 'wiki/**'
+      - 'README.md'
+  pull_request:
+    # This workflow is the expensive one: six native builds, AOT, benchmarks, a leak soak. Nothing it
+    # runs reads the suite packages or the documentation — the public surface and the drift checks
+    # live in tests/Text.Suite.Tests, which ci-text.yml runs — so a change confined to those paths
+    # does not start it.
+    paths-ignore:
+      - 'CHANGELOG*.md'
+      - 'CONTRIBUTING.md'
+      - 'CODE_OF_CONDUCT.md'
+      - 'SECURITY.md'
+      - 'LICENSE'
+      - 'NOTICE'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/PULL_REQUEST_TEMPLATE.md'
+      - 'src/Text.Pdf*/**'
+      - 'tests/Text.Pdf*/**'
+      - 'samples/Text.Pdf*/**'
+      - 'tests/Text.Suite.Tests/**'
+      - 'docs/**'
+      - 'wiki/**'
+      - 'README.md'
+  workflow_dispatch:
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+# Read-only by default: no job here writes to the repository. The publish job of release-sharptypst.yml
+# overrides this with the OIDC permission it needs.
+permissions:
+  contents: read
+
+
+jobs:
+  native:
+    name: native (${{ matrix.rid }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+            lib: sharp_typst.dll
+            target: ""
+          - os: windows-11-arm
+            rid: win-arm64
+            lib: sharp_typst.dll
+            target: ""
+          - os: ubuntu-latest
+            rid: linux-x64
+            lib: libsharp_typst.so
+            target: ""
+          - os: ubuntu-24.04-arm
+            rid: linux-arm64
+            lib: libsharp_typst.so
+            target: ""
+          # Alpine and musl-based container images cannot load the glibc build, and NuGet's RID
+          # graph resolves linux-musl-x64 to linux-x64 without a word. This entry is what makes the
+          # package usable in the default .NET container image.
+          - os: ubuntu-latest
+            rid: linux-musl-x64
+            lib: libsharp_typst.so
+            target: x86_64-unknown-linux-musl
+          # The universal dylib cross-compiles from either macOS host: rustup adds the other target
+          # and lipo joins both slices. Building on the Intel pool keeps CI off the arm64 macOS
+          # queue, which GitHub throttles hard enough to drop jobs before a runner is assigned.
+          - os: macos-15-intel
+            rid: osx
+            lib: libsharp_typst.dylib
+            target: ""
+    env:
+      # Empty for a host build; `--target <triple>` for the musl entry.
+      CRT_TARGET: ${{ matrix.target != '' && format('--target {0}', matrix.target) || '' }}
+      # musl-gcc comes from musl-tools: the default cc would link a glibc binary that Alpine
+      # cannot load. OpenSSL is vendored for this target in Cargo.toml, so no libssl is needed.
+      RUSTFLAGS: ${{ matrix.target != '' && '-C linker=musl-gcc' || '' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native/sharp-typst
+      - name: Install the musl toolchain
+        if: matrix.target != ''
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+          rustup target add ${{ matrix.target }}
+      - name: Format
+        run: cargo fmt --check --manifest-path native/sharp-typst/Cargo.toml
+      - name: Lint
+        run: cargo clippy $CRT_TARGET --manifest-path native/sharp-typst/Cargo.toml --all-targets -- -D warnings
+      - name: Test
+        run: cargo test $CRT_TARGET --manifest-path native/sharp-typst/Cargo.toml
+      - name: Build
+        if: matrix.rid != 'osx' && matrix.target == ''
+        run: cargo build --release --manifest-path native/sharp-typst/Cargo.toml
+      - name: Build (musl)
+        if: matrix.target != ''
+        run: |
+          # Rust cannot emit a cdylib for a musl target: it drops the crate type with a warning and
+          # produces only the staticlib. Link that into a shared object, forcing every tn_* entry
+          # point to be kept, then strip it (75 MB instead of 90).
+          cargo build --release $CRT_TARGET --manifest-path native/sharp-typst/Cargo.toml
+          archive="native/sharp-typst/target/${{ matrix.target }}/release/libsharp_typst.a"
+          symbols=$(nm -g --defined-only "$archive" | awk '$2=="T" && $3 ~ /^tn_/ {print "-Wl,-u,"$3}')
+          musl-gcc -shared -o native/sharp-typst/target/release/libsharp_typst.so \
+            $symbols "$archive" -lpthread -ldl -lm
+          strip --strip-all native/sharp-typst/target/release/libsharp_typst.so
+          ls -la native/sharp-typst/target/release/libsharp_typst.so
+      - name: Build (universal)
+        if: matrix.rid == 'osx'
+        run: |
+          # One dylib for both architectures: .NET falls back from osx-arm64 and osx-x64 to osx.
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          cargo build --release --manifest-path native/sharp-typst/Cargo.toml --target aarch64-apple-darwin
+          cargo build --release --manifest-path native/sharp-typst/Cargo.toml --target x86_64-apple-darwin
+          mkdir -p native/sharp-typst/target/release
+          lipo -create \
+            native/sharp-typst/target/aarch64-apple-darwin/release/libsharp_typst.dylib \
+            native/sharp-typst/target/x86_64-apple-darwin/release/libsharp_typst.dylib \
+            -output native/sharp-typst/target/release/libsharp_typst.dylib
+          lipo -info native/sharp-typst/target/release/libsharp_typst.dylib
+      - uses: actions/upload-artifact@v7
+        with:
+          name: native-${{ matrix.rid }}
+          path: native/sharp-typst/target/release/${{ matrix.lib }}
+          if-no-files-found: error
+
+  managed:
+    name: managed (unit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 11.0.x
+      - run: dotnet restore
+      - run: dotnet build -c Release --no-restore -p:BuildRevision=${{ github.run_number }}
+      - run: dotnet test tests/Text.SharpTypst.Tests -c Release --no-build
+
+  integration:
+    name: integration (${{ matrix.rid }})
+    needs: [native]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+            lib: sharp_typst.dll
+            target: ""
+          - os: windows-11-arm
+            rid: win-arm64
+            lib: sharp_typst.dll
+            target: ""
+          - os: ubuntu-latest
+            rid: linux-x64
+            lib: libsharp_typst.so
+          - os: ubuntu-24.04-arm
+            rid: linux-arm64
+            lib: libsharp_typst.so
+          # The dylib is universal, so the tests run on the Intel pool: it validates the x86_64
+          # slice, and it avoids the arm64 macOS queue, which GitHub throttles hard enough that the
+          # job is regularly dropped before a runner is ever assigned.
+          - os: macos-15-intel
+            rid: osx
+            lib: libsharp_typst.dylib
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 11.0.x
+      - uses: actions/download-artifact@v8
+        with:
+          name: native-${{ matrix.rid }}
+          path: native/artifacts/${{ matrix.rid }}
+      - run: dotnet restore
+      - run: dotnet build -c Release --no-restore
+      - name: Test against the real compiler
+        env:
+          SHARPTYPST_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/${{ matrix.rid }}/${{ matrix.lib }}
+        run: dotnet test tests/Text.SharpTypst.Integration.Tests -c Release --no-build
+
+  musl:
+    name: integration (linux-musl-x64)
+    needs: [native]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 11.0.x
+      - uses: actions/download-artifact@v8
+        with:
+          name: native-linux-musl-x64
+          path: native/artifacts/linux-musl-x64
+      - run: dotnet restore
+      - name: Publish the sample for musl
+        run: >
+          dotnet publish samples/Text.SharpTypst.Samples -c Release -r linux-musl-x64 --self-contained
+          -o artifacts/musl
+      - name: Run it on Alpine
+        # The glibc build loads on the Ubuntu runner and fails here, which is exactly the failure
+        # this job exists to catch: a musl container is the default .NET deployment target.
+        run: |
+          cp native/artifacts/linux-musl-x64/libsharp_typst.so artifacts/musl/
+          docker run --rm -v "$PWD/artifacts/musl:/app" -w /app \
+            -e SHARPTYPST_NATIVE_PATH=/app/libsharp_typst.so \
+            mcr.microsoft.com/dotnet/runtime-deps:11.0-alpine ./M3scalinum.Text.SharpTypst.Samples
+
+  aot:
+    name: native aot publish
+    needs: [native]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 11.0.x
+      - uses: actions/download-artifact@v8
+        with:
+          name: native-linux-x64
+          path: native/artifacts/linux-x64
+      - run: dotnet restore
+      - name: Publish the sample as Native AOT
+        run: dotnet publish samples/Text.SharpTypst.Samples -c Release -r linux-x64 -p:PublishAot=true -o artifacts/aot
+      - name: Run it
+        env:
+          SHARPTYPST_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/linux-x64/libsharp_typst.so
+        run: ./artifacts/aot/M3scalinum.Text.SharpTypst.Samples
+
+  benchmarks:
+    name: benchmarks
+    needs: [native]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 11.0.x
+      - uses: actions/download-artifact@v8
+        with:
+          name: native-linux-x64
+          path: native/artifacts/linux-x64
+      - run: dotnet restore
+      - run: dotnet build -c Release --no-restore
+      - name: Compare against the stored baseline
+        env:
+          SHARPTYPST_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/linux-x64/libsharp_typst.so
+        run: dotnet run --project benchmarks/M3scalinum.Text.SharpTypst.Benchmarks -c Release --no-build -- --check benchmarks/baseline.json
+
+  coverage:
+    name: coverage
+    needs: [native]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 11.0.x
+      - uses: actions/download-artifact@v8
+        with:
+          name: native-linux-x64
+          path: native/artifacts/linux-x64
+      - run: dotnet restore
+      - run: dotnet build -c Release --no-restore
+      - name: Install dotnet-coverage
+        # Microsoft.Testing.Platform does not support --collect:"XPlat Code Coverage".
+        run: dotnet tool install --global dotnet-coverage
+      - name: Collect (unit)
+        run: >
+          dotnet-coverage collect -f cobertura -o artifacts/coverage/unit.xml
+          "dotnet test tests/Text.SharpTypst.Tests -c Release --no-build"
+      - name: Collect (facturx)
+        # The e-invoicing suite is pure managed code and carries most of the FacturX package's
+        # lines; leaving it out of the merge is what dropped the gate below its floor.
+        run: >
+          dotnet-coverage collect -f cobertura -o artifacts/coverage/facturx.xml
+          "dotnet test tests/Text.Pdf.FactureX.Tests -c Release --no-build"
+      - name: Collect (pdf)
+        run: >
+          dotnet-coverage collect -f cobertura -o artifacts/coverage/pdf.xml
+          "dotnet test tests/Text.Pdf.Tests -c Release --no-build"
+      - name: Collect (integration)
+        env:
+          SHARPTYPST_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/linux-x64/libsharp_typst.so
+        run: >
+          dotnet-coverage collect -f cobertura -o artifacts/coverage/integration.xml
+          "dotnet test tests/Text.SharpTypst.Integration.Tests -c Release --no-build
+          --filter FullyQualifiedName!~LeakTests"
+      - name: Merge
+        run: >
+          dotnet-coverage merge -f cobertura -o artifacts/coverage/coverage.xml
+          artifacts/coverage/unit.xml artifacts/coverage/facturx.xml artifacts/coverage/pdf.xml
+          artifacts/coverage/integration.xml
+      - name: Gate
+        # `--require` is the guard against the failure this job already had: a new test project was
+        # added, the merge kept the two suites it knew about, and the new package's lines counted as
+        # uncovered instead of uncollected.
+        run: >
+          python3 tests/coverage-gate.py artifacts/coverage/coverage.xml 90
+          --require M3scalinum.Text.SharpTypst M3scalinum.Text.SharpTypst.Native M3scalinum.Text.SharpTypst.DependencyInjection M3scalinum.Text.Pdf.FactureX M3scalinum.Text.Pdf
+      - uses: actions/upload-artifact@v7
+        with:
+          name: coverage
+          path: artifacts/coverage/coverage.xml
+
+  pack:
+    name: pack
+    needs: [managed, native]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 11.0.x
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: native-*
+          path: native/artifacts
+      - name: Arrange native artifacts
+        run: |
+          for dir in native/artifacts/native-*; do
+            rid="${dir##*/native-}"
+            mkdir -p "native/artifacts/$rid"
+            cp -r "$dir"/* "native/artifacts/$rid/"
+          done
+          find native/artifacts -name "*.dll" -o -name "*.so" -o -name "*.dylib" | sort
+      - run: dotnet pack src/Text.SharpTypst -c Release -o artifacts/packages -p:BuildRevision=${{ github.run_number }}
+      - run: dotnet pack src/Text.SharpTypst.DependencyInjection -c Release -o artifacts/packages -p:BuildRevision=${{ github.run_number }}
+      - run: dotnet pack src/Text.SharpTypst.Templates.Generator -c Release -o artifacts/packages -p:BuildRevision=${{ github.run_number }}
+      - run: dotnet pack src/Text.Pdf.FactureX -c Release -o artifacts/packages -p:BuildRevision=${{ github.run_number }}
+      - run: dotnet pack src/Text.Pdf -c Release -o artifacts/packages -p:BuildRevision=${{ github.run_number }}
+      - name: Verify the packages
+        # A package with no runtimes/ entry, or one depending on the unpublished M3scalinum.Text.SharpTypst.Native,
+        # is not installable. Both shipped once.
+        run: |
+          for package in artifacts/packages/*.nupkg; do
+            python3 tests/verify-package.py "$package"
+          done
+      - uses: actions/upload-artifact@v7
+        with:
+          name: packages
+          path: artifacts/packages/*

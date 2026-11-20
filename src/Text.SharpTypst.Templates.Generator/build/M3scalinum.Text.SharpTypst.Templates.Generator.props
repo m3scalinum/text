@@ -1,0 +1,11 @@
+<Project>
+
+  <!--
+    Every template.toml in the project becomes an AdditionalFile, so the generator can read the
+    manifest without the consumer wiring anything up.
+  -->
+  <ItemGroup>
+    <AdditionalFiles Include="**\template.toml" />
+  </ItemGroup>
+
+</Project>

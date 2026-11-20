@@ -1,0 +1,18 @@
+name = "invoice"
+version = "2.0.0"
+entry = "template.typ"
+description = "Multi-page US invoice: masthead with logo, grouped line items, tax, totals and a legal footer"
+authors = ["SharpTypst"]
+
+[parameters]
+title = { type = "string", required = true }
+number = { type = "string", required = true }
+issued = { type = "date", required = true }
+due = { type = "date", required = true }
+currency = { type = "string", default = "USD" }
+seller = { type = "object", required = true }
+customer = { type = "object", required = true }
+items = { type = "array", of = "object", required = true }
+tax_rate = { type = "number", default = 0.0825 }
+amount_paid = { type = "number", default = 0 }
+notes = { type = "string", default = "" }

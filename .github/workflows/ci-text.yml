@@ -1,0 +1,228 @@
+name: ci (Text suite)
+
+on:
+  push:
+    branches: [main]
+    # Not `**.md`: tests/Text.Suite.Tests reads docs/specifications/, wiki/ and README.md, and fails
+    # when a documented type or method does not exist. Ignoring every markdown file would let exactly
+    # the drift those tests catch land untested, on the one kind of change that causes it. Only the
+    # files it does not read are skipped here.
+    paths-ignore:
+      - 'CHANGELOG*.md'
+      - 'CONTRIBUTING.md'
+      - 'CODE_OF_CONDUCT.md'
+      - 'SECURITY.md'
+      - 'LICENSE'
+      - 'NOTICE'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/PULL_REQUEST_TEMPLATE.md'
+  pull_request:
+    # Not `**.md`: tests/Text.Suite.Tests reads docs/specifications/, wiki/ and README.md, and fails
+    # when a documented type or method does not exist. Ignoring every markdown file would let exactly
+    # the drift those tests catch land untested, on the one kind of change that causes it. Only the
+    # files it does not read are skipped here.
+    paths-ignore:
+      - 'CHANGELOG*.md'
+      - 'CONTRIBUTING.md'
+      - 'CODE_OF_CONDUCT.md'
+      - 'SECURITY.md'
+      - 'LICENSE'
+      - 'NOTICE'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/PULL_REQUEST_TEMPLATE.md'
+  workflow_dispatch:
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+# Read-only by default: no job here writes to the repository. The publish job of release-text.yml
+# overrides this with the OIDC permission it needs.
+permissions:
+  contents: read
+
+
+jobs:
+  native:
+    name: native (linux-x64)
+    runs-on: ubuntu-latest
+    steps:
+      # Only one RID: the Factur-X samples render once, on the runner, to be validated. The six
+      # shipped runtimes, their tests and the leak soak belong to the compiler workflow.
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native/sharp-typst
+      - name: Build
+        run: cargo build --release --manifest-path native/sharp-typst/Cargo.toml
+      - uses: actions/upload-artifact@v7
+        with:
+          name: native-linux-x64
+          path: native/sharp-typst/target/release/libsharp_typst.so
+          if-no-files-found: error
+
+  facturx:
+    name: facturx
+    needs: [native]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 11.0.x
+      - uses: actions/download-artifact@v8
+        with:
+          name: native-linux-x64
+          path: native/artifacts/linux-x64
+      - run: dotnet restore
+      - run: dotnet build -c Release --no-restore
+      - name: Unit tests
+        # No native library needed: reading, validating and writing are pure managed code.
+        run: dotnet test tests/Text.Pdf.FactureX.Tests -c Release --no-build
+      - name: Render the samples
+        env:
+          SHARPTYPST_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/linux-x64/libsharp_typst.so
+        run: dotnet run --project samples/Text.Pdf.FactureX.Samples -c Release --no-build
+      - name: Validate against the official Factur-X schema
+        # The FNFE-MPE library is the reference implementation: it extracts the attachment from the
+        # PDF, reads the conformance level back and validates the XML against the official XSD.
+        # It caught four real defects the string assertions could not see.
+        run: |
+          # A virtualenv, not a bare pip: the runner's Python is externally managed (PEP 668).
+          python3 -m venv .venv-facturx
+          .venv-facturx/bin/pip install --quiet factur-x lxml
+          .venv-facturx/bin/python - <<'PY'
+          import glob
+          import io
+
+          from facturx import get_facturx_level, get_xml_from_pdf, xml_check_xsd
+          from lxml import etree
+
+          failures = []
+
+          for path in sorted(glob.glob("artifacts/samples/factur-x-*.pdf")):
+              result = get_xml_from_pdf(io.BytesIO(open(path, "rb").read()), check_xsd=False)
+
+              if not (isinstance(result, tuple) and isinstance(result[1], (bytes, bytearray))):
+                  failures.append(f"{path}: no Factur-X attachment found")
+                  continue
+
+              name, xml = result
+              level = get_facturx_level(etree.fromstring(xml))
+
+              try:
+                  xml_check_xsd(xml, level)
+              except Exception as error:
+                  failures.append(f"{path}: {error}")
+                  continue
+
+              print(f"{path}: {name}, {len(xml)} bytes, {level}, XSD ok")
+
+          if failures:
+              print("\n".join(failures))
+              raise SystemExit(1)
+          PY
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install veraPDF
+        # The only distribution is an IzPack installer, which takes its answers from a file. The
+        # GUI, the corpus and the documentation are of no use here: only the command line is kept.
+        # The heredoc is unquoted on purpose: IzPack does not expand variables, so a quoted one
+        # installs into a directory literally named `${GITHUB_WORKSPACE}`.
+        run: |
+          curl -sSL -o verapdf-installer.zip https://software.verapdf.org/rel/verapdf-installer.zip
+          unzip -q -o verapdf-installer.zip
+          cat > verapdf-auto-install.xml <<EOF
+          <?xml version="1.0" encoding="UTF-8" standalone="no"?>
+          <AutomatedInstallation langpack="eng">
+          <com.izforge.izpack.panels.htmlhello.HTMLHelloPanel id="welcome"/>
+          <com.izforge.izpack.panels.target.TargetPanel id="install_dir">
+          <installpath>${GITHUB_WORKSPACE}/verapdf</installpath>
+          </com.izforge.izpack.panels.target.TargetPanel>
+          <com.izforge.izpack.panels.packs.PacksPanel id="sdk_pack_select">
+          <pack index="0" name="veraPDF GUI" selected="true"/>
+          <pack index="1" name="veraPDF Mac and *nix Scripts" selected="true"/>
+          <pack index="3" name="veraPDF Validation model" selected="true"/>
+          </com.izforge.izpack.panels.packs.PacksPanel>
+          <com.izforge.izpack.panels.install.InstallPanel id="install"/>
+          <com.izforge.izpack.panels.finish.FinishPanel id="finish"/>
+          </AutomatedInstallation>
+          EOF
+          java -jar verapdf-greenfield-*/verapdf-izpack-installer-*.jar verapdf-auto-install.xml
+          ./verapdf/verapdf --version
+      - name: Validate PDF/A-3B
+        # The flavour is passed explicitly: left to itself, veraPDF believes the file's own claim
+        # and validates against PDF/A-1b. Exit 0 is compliant, 1 is not, 7 is an unparseable file.
+        run: ./verapdf/verapdf --flavour 3b --format text artifacts/samples/factur-x-*.pdf
+      - uses: actions/upload-artifact@v7
+        with:
+          name: facturx-samples
+          path: artifacts/samples/factur-x-*.pdf
+
+  suite:
+    name: suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 11.0.x
+      - run: dotnet restore
+      - run: dotnet build -c Release --no-restore
+      - name: Public surface and documentation
+        # Loads every assembly of the suite by reflection, then reads docs/specifications, wiki/ and
+        # README.md. A documented type or method that does not exist fails here.
+        run: dotnet test tests/Text.Suite.Tests -c Release --no-build
+      - name: Install dotnet-coverage
+        run: dotnet tool install --global dotnet-coverage
+      - name: Collect (facturx)
+        run: >
+          dotnet-coverage collect -f cobertura -o artifacts/coverage/facturx.xml
+          "dotnet test tests/Text.Pdf.FactureX.Tests -c Release --no-build"
+      - name: Collect (pdf)
+        run: >
+          dotnet-coverage collect -f cobertura -o artifacts/coverage/pdf.xml
+          "dotnet test tests/Text.Pdf.Tests -c Release --no-build"
+      - name: Merge
+        run: >
+          dotnet-coverage merge -f cobertura -o artifacts/coverage/coverage.xml
+          artifacts/coverage/facturx.xml artifacts/coverage/pdf.xml
+      - name: Gate
+        # The coverage gate for this train lives here, not in the compiler workflow: a change to
+        # these packages no longer starts that workflow, so its gate would never see it.
+        run: >
+          python3 tests/coverage-gate.py artifacts/coverage/coverage.xml 90
+          --require M3scalinum.Text.Pdf M3scalinum.Text.Pdf.FactureX
+      - uses: actions/upload-artifact@v7
+        with:
+          name: coverage-text
+          path: artifacts/coverage/coverage.xml
+
+  text:
+    name: text
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 11.0.x
+      - run: dotnet restore
+      - run: dotnet build -c Release --no-restore
+      - name: Tests
+        # Neither package touches the compiler: signing takes bytes and returns bytes, and the
+        # Factur-X reader, writer and validator are pure managed code.
+        run: |
+          dotnet test tests/Text.Pdf.Tests -c Release --no-build
+          dotnet test tests/Text.Pdf.FactureX.Tests -c Release --no-build
+      - name: Pack
+        run: |
+          dotnet pack src/Text.Pdf -c Release -o artifacts/packages
+          dotnet pack src/Text.Pdf.FactureX -c Release -o artifacts/packages
+      - uses: actions/upload-artifact@v7
+        with:
+          name: packages-text
+          path: artifacts/packages/*.nupkg
+          if-no-files-found: error
