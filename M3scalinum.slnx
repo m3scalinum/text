@@ -25,7 +25,7 @@
   </Folder>
 
   <Folder Name="/benchmarks/">
-    <Project Path="benchmarks/M3scalinum.Text.SharpTypst.Benchmarks/M3scalinum.Text.SharpTypst.Benchmarks.csproj" />
+    <Project Path="benchmarks/Text.SharpTypst.Benchmarks/Text.SharpTypst.Benchmarks.csproj" />
   </Folder>
 
 </Solution>

@@ -277,7 +277,7 @@ jobs:
       - name: Compare against the stored baseline
         env:
           SHARPTYPST_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/linux-x64/libsharp_typst.so
-        run: dotnet run --project benchmarks/M3scalinum.Text.SharpTypst.Benchmarks -c Release --no-build -- --check benchmarks/baseline.json
+        run: dotnet run --project benchmarks/Text.SharpTypst.Benchmarks -c Release --no-build -- --check benchmarks/baseline.json
 
   coverage:
     name: coverage

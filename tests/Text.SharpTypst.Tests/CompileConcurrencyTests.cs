@@ -46,26 +46,24 @@ public sealed class CompileConcurrencyTests
     [Fact]
     public async Task Two_slots_let_two_compilations_overlap()
     {
-        var native = new FakeTypstNative { CompileDelay = TimeSpan.FromMilliseconds(150) };
+        // Both compilations must be inside the native call at the same time. The barrier proves it
+        // directly; a duration threshold would also fail when the thread pool simply started the
+        // second task late, which is a property of the runner, not of the gate.
+        using var barrier = new Barrier(2);
+        var native = new FakeTypstNative { CompileBarrier = barrier };
         var compiler = new TypstCompiler(native, maxConcurrency: 2);
 
         using var first = World(native);
         using var second = World(native);
 
-        var stopwatch = Stopwatch.StartNew();
         var results = await Task.WhenAll(
             compiler.CompileAsync(first, cancellationToken: TestContext.Current.CancellationToken),
             compiler.CompileAsync(second, cancellationToken: TestContext.Current.CancellationToken));
-        stopwatch.Stop();
 
         foreach (var result in results)
         {
             result.Dispose();
         }
-
-        Assert.True(
-            stopwatch.Elapsed < TimeSpan.FromMilliseconds(280),
-            $"two 150 ms compiles on two slots took {stopwatch.ElapsedMilliseconds} ms, so they were serialised");
     }
 
     [Fact]

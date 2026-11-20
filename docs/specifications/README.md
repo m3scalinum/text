@@ -37,7 +37,7 @@ them is a bug.
 | `src/Text.Pdf` | PAdES-B signatures as an incremental update; no dependency on the compiler |
 | `src/Text.Pdf.FactureX` | CII/UBL reader, EN 16931 checks, CII writer, Factur-X renderer and XMP patch |
 | Tests | 281 unit (fake native) + 8 Pdf + 125 Factur-X + 14 generator + 7 suite + 229 integration (real compiler) |
-| Benchmarks | `benchmarks/M3scalinum.Text.SharpTypst.Benchmarks`, baseline stored, `--check` gate in CI |
+| Benchmarks | `benchmarks/Text.SharpTypst.Benchmarks`, baseline stored, `--check` gate in CI |
 | Build & packaging | Build files in place; native packaging wired in CI |
 
 ## Conventions used in these documents

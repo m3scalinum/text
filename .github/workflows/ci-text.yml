@@ -44,7 +44,9 @@ permissions:
 
 jobs:
   native:
-    name: native (linux-x64)
+    # Distinct from the compiler workflow's job of the same purpose: two jobs sharing a check name
+    # make a required status check ambiguous.
+    name: native (linux-x64, suite)
     runs-on: ubuntu-latest
     steps:
       # Only one RID: the Factur-X samples render once, on the runner, to be validated. The six

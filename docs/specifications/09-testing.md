@@ -132,7 +132,7 @@ Rules:
 
 ## 7. Performance tests
 
-`benchmarks/M3scalinum.Text.SharpTypst.Benchmarks` is dependency-free on purpose: seven scenarios, 50 iterations
+`benchmarks/Text.SharpTypst.Benchmarks` is dependency-free on purpose: seven scenarios, 50 iterations
 each, the **minimum** reported (the most stable estimator for CPU-bound work), and a 1.5× gate
 against `benchmarks/baseline.json`.
 

@@ -92,8 +92,22 @@ internal sealed class FakeTypstNative : ITypstNative
     /// <summary>How long a compile takes, so a timeout can be observed without a heavy document.</summary>
     public TimeSpan CompileDelay { get; set; } = TimeSpan.Zero;
 
+    /// <summary>
+    /// When set, a compilation blocks here until the expected number of them have arrived. A test
+    /// that asserts two compilations overlap uses this instead of comparing elapsed time: the
+    /// thread pool may start the second one late on a small runner, which says nothing about the
+    /// gate under test.
+    /// </summary>
+    public Barrier? CompileBarrier { get; set; }
+
     public TypstDocumentHandle Compile(TypstWorldHandle world, string optionsJson, out string diagnosticsJson)
     {
+        if (CompileBarrier is not null && !CompileBarrier.SignalAndWait(TimeSpan.FromSeconds(10)))
+        {
+            throw new InvalidOperationException(
+                "the compilations never overlapped: the gate let only one of them run");
+        }
+
         if (CompileDelay > TimeSpan.Zero)
         {
             Thread.Sleep(CompileDelay);

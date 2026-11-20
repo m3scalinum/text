@@ -32,10 +32,3 @@ Not yet published on nuget.org.
   rules, and the French profile with its SIREN/SIRET, billing-framework and mandatory-note rules.
 - Conformance verified outside the test suite: the embedded XML against the official EN 16931 schema
   with the FNFE-MPE reference library, and the rendered files against PDF/A-3B with veraPDF.
-
-### Notes
-
-- The two trains are independent by design: a signing fix no longer has to look like a compiler
-  release, and a compiler upgrade no longer implies a new PDF package. `M3scalinum.Text.Pdf.FactureX`
-  renders through the compiler train, and its release pins the newest stable
-  `M3scalinum.Text.SharpTypst` published on nuget.org rather than whatever the checkout builds.

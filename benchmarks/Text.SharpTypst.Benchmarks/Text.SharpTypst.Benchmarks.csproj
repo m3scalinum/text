@@ -4,6 +4,8 @@
     <OutputType>Exe</OutputType>
     <IsPackable>false</IsPackable>
     <IsAotCompatible>false</IsAotCompatible>
+    <AssemblyName>Text.SharpTypst.Benchmarks</AssemblyName>
+    <PackageId>Text.SharpTypst.Benchmarks</PackageId>
   </PropertyGroup>
 
   <ItemGroup>

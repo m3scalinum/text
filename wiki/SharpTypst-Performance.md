@@ -32,7 +32,7 @@ The repository ships a dependency-free harness with seven scenarios, 50 iteratio
 the **minimum** — the most stable estimator for CPU-bound work — and a 1.5× regression gate.
 
 ```bash
-dotnet run -c Release --project benchmarks/M3scalinum.Text.SharpTypst.Benchmarks -- --check benchmarks/baseline.json
+dotnet run -c Release --project benchmarks/Text.SharpTypst.Benchmarks -- --check benchmarks/baseline.json
 ```
 
 | Scenario | Baseline (linux-x64, WSL) |
