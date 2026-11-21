@@ -27,6 +27,12 @@ public sealed class TypstTableCell
     /// <summary>The cell content.</summary>
     public TypstContent Content { get; }
 
+    /// <summary>
+    /// Optional alignment of the cell, emitted as <c>table.cell(align: …)</c>. Null lets the table
+    /// default apply. GFM's header delimiter sets it.
+    /// </summary>
+    public TypstAlignment? Align { get; init; }
+
     /// <summary>How many columns the cell covers.</summary>
     public int Colspan { get; }
 

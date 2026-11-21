@@ -50,12 +50,26 @@ internal sealed class TableNode(TypstTable table) : TypstNode
 
             var cell = cells[index];
 
-            if (cell.Colspan > 1 || cell.Rowspan > 1)
+            if (cell.Colspan > 1 || cell.Rowspan > 1 || cell.Align is not null)
             {
-                writer.WriteVerbatim("table.cell(");
-                WriteSpan(writer, "colspan", cell.Colspan, first: true);
-                WriteSpan(writer, "rowspan", cell.Rowspan, first: cell.Colspan == 1);
-                writer.WriteVerbatim(")");
+                var arguments = new List<string>();
+
+                if (cell.Colspan > 1)
+                {
+                    arguments.Add("colspan: " + cell.Colspan.ToString(CultureInfo.InvariantCulture));
+                }
+
+                if (cell.Rowspan > 1)
+                {
+                    arguments.Add("rowspan: " + cell.Rowspan.ToString(CultureInfo.InvariantCulture));
+                }
+
+                if (cell.Align is not null)
+                {
+                    arguments.Add("align: " + AlignmentName(cell.Align.Value));
+                }
+
+                writer.WriteVerbatim("table.cell(" + string.Join(", ", arguments) + ")");
             }
 
             using (writer.ContentBlock())
@@ -65,18 +79,10 @@ internal sealed class TableNode(TypstTable table) : TypstNode
         }
     }
 
-    private static void WriteSpan(TypstMarkupWriter writer, string name, int value, bool first)
+    private static string AlignmentName(TypstAlignment alignment) => alignment switch
     {
-        if (value == 1)
-        {
-            return;
-        }
-
-        if (!first)
-        {
-            writer.WriteVerbatim(", ");
-        }
-
-        writer.WriteVerbatim(name + ": " + value.ToString(CultureInfo.InvariantCulture));
-    }
+        TypstAlignment.Center => "center",
+        TypstAlignment.Right => "right",
+        _ => "left",
+    };
 }

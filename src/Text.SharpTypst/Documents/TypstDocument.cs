@@ -37,6 +37,19 @@ public sealed class TypstDocument
         return new TypstHtmlImporter(options).Import(html).Document;
     }
 
+    /// <summary>
+    /// Builds a document from a Markdown document or fragment, keeping the supported subset and
+    /// dropping the rest. Use <see cref="MarkdownImporter"/> when the dropped constructs must be
+    /// inspected.
+    /// </summary>
+    /// <param name="markdown">The Markdown to import.</param>
+    /// <param name="options">The import options; defaults are used when null.</param>
+    public static TypstDocument FromMarkdown(string markdown, TypstMarkdownImportOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(markdown);
+        return new MarkdownImporter(options).Import(markdown).Document;
+    }
+
     /// <summary>Configures <c>#set document(…)</c>.</summary>
     public TypstDocument Metadata(Action<TypstMetadata> configure)
     {

@@ -399,3 +399,128 @@ paragraph); definition lists with several `dd` per `dt` (the second `dd` gets an
 footnotes, citations and any semantic markup not listed in §12.1. Anything outside the table is
 either unwrapped and counted, or dropped with its subtree and counted, so the loss is visible in
 `DroppedElements` instead of being silent.
+
+## 13. Importing Markdown
+
+`TypstDocument.FromMarkdown(markdown, options)` builds the node graph from a Markdown document or
+fragment, so a README, a changelog or a specification written in Markdown can be typeset without a
+conversion step outside the library. Call `MarkdownImporter` directly when the constructs that were
+dropped matter:
+
+```csharp
+using M3scalinum.Text.SharpTypst.Documents;
+
+var importer = new MarkdownImporter(new TypstMarkdownImportOptions
+{
+    AssetResolver = source => source == "charts/revenue.png" ? "charts/revenue.png" : null,
+    RawHtml = TypstMarkdownRawHtmlPolicy.Drop,
+});
+
+TypstMarkdownImportResult result = importer.Import(markdown);
+
+foreach (var dropped in result.DroppedConstructs)
+{
+    Console.WriteLine(dropped.ConstructName + ": " + dropped.Count);
+}
+
+string markup = result.Document.ToMarkup();
+```
+
+The parser is hand-written and has no dependency of its own: a line-based block pass, a definition
+pass that collects reference links and footnotes before any block is converted, and a recursive
+inline pass. It is not a conforming CommonMark implementation and does not pretend to be one. It
+does handle the parts real documents rely on:
+
+- ATX headings with a closing hash run, and setext headings underlined with `=` or `-`;
+- fenced code blocks opened with three or more backticks or tildes, closed by a run at least as long
+  as the opener, with the first word of the info string as the language; an unclosed fence runs to
+  the end of the document, as CommonMark specifies;
+- indented code blocks, taken four columns in;
+- bullet lists with `-`, `+` or `*`, ordered lists with `.` or `)` delimiters, nesting by
+  indentation, and tight versus loose lists;
+- block quotes with `>`, including lazy continuation lines and blank quoted lines;
+- thematic breaks of `*`, `-` or `_`;
+- GFM tables with a header row, a delimiter row carrying the alignment, and body rows;
+- reference link definitions, which may appear before or after the reference that uses them;
+- footnote definitions, which may span several indented lines;
+- backslash escapes and the character references `HtmlEntities` decodes.
+
+Line endings are normalised (CRLF and lone CR become LF) and a byte-order mark is ignored. Tabs are
+expanded to four-column tab stops before anything else, so a tab-indented code block is still a code
+block; a tab inside a code block's content becomes spaces.
+
+### 13.1 Fidelity contract
+
+The table is the contract. "Dropped" means the construct contributes no output and is counted in
+`TypstMarkdownImportResult.DroppedConstructs`; "transparent" means it contributes no output but its
+content is imported and it is not counted.
+
+| Markdown | Node emitted | Notes |
+| --- | --- | --- |
+| paragraph | `ParagraphNode` | Soft line breaks become one space |
+| ATX `#`…`######` | `HeadingNode` | Levels map to `=` … `======`; a closing `##` run is stripped |
+| setext `===` / `---` underline | `HeadingNode` | Level 1 for `=`, level 2 for `-` |
+| fenced code block | `CodeBlockNode` | The first word of the info string is the language; the fence grows past any backtick run in the code |
+| indented code block | `CodeBlockNode` | No language |
+| `-`, `+`, `*` bullet list | `ListNode` | Nested lists are emitted two spaces deeper per level |
+| `1.`, `1)` ordered list | `ListNode` | Emitted as `+`; the start number and the delimiter are lost |
+| tight list | `ListNode` | Items are written without a blank line between them |
+| loose list | `ListNode` | A blank line separates items, which is what makes a Typst list loose |
+| `>` block quote | `QuoteNode` | Its blocks become paragraphs inside the quote |
+| `***`, `---`, `___` | `#divider()` | Three or more markers, with optional spaces between them |
+| GFM table | `TableNode` | Column count is the header's; `:---`, `---:` and `:---:` become `table.cell(align: …)` |
+| `**strong**`, `__strong__` | `BoldNode` | |
+| `*em*`, `_em_` | `EmphasisNode` | |
+| `~~strike~~` | `#strike[…]` | |
+| `code span` | `InlineCodeNode` | The fence grows past any backtick run in the code |
+| `[text](destination "title")` | `LinkNode` | The title is parsed and dropped; there is no title node |
+| `[text][label]`, `[label][]`, `[label]` | `LinkNode` | Resolved from the definitions; an undefined label stays literal text |
+| `<https://…>`, `<mail@example.com>` | `LinkNode` | Bare URLs are not autolinked |
+| `[^label]` + `[^label]: …` | `FootnoteNode` | The first reference emits `#footnote[…]`; a second reference to the same label stays literal text and is counted |
+| two trailing spaces or `\` before a line break | `LineBreakNode` | |
+| `![alt](destination)` alone in a paragraph | `FigureNode` | The destination is resolved by `AssetResolver`; `alt` becomes the caption, through the same escaper as text |
+| `![alt](destination)` inside a paragraph | the alt text | Still has to resolve |
+| raw HTML block | none | Dropped and counted as `html-block`; never passed through |
+| an inline HTML tag | none | Dropped and counted as `html-inline`; the text around it survives |
+| a reference link definition that is never used | none | Counted as `reference-definition` |
+| a footnote definition that is never referenced | none | Counted as `footnote-definition` |
+| a non-paragraph block inside a footnote definition | none | Counted as `footnote-block`; a footnote is inline content |
+| a table cell beyond the header's column count | none | Counted as `table-cell`; a short row is padded with empty cells |
+
+`RawHtml = TypstMarkdownRawHtmlPolicy.Throw` turns the first raw HTML block into a
+`TypstMarkdownImportException` instead of dropping it. Inline HTML is always dropped and counted;
+the policy governs blocks.
+
+### 13.2 Images
+
+The importer **never fetches a network resource and never reads a file**. Every image destination —
+inline or reference — is passed to `TypstMarkdownImportOptions.AssetResolver`; the returned name
+must be an asset registered on the world builder. When the resolver is null or returns null or
+white space, the import fails with `TypstMarkdownImportException` whose `ConstructName` is `image`,
+rather than emitting an image that would only fail later, at compile time. An image alone in its
+paragraph becomes a figure whose caption is the alt text; the same image inside running text is
+reduced to its alt text, so the sentence still reads.
+
+### 13.3 Escaping
+
+Markdown text is never concatenated into Typst source. Every piece of text — paragraph text, a link
+label, an alt text used as a caption, a table cell, a footnote body — enters the model as a
+`TextNode`, so the writer of §5 escapes it. `*`, `_`, `#`, `$`, `<`, `>`, `@`, `~`, backslashes and
+brackets inside a content block cannot break the emitted markup, and a quote or a backslash in a
+link destination is escaped by `LinkNode`. The fixture that pins this puts `*_#$<>@[]` in text, in a
+link title and in an alt text, and is run again through the real compiler in the integration suite.
+
+### 13.4 What a real README loses
+
+Deliberately not imported, and not pretended otherwise: raw HTML, block-level or inline (dropped and
+counted, never passed through); HTML comments, `<details>` and custom containers such as
+`::: warning` (both are just paragraphs or HTML blocks); GFM extensions other than tables,
+strikethrough and footnotes — task list checkboxes, bare-URL autolinking, heading ids of the
+`{#id}` form; footnote numbering beyond document order (Typst numbers footnotes in the order they
+appear, a second reference to one label is not the same footnote); the start number and delimiter
+of an ordered list; link titles; image dimensions and any text following the destination inside an
+image's parentheses; table alignment beyond per-column left, centre and right; hard-wrapped lines
+that a Markdown renderer would keep as one paragraph are joined with a space, which is what
+CommonMark does; and emphasis that spans a link boundary, which this parser does not resolve the way
+CommonMark's delimiter stack would. Anything outside the table is either dropped and counted or
+turned into its text, so the loss is visible in `DroppedConstructs` instead of being silent.
