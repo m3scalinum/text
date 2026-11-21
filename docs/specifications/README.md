@@ -26,6 +26,7 @@ them is a bug.
 | 15 | [15-pdf-conformance.md](15-pdf-conformance.md) | The `PdfConformance` checker: which structural rules it establishes, and what veraPDF still validates |
 | 16 | [16-pdf-pages-and-forms.md](16-pdf-pages-and-forms.md) | `PdfPages` and `PdfForm`: merge, extract, split, rotate, remove pages; fill and flatten an AcroForm |
 | 17 | [17-mcp.md](17-mcp.md) | The `M3scalinum.Text.Mcp` server: protocol surface, tools, limits and security posture |
+| 18 | [18-pdf-text.md](18-pdf-text.md) | `PdfText`: what a received document draws, what is lost, and the per-page fallbacks |
 
 ## Status
 
@@ -38,10 +39,10 @@ them is a bug.
 | `src/Text.SharpTypst.DependencyInjection` | `AddSharpTypst`, options, validation |
 | `src/Text.SharpTypst.Templates.Generator` | Roslyn generator: `template.toml` → typed options record |
 | `src/Text.SharpTypst.Templates` | The layout pack: invoice, quotation, statement and attestation, typed, bilingual labels, catalog and DI |
-| `src/Text.Pdf` | PAdES-B signatures as an incremental update, page merge/extract/split/rotate/remove, AcroForm fill and flatten, structural PDF/A and PDF/UA conformance checks; no dependency on the compiler |
+| `src/Text.Pdf` | PAdES-B signatures as an incremental update, page merge/extract/split/rotate/remove, AcroForm fill and flatten, structural PDF/A and PDF/UA conformance checks, text extraction from a received PDF; no dependency on the compiler |
 | `src/Text.Pdf.FactureX` | CII/UBL reader, EN 16931 checks, CII writer, Factur-X renderer and XMP patch |
 | `src/Text.Mcp` | JSON-RPC 2.0 over stdio: `render_document`, `render_invoice`, `list_templates`, with limits and no ambient file access |
-| Tests | 389 unit (fake native) + 279 Pdf + 229 Factur-X + 14 generator + 80 templates + 58 mcp + 7 suite + 247 integration (real compiler) |
+| Tests | 389 unit (fake native) + 292 Pdf + 229 Factur-X + 14 generator + 80 templates + 58 mcp + 7 suite + 247 integration (real compiler) |
 | Benchmarks | `benchmarks/Text.SharpTypst.Benchmarks`, baseline stored, `--check` gate in CI |
 | Build & packaging | Build files in place; native packaging wired in CI |
 
