@@ -1,0 +1,19 @@
+name = "purchase-order"
+version = "1.0.0"
+entry = "template.typ"
+description = "A4 purchase order (bon de commande): buyer and supplier blocks, the ordered lines with their amounts and tax, the delivery address and the terms, with every label supplied by the caller"
+authors = ["SharpTypst"]
+
+[parameters]
+title = { type = "string", required = true }
+number = { type = "string", required = true }
+issued = { type = "date", required = true }
+buyer = { type = "object", required = true }
+supplier = { type = "object", required = true }
+items = { type = "array", of = "object", required = true }
+delivery = { type = "object", required = true }
+currency = { type = "string", default = "EUR" }
+tax_rate = { type = "number", default = 0.2 }
+labels = { type = "object", required = true }
+terms = { type = "string", default = "" }
+notes = { type = "string", default = "" }

@@ -72,7 +72,7 @@ public sealed class ProtocolTests
     }
 
     [Fact]
-    public async Task Tools_list_exposes_the_three_tools_with_their_schemas()
+    public async Task Tools_list_exposes_the_six_tools_with_their_schemas()
     {
         var responses = await McpTestClient.ExchangeAsync(
             McpTestClient.Frames(Initialize, """{"jsonrpc":"2.0","id":2,"method":"tools/list"}"""));
@@ -80,7 +80,15 @@ public sealed class ProtocolTests
         var tools = responses[1].GetProperty("result").GetProperty("tools").EnumerateArray().ToArray();
 
         Assert.Equal(
-            new[] { McpToolNames.RenderDocument, McpToolNames.RenderInvoice, McpToolNames.ListTemplates },
+            new[]
+            {
+                McpToolNames.RenderDocument,
+                McpToolNames.RenderInvoice,
+                McpToolNames.ListTemplates,
+                McpToolNames.SignDocument,
+                McpToolNames.MergeDocuments,
+                McpToolNames.ExtractText,
+            },
             tools.Select(tool => tool.GetProperty("name").GetString()).ToArray());
 
         foreach (var tool in tools)
@@ -110,7 +118,16 @@ public sealed class ProtocolTests
         var templates = listing.RootElement.GetProperty("templates").EnumerateArray().ToArray();
 
         Assert.Equal(
-            new[] { TemplateIds.Invoice, TemplateIds.Quotation, TemplateIds.Statement, TemplateIds.Attestation },
+            new[]
+            {
+                TemplateIds.Invoice,
+                TemplateIds.Quotation,
+                TemplateIds.Statement,
+                TemplateIds.Attestation,
+                TemplateIds.Contract,
+                TemplateIds.Payslip,
+                TemplateIds.PurchaseOrder,
+            },
             templates.Select(template => template.GetProperty("id").GetString()).ToArray());
 
         var invoice = templates[0];
@@ -332,7 +349,7 @@ public sealed class ProtocolTests
     public void An_allowed_template_id_the_pack_does_not_carry_fails_at_construction()
     {
         Assert.Throws<ArgumentException>(() => new McpServer(
-            new McpServerOptions { AllowedTemplateIds = ["payslip"] }));
+            new McpServerOptions { AllowedTemplateIds = ["delivery-note"] }));
     }
 
     [Fact]

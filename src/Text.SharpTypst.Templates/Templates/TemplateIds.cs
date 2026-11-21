@@ -18,4 +18,13 @@ public static class TemplateIds
 
     /// <summary>An attestation: an employer certifying a fact about an employee.</summary>
     public const string Attestation = "attestation";
+
+    /// <summary>A contract: two parties, numbered clauses and a signature block.</summary>
+    public const string Contract = "contract";
+
+    /// <summary>A payslip: gross earnings, contributions and the net pay for one period.</summary>
+    public const string Payslip = "payslip";
+
+    /// <summary>A purchase order: what a buyer orders from a supplier, and where it is delivered.</summary>
+    public const string PurchaseOrder = "purchase-order";
 }

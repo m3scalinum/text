@@ -45,7 +45,7 @@ public sealed class TemplateCatalog
         _templates = [.. list];
     }
 
-    /// <summary>The four layouts shipped in this assembly, in <see cref="TemplateIds"/> order.</summary>
+    /// <summary>The seven layouts shipped in this assembly, in <see cref="TemplateIds"/> order.</summary>
     public static TemplateCatalog Default => DefaultCatalog.Value;
 
     /// <summary>Every layout the catalog holds, newest version last within an id.</summary>
@@ -149,6 +149,14 @@ public sealed class TemplateCatalog
         }
 
         return new TemplateCatalog(
-            [Load(TemplateIds.Invoice), Load(TemplateIds.Quotation), Load(TemplateIds.Statement), Load(TemplateIds.Attestation)]);
+        [
+            Load(TemplateIds.Invoice),
+            Load(TemplateIds.Quotation),
+            Load(TemplateIds.Statement),
+            Load(TemplateIds.Attestation),
+            Load(TemplateIds.Contract),
+            Load(TemplateIds.Payslip),
+            Load(TemplateIds.PurchaseOrder),
+        ]);
     }
 }
