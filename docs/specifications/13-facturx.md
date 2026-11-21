@@ -12,7 +12,7 @@ This document is normative for that package. The main library is described in
 | --- | --- |
 | Reading | CII (`rsm:CrossIndustryInvoice`), UBL (`Invoice`, `CreditNote`), FatturaPA (`FatturaElettronica`) and Facturae (`Facturae`) into one model |
 | Writing | CII, UBL 2.1, FatturaPA 1.2.2 and Facturae 3.2.2, from an invoice built in C# or read from any of them |
-| Validation | The EN 16931 rules decidable from the document — mandatory terms and arithmetic — and the Peppol CIUS rules the document decides about itself |
+| Validation | The EN 16931 rules decidable from the document — mandatory terms and arithmetic — and the rules of the CIUS the document declares: Peppol BIS 3.0, XRechnung or the French profile |
 | Rendering | A4 layout through the document model, PDF/A-3b, XML attached, XMP patched |
 | XMP | The `fx:` description and its `pdfaExtension:schemas` entry |
 
@@ -571,12 +571,136 @@ code, a general allowance, a PEC recipient and a foreign party all validate. The
 file itself was not obtainable, so what 3.2.2 adds over 3.2 is unchecked. The schema files are not
 vendored and no test validates against them, so the element orders are pinned by tests instead, the
 same way the UBL writer's are.
+## 12. The XRechnung CIUS
+
+XRechnung is Germany's CIUS of EN 16931, published by KoSIT for both UBL and CII. An invoice to a
+public authority has to be one; since 2025 a German receiver also accepts it as the B2B syntax.
+`XRechnungValidator` covers the part of the CIUS a document decides about itself — the identifiers,
+the mandatory contact and postal terms, the payment instructions, the tax identifiers and the
+arithmetic the CIUS adopted from Peppol when the two were harmonised.
+
+**Decision — the official Schematron remains the reference, and this is a subset.** KoSIT publishes
+the rules as Schematron: the German business rules `BR-DE-nn`, the extension rules `BR-DEX-nn`, the
+vehicle-document CIUS, and the Peppol rules the CIUS incorporated. It reads the XML through an XSLT
+2.0 processor and states things the model cannot see — whether an element is present but empty, the
+card information of `BG-18`, the creditor identifier of a direct debit. Reimplementing it in C# would
+be a second, silently diverging edition; the rules below are the ones `FacturXInvoice` states
+exactly, each traceable to the assertion it comes from, and the artefact plugs in through
+`IInvoiceValidator`.
+
+### The identifier placement
+
+`BT-24` is how a document declares the CIUS, and `BT-23` is 1..1 under XRechnung since 3.0.
+
+| Term | UBL | CII | Value |
+| --- | --- | --- | --- |
+| `BT-23` business process | `cbc:ProfileID` | `BusinessProcessSpecifiedDocumentContextParameter/ID` | the buyer's process; `urn:fdc:peppol.eu:2017:poacc:billing:01:1.0` is the documented default |
+| `BT-24` specification identifier | `cbc:CustomizationID` | `GuidelineSpecifiedDocumentContextParameter/ID` | `urn:cen.eu:en16931:2017#compliant#urn:xeinkauf.de:kosit:xrechnung_3.0` |
+
+`XRechnungValidator.SpecificationId` holds the identifier of 3.0, `ExtensionSpecificationId` the one
+of the extension (`…#conformant#urn:xeinkauf.de:kosit:extension:xrechnung_3.0`),
+`VehicleSpecificationId` the one of the vehicle CIUS, and `DraftSpecificationId`
+(`urn:cen.eu:en16931:2026#compliant#urn:xeinkauf.de:kosit:xrechnung_4.0`) the pre-release KoSIT
+published in September 2026 for EN 16931-1:2026 — the year segment moves with the revision of the
+European standard, so the two are separate values rather than variants of one spelling.
+
+**Decision — `CiiWriter` writes the CIUS identifier when it is given one.** For Factur-X, `BT-24` is
+the guideline URN and that is what selects the conformance level; XRechnung publishes CII as a
+syntax of its own, and a German receiver reads `BT-24` there as the CIUS. A CII document built with
+`SpecificationId = XRechnungValidator.SpecificationId` therefore carries that value and not the
+guideline URN, which would make it a plain EN 16931 document. Every other invoice keeps the previous
+behaviour.
+
+### The rules
+
+| Code | Source | Rule |
+| --- | --- | --- |
+| `BR-XR-01` | `BR-DE-21` | the specification identifier (`BT-24`) is present |
+| `BR-XR-02` | `BR-DE-21` | it is one KoSIT publishes — the CIUS, its extension, the vehicle CIUS, or 4.0 |
+| `BR-XR-03` | `PEPPOL-EN16931-R001` | the business process (`BT-23`) is present |
+| `BR-XR-04` | `BR-DE-15` | the buyer reference (`BT-10`) is present — the Leitweg-ID a public authority routes on |
+| `BR-XR-05` | `BR-DE-2` | the seller contact group (`BG-6`) is present |
+| `BR-XR-06` | `BR-DE-5` | its name (`BT-41`) |
+| `BR-XR-07` | `BR-DE-6` | its telephone number (`BT-42`) |
+| `BR-XR-08` | `BR-DE-27` | the number carries at least three digits |
+| `BR-XR-09` | `BR-DE-7` | its e-mail address (`BT-43`) |
+| `BR-XR-10` | `BR-DE-28` | the address has the shape of an e-mail |
+| `BR-XR-11`, `BR-XR-12` | `BR-DE-3`, `BR-DE-4` | the seller city (`BT-37`) and post code (`BT-38`) |
+| `BR-XR-13`, `BR-XR-14` | `BR-DE-8`, `BR-DE-9` | the buyer city (`BT-52`) and post code (`BT-53`) |
+| `BR-XR-15`, `BR-XR-16` | `BR-DE-10`, `BR-DE-11` | a deliver-to group that is present carries its city (`BT-77`) and post code (`BT-78`) |
+| `BR-XR-17` | `PEPPOL-EN16931-R020` | the seller electronic address (`BT-34`) is present |
+| `BR-XR-18` | `PEPPOL-EN16931-R010` | the buyer electronic address (`BT-49`) is present |
+| `BR-XR-19` | `BR-DE-17` | the type code (`BT-3`) is one of the eight the CIUS names |
+| `BR-XR-20` | `BR-DE-1` | the payment instructions (`BG-16`) are present |
+| `BR-XR-21` | `BR-DE-23-a` | a credit transfer (`30`, `58`) carries the payment account (`BT-84`) |
+| `BR-XR-22` | `BR-DE-23-b` | a credit transfer carries no direct debit mandate |
+| `BR-XR-23`, `BR-XR-24` | `BR-DE-24-b` | a card payment (`48`, `54`, `55`) carries neither an account nor a mandate |
+| `BR-XR-25` | `BR-DE-25-a` | a direct debit (`59`) carries its mandate reference (`BT-89`) |
+| `BR-XR-26` | `BR-DE-25-b` | a direct debit carries no payee account |
+| `BR-XR-27` | `BR-DE-19`, `BR-DE-20` | the account is a valid IBAN, check digits included |
+| `BR-XR-28` | `BR-DE-18` | a `SKONTO` line of the payment terms (`BT-20`) is in the spelling the CIUS fixes |
+| `BR-XR-29` | `BR-DE-14` | each VAT breakdown carries a rate (`BT-119`) |
+| `BR-XR-30` | `BR-DE-16` | a VAT category of `S`, `Z`, `E`, `AE`, `K`, `G`, `L` or `M` requires the seller to be identified (`BT-31`) |
+| `BR-XR-31` | `PEPPOL-EN16931-R121` | the price base quantity (`BT-149`) is above zero |
+| `BR-XR-32` | `PEPPOL-EN16931-R046` | the net price is the gross price less the discount (`BT-146`, `BT-147`, `BT-148`) |
+| `BR-XR-33`, `BR-XR-34` | `PEPPOL-EN16931-R110`, `R111` | a line period (`BG-26`) sits inside the invoice period (`BG-14`) |
+| `BR-XR-35`, `BR-XR-36` | `PEPPOL-EN16931-R041`, `R042` | the base amount and the percentage of an allowance or charge go together |
+| `BR-XR-37` | `PEPPOL-EN16931-R040` | the amount is the base at the percentage |
+| `BR-XR-38` | `BR-DE-26` | a corrected invoice (`384`) names the invoice it corrects (`BG-3`) |
+| `BR-XR-39` | `PEPPOL-EN16931-R005` | the VAT accounting currency differs from the invoice currency (`BT-6`, `BT-5`) |
+| `BR-XR-40` | `BR-DEX-15` | the document carries no sub invoice lines (`BT-127`), which XRechnung does not support |
+
+`BR-DE-17`, `BR-DE-27` and `BR-DE-28` are *warning* assertions in the Schematron: the code list of
+UNTDID 1001 is open, and a telephone number or an address is a shape rather than a term. They are
+reported as issues all the same — a document that fails them is one a German receiver complains
+about, and the library has one severity.
+
+`BR-XR-30` is the one rule narrowed by the model. `BR-DE-16` accepts `BT-31`, `BT-32` (the tax
+number) or `BG-11` (the tax representative); the model carries `BT-31` only, so the rule reports the
+seller as unidentified when no VAT identifier is there. A document that carries `BT-32` alone is read
+with an empty `VatId` and is flagged, which is a false positive the model cannot avoid — and adding
+`BT-32` to `FacturXParty` is the change that would remove it.
+
+### What is left to the official Schematron
+
+- `BR-DE-12` and its deprecated sibling `BR-DE-13`: the post code of a German supplier has a shape,
+  which is a per-country grammar.
+- `BR-DE-24-a`: a card payment has to carry `BG-18`, the card information — the model has no such
+  group, and inventing one would put a card number in an invoice model.
+- `BR-DE-30` and `BR-DE-31`: a direct debit carries the creditor identifier (`BT-90`) and the debited
+  account (`BT-91`); neither is modelled.
+- `BR-DE-22`: attachment filenames are unique — the model keeps the document identifier and the
+  location of `BG-24`, not the filename of the attached binary.
+- `BR-DEX-01` to `BR-DEX-14`: the extension's MIME codes, sub-invoice totals and prepaid payments.
+- `BR-DE-CVD-01` to `BR-DE-CVD-06`: the vehicle CIUS, whose classification terms the model does not
+  carry.
+- `PEPPOL-EN16931-R007` (the process identifier has a format): `BT-23` is specified by the buyer, and
+  the format holds inside the Peppol network rather than for every German receiver.
+- `PEPPOL-EN16931-R008` (no empty element): the writers never emit one, and the model cannot tell an
+  absent element from an empty one.
+
+### Using it
+
+```csharp
+// Applied when the document declares XRechnung in BT-24 — read before the Peppol and French rules.
+var result = FacturXValidator.Validate(invoice);
+
+// Required even from a document that does not declare it, plus a rule set of your own.
+var strict = FacturXValidator.Validate(invoice, XRechnungValidator.Default);
+```
+
+The three overlays are mutually exclusive and are selected by declaration, XRechnung first. That
+order is not cosmetic: a German document carries the Peppol billing process in `BT-23` — KoSIT names
+it as the default — while declaring the German CIUS in `BT-24`, so a gate that read `BT-23` alone
+would hold every Peppol invoice to the German rules. A document that declares XRechnung is therefore
+held to neither the Peppol nor the French rules.
 
 ## 8. Tests and gates
 
 | Level | What it pins |
 | --- | --- |
 | Unit, `tests/Text.Pdf.FactureX.Tests` | reading all four syntaxes, the validation rules including the allowance arithmetic, every writer's round trip (CII→CII, UBL→UBL, CII→UBL, UBL→CII, FatturaPA→FatturaPA, Facturae→Facturae, FatturaPA→Facturae), the encoding declaration, the schema orderings, the DTD refusal, and the Peppol CIUS: one document per rule, the conformant model, and the OpenPEPPOL samples |
+| Unit, `tests/Text.Pdf.FactureX.Tests` | reading both syntaxes, the validation rules including the allowance arithmetic, both writers' round trips (CII→CII, UBL→UBL, CII→UBL, UBL→CII), the encoding declaration, the schema orderings, the DTD refusal, the Peppol CIUS (one document per rule, the conformant model, the OpenPEPPOL samples), and the XRechnung CIUS (one document per rule, the conformant model, and the selection of each overlay by declaration) |
 | Integration, `FacturXRenderTests` | PDF/A-3 marker, `/EmbeddedFiles`, the `fx:` block and its values, the profile carried into the XMP, a refused invalid invoice |
 | Unit, `PdfExtractionTests` | the attachment is found through the name tree, inflated, and read back; a hex name, an uncompressed stream, a second attachment, and every refusal |
 | CI, job `facturx` | renders the samples, extracts the attachment and validates it against the **official XSD** with the FNFE-MPE reference library, then runs **veraPDF** against PDF/A-3B |
