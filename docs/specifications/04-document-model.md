@@ -5,8 +5,9 @@ without string concatenation and without knowing Typst's escaping rules.
 
 ## 1. Contract
 
-- The model is **write-only**: `TypstDocument.ToMarkup()` returns a `string` of Typst source.
-  There is no parser.
+- The model is **write-only for Typst**: `TypstDocument.ToMarkup()` returns a `string` of Typst
+  source, and no node ever parses Typst back. The only input it accepts is HTML, through
+  `TypstDocument.FromHtml` (§12): a one-way import, not a round trip.
 - The emitted source is **self-contained**: it declares its own page setup and metadata and
   imports nothing.
 - The emitted source is **stable**: the same object graph always produces the same string, byte for
@@ -66,7 +67,7 @@ public one.
 | `BulletList(items)` | `- item` per line | Nesting via `BulletList` inside an item, indented 2 spaces per level |
 | `NumberedList(items)` | `+ item` per line | Same nesting rule |
 | `TermList(terms)` | `/ term: description` | |
-| `Table` | `#table(columns: (…), [..], …)` | Cells are content blocks; the header row is `table.header(…)` |
+| `Table` | `#table(columns: (…), [..], …)` | Cells are content blocks; the header row is `table.header(…)`; `TypstTableCell` adds `colspan`/`rowspan` |
 | `Figure` | `#figure(image(…), caption: [..]) <label>` | Caption and label are optional |
 | `Image(path, width?, height?, fit?)` | `#image("path", width: …)` | `path` is a virtual asset path; the method lives on `TypstFigure` |
 | `CodeBlock(language, code)` | fenced block with language tag | Public: `TypstDocument.Code(language, code)`. Code is emitted verbatim, never escaped |
@@ -277,5 +278,124 @@ knowledge of the compiler; the dependency points the other way.
 | A node for every Typst function | The model covers the document-shaped 90 %; `Raw` covers the rest |
 | Automatic table of contents | `#outline()` is one `Raw` call; a typed wrapper adds nothing |
 | A theme/styling system | Templates own styling (see [05](05-templates.md)); the model emits structure |
-| Round-trip parsing | Out of scope by design |
+| Round-trip parsing of Typst | Out of scope by design; the HTML importer only goes HTML → model |
 | HTML-specific nodes | The model targets paged documents; HTML export uses the same source |
+
+## 12. Importing HTML
+
+`TypstDocument.FromHtml(html, options)` builds the node graph from an HTML page or fragment, so an
+application that already holds HTML does not have to go through Typst source by hand. Call
+`TypstHtmlImporter` directly when the elements that were dropped matter:
+
+```csharp
+using M3scalinum.Text.SharpTypst.Documents;
+
+var importer = new TypstHtmlImporter(new TypstHtmlImportOptions
+{
+    AssetResolver = source => source == "charts/revenue.png" ? "charts/revenue.png" : null,
+    UnknownElements = TypstHtmlUnknownElementPolicy.Skip,
+    HonourInlineStyles = false,
+});
+
+TypstHtmlImportResult result = importer.Import(html);
+
+foreach (var dropped in result.DroppedElements)
+{
+    Console.WriteLine(dropped.ElementName + ": " + dropped.Count);
+}
+
+string markup = result.Document.ToMarkup();
+```
+
+The parser is hand-written and has no dependency of its own: a single-pass tokenizer over the
+string, a tree repair pass, and a converter into the nodes of §3. It is not a conforming HTML
+parser, and it does not try to be one. It does handle the parts real pages rely on:
+
+- void elements (`br`, `hr`, `img`, `meta`, `link`, …) and XHTML-style `<br/>`;
+- unclosed `p`, `li`, `dt`/`dd`, `tr`, `td`/`th`, `thead`/`tbody`/`tfoot`, closed at the point a
+  browser would close them;
+- attributes with double quotes, single quotes or no quotes, and valueless attributes;
+- comments, a doctype, and CDATA sections;
+- character references: the named set listed in `HtmlEntities`, plus decimal and hexadecimal
+  numeric references (`&#233;`, `&#xE9;`). An unknown reference is kept verbatim.
+
+Whitespace is collapsed as HTML collapses it, except inside `pre`, where it is kept byte for byte.
+A non-breaking space is content, not whitespace, and survives.
+
+### 12.1 Fidelity contract
+
+The table is the contract. "Dropped" means the element contributes no output and is counted in
+`TypstHtmlImportResult.DroppedElements`; "transparent" means it contributes no output but its
+children are imported and it is not counted.
+
+| HTML | Node emitted | Notes |
+| --- | --- | --- |
+| `p` | `ParagraphNode` | An empty paragraph emits nothing |
+| `h1`–`h6` | `HeadingNode` | Levels map to `=` … `======` |
+| `ul`, `ol`, `li` | `ListNode` | Nested lists are emitted two spaces deeper per level |
+| `table`, `thead`, `tbody`, `tfoot`, `tr`, `th`, `td` | `TableNode` | `colspan` and `rowspan` become `table.cell(…)`; column count is the widest row |
+| `strong`, `b` | `BoldNode` | |
+| `em`, `i` | `EmphasisNode` | |
+| `code` | `InlineCodeNode` | The fence grows past any backtick run in the code |
+| `pre` | `CodeBlockNode` | The language comes from `code class="language-…"`; one leading newline is removed; the fence grows past any backtick run in the code |
+| `a href` | `LinkNode` | Without an `href`, its text is kept without a link |
+| `img src` | `FigureNode` | `src` is resolved by `AssetResolver`; see below |
+| `blockquote` | `QuoteNode` | Its blocks become paragraphs inside the quote |
+| `br` | `LineBreakNode` | |
+| `hr` | `#divider()` | |
+| `dl`, `dt`, `dd` | `TermListNode` | A `dd` with no preceding `dt` gets an empty term |
+| `sup`, `sub` | `#super[…]`, `#sub[…]` | |
+| `html`, `body`, `div`, `span`, `section`, `article`, `header`, `footer`, `main`, `nav`, `aside`, `figure`, `figcaption`, `form`, `fieldset`, `details`, `summary`, `address`, `center`, `hgroup`, `menu`, `picture` | none | Transparent: children imported, element not counted |
+| anything else | none | Unwrapped if it has text: the children are imported, the element is counted; `UnknownElements = Throw` fails instead |
+
+Table headers: only the first `thead` row becomes `table.header(…)`. Further `thead` rows are
+imported as body rows, and a `<caption>` is dropped and counted, because `TypstTable` has one header
+row and no caption.
+
+Elements whose content is invisible in a paged document — `head`, `title`, `meta`, `link`, `base`,
+`script`, `style`, `noscript`, `template`, form controls, `source`, `track`, `wbr` — are ignored
+silently, not counted. Elements whose text is not prose — `iframe`, `object`, `embed`, `video`,
+`audio`, `canvas`, `svg`, `math`, `map` — are dropped with their subtree and counted.
+
+### 12.2 Images
+
+The importer **never fetches a network resource and never reads a file**. Every `img` source is
+passed to `TypstHtmlImportOptions.AssetResolver`; the returned name must be an asset registered on
+the world builder. When the resolver is null or returns null or white space, the import fails with
+`TypstHtmlImportException` whose `ElementName` is `img`, rather than emitting an image that would
+only fail later, at compile time. An inline `img` (inside a paragraph) is reduced to its `alt` text,
+but it still has to resolve. `alt` and `title` are otherwise not emitted.
+
+### 12.3 Inline styles
+
+`HonourInlineStyles` defaults to `false`, and the importer does not do CSS layout. When it is
+`true`, exactly three declarations are honoured:
+
+| Declaration | Effect |
+| --- | --- |
+| `font-weight: bold`, `bolder`, or a numeric weight of 600 or more | bold |
+| `font-style: italic` or `oblique` | emphasis |
+| `text-decoration` containing `underline` / `line-through` | underline / strike |
+
+Every other declaration — colour, size, font family, spacing, `display`, margin, width, position —
+is ignored. A page whose fidelity depends on CSS must be rendered by a browser; importing it here
+would silently produce a different document.
+
+### 12.4 Escaping
+
+HTML text and attribute values are never concatenated into Typst source. They enter the model as
+`TextNode` and `LinkNode` values, so the writer of §5 escapes them: `*`, `_`, `#`, `$`, `<`, `>`,
+`@`, `~` and brackets in text, and a quote or a backslash in an `href`, cannot break the emitted
+markup. This is the one rule the importer shares with the rest of the model, and it is covered by a
+fixture in both the managed and the compile-level test suites.
+
+### 12.5 What a real page loses
+
+Deliberately not imported, and not pretended otherwise: CSS layout (columns, floats, sizing,
+positioning); classes and ids, except `class="language-…"` on `code`; `colspan`/`rowspan` are kept
+but row groups, `colgroup` widths and `caption` are not; `alt` and `title`; inline `style` beyond
+the three declarations above; MathML and SVG; `figure` captions (a `figcaption` becomes an ordinary
+paragraph); definition lists with several `dd` per `dt` (the second `dd` gets an empty term);
+footnotes, citations and any semantic markup not listed in §12.1. Anything outside the table is
+either unwrapped and counted, or dropped with its subtree and counted, so the loss is visible in
+`DroppedElements` instead of being silent.

@@ -78,7 +78,7 @@ public static class FacturXValidator
 
         foreach (var line in invoice.Lines)
         {
-            var expected = Math.Round(line.Quantity * line.UnitPrice, 2, MidpointRounding.AwayFromZero);
+            var expected = Math.Round(LineNet(line), 2, MidpointRounding.AwayFromZero);
 
             if (Math.Abs(expected - line.LineNetAmount) > Tolerance)
             {
@@ -140,7 +140,8 @@ public static class FacturXValidator
         }
 
         // BR-CO-9: every VAT category and rate in the breakdown must be the sum of the lines that
-        // carry it. A breakdown that does not match the lines is the classic silent error.
+        // carry it, adjusted by the document-level allowances and charges assigned to it. A
+        // breakdown that does not match the lines is the classic silent error.
         foreach (var tax in invoice.TaxBreakdown)
         {
             var lines = counted
@@ -148,12 +149,18 @@ public static class FacturXValidator
                     && (line.TaxRate ?? 0m) == (tax.Rate ?? 0m))
                 .ToList();
 
-            if (lines.Count == 0)
+            var adjustments = invoice.AllowancesCharges
+                .Where(adjustment => string.Equals(adjustment.VatCategory, tax.Category, StringComparison.Ordinal)
+                    && (adjustment.VatRate ?? 0m) == (tax.Rate ?? 0m))
+                .ToList();
+
+            if (lines.Count == 0 && adjustments.Count == 0)
             {
                 continue;
             }
 
-            var sum = lines.Sum(line => line.LineNetAmount);
+            var sum = lines.Sum(line => line.LineNetAmount)
+                + adjustments.Sum(adjustment => adjustment.IsCharge ? adjustment.Amount : -adjustment.Amount);
 
             if (Math.Abs(sum - tax.Basis) > Tolerance)
             {
@@ -180,16 +187,134 @@ public static class FacturXValidator
 
         if (invoice.TaxBreakdown.Count > 0)
         {
-            Check(issues, "BR-CO-13", "the sum of the VAT bases", invoice.TaxBreakdown.Sum(tax => tax.Basis), invoice.Totals.TaxBasisTotal);
+            Check(issues, "BR-CO-9", "the sum of the VAT bases", invoice.TaxBreakdown.Sum(tax => tax.Basis), invoice.Totals.TaxBasisTotal);
             Check(issues, "BR-CO-14", "the sum of the VAT amounts", invoice.TaxBreakdown.Sum(tax => tax.Amount), invoice.Totals.TaxTotal);
         }
 
         Check(issues, "BR-CO-15", "tax basis + tax total against the grand total", invoice.Totals.TaxBasisTotal + invoice.Totals.TaxTotal, invoice.Totals.GrandTotal);
         Check(issues, "BR-CO-16", "grand total − prepaid against the amount due", invoice.Totals.GrandTotal - invoice.Totals.Prepaid, invoice.Totals.Due);
 
+        CheckAllowances(issues, invoice);
+
         CheckFrench(issues, invoice);
 
         return new FacturXValidationResult(issues);
+    }
+
+    /// <summary>
+    /// The rules of the document-level and line-level allowances and charges, the invoice period
+    /// and the payment mandate — the terms the writer gained together with UBL.
+    /// </summary>
+    /// <remarks>
+    /// These are the ones decidable from the document: the arithmetic of BG-20 / BG-21 and the
+    /// identifiers a receiver needs to place an adjustment in a VAT category or to know what it is
+    /// for. Whether an amount is commercially justified is not on the document.
+    /// </remarks>
+    private static void CheckAllowances(List<FacturXIssue> issues, FacturXInvoice invoice)
+    {
+        var allowances = invoice.AllowancesCharges.Where(adjustment => !adjustment.IsCharge).ToList();
+        var charges = invoice.AllowancesCharges.Where(adjustment => adjustment.IsCharge).ToList();
+
+        // BT-107 and BT-108 are the sums the document states for its own adjustments.
+        Check(issues, "BR-CO-11", "the sum of the document allowances against BT-107", allowances.Sum(adjustment => adjustment.Amount), invoice.Totals.AllowanceTotal);
+        Check(issues, "BR-CO-12", "the sum of the document charges against BT-108", charges.Sum(adjustment => adjustment.Amount), invoice.Totals.ChargeTotal);
+
+        // BR-CO-13: the total without VAT is the line total, less the allowances, plus the charges.
+        Check(
+            issues,
+            "BR-CO-13",
+            "line total − allowances + charges against the total without VAT",
+            invoice.Totals.LineTotal - invoice.Totals.AllowanceTotal + invoice.Totals.ChargeTotal,
+            invoice.Totals.TaxBasisTotal);
+
+        foreach (var adjustment in invoice.AllowancesCharges)
+        {
+            var kind = adjustment.IsCharge ? "charge" : "allowance";
+
+            // BR-27 / BR-31: the amount is positive; the indicator carries the direction.
+            if (adjustment.Amount < 0m)
+            {
+                issues.Add(new(
+                    adjustment.IsCharge ? "BR-31" : "BR-27",
+                    $"a document-level {kind} of {adjustment.Amount} is negative; the indicator states the direction, the amount stays positive"));
+            }
+
+            // BR-CO-21: an adjustment says what it is for, by reason or by code.
+            if (adjustment.Reason is not { Length: > 0 } && adjustment.ReasonCode is not { Length: > 0 })
+            {
+                issues.Add(new("BR-CO-21", $"a document-level {kind} of {adjustment.Amount} carries neither a reason nor a reason code"));
+            }
+
+            // BR-32 / BR-36: the VAT category places the adjustment in the breakdown.
+            if (adjustment.VatCategory is not { Length: > 0 })
+            {
+                issues.Add(new(adjustment.IsCharge ? "BR-36" : "BR-32", $"a document-level {kind} of {adjustment.Amount} has no VAT category"));
+            }
+            else if (!FacturXCodeLists.IsVatCategory(adjustment.VatCategory))
+            {
+                issues.Add(new("BR-CL-17", $"`{adjustment.VatCategory}` on a document-level {kind} is not a VAT category of EN 16931"));
+            }
+        }
+
+        foreach (var line in invoice.Lines)
+        {
+            foreach (var adjustment in line.AllowancesCharges)
+            {
+                // BR-CO-22: a line adjustment says what it is for, by reason or by code.
+                if (adjustment.Reason is not { Length: > 0 } && adjustment.ReasonCode is not { Length: > 0 })
+                {
+                    issues.Add(new(
+                        "BR-CO-22",
+                        $"line {line.Id ?? "(no id)"}: a {(adjustment.IsCharge ? "charge" : "allowance")} of {adjustment.Amount} carries neither a reason nor a reason code"));
+                }
+
+                if (adjustment.Amount < 0m)
+                {
+                    issues.Add(new(
+                        "BR-27",
+                        $"line {line.Id ?? "(no id)"}: a {(adjustment.IsCharge ? "charge" : "allowance")} of {adjustment.Amount} is negative; the indicator states the direction"));
+                }
+            }
+
+            // BR-CO-20: a line period has at least one of its two dates.
+            if (line.Period is { Start: null, End: null })
+            {
+                issues.Add(new("BR-CO-20", $"line {line.Id ?? "(no id)"} carries a period with neither a start nor an end date (BG-26)"));
+            }
+        }
+
+        // BR-CO-19: an invoice period has at least one of its two dates.
+        if (invoice.Period is { Start: null, End: null })
+        {
+            issues.Add(new("BR-CO-19", "the invoice period (BG-14) carries neither a start nor an end date"));
+        }
+
+        // BR-49: a remittance reference or a mandate is paid for by a means the document names.
+        if ((invoice.Mandate is not null || invoice.PaymentReference is { Length: > 0 })
+            && invoice.PaymentMeansCode is not { Length: > 0 })
+        {
+            issues.Add(new("BR-49", "the document carries a payment reference or a mandate but no payment means code (BT-81)"));
+        }
+    }
+
+    /// <summary>
+    /// The line net amount as the standard computes it: the quantity at the price for one base
+    /// quantity, plus the line charges, less the line allowances.
+    /// </summary>
+    private static decimal LineNet(FacturXLine line)
+    {
+        var quantity = line.BaseQuantity is { } baseQuantity && baseQuantity != 0m
+            ? line.Quantity / baseQuantity
+            : line.Quantity;
+
+        var net = quantity * line.UnitPrice;
+
+        foreach (var adjustment in line.AllowancesCharges)
+        {
+            net += adjustment.IsCharge ? adjustment.Amount : -adjustment.Amount;
+        }
+
+        return net;
     }
 
     /// <summary>

@@ -1,6 +1,5 @@
 using System;
 using System.Globalization;
-using System.Linq;
 using System.IO;
 using System.Text;
 using System.Xml;
@@ -92,28 +91,40 @@ public static class CiiWriter
             new XElement(Ram + "IssueDateTime",
                 new XElement(Udt + "DateTimeString",
                     new XAttribute("format", "102"),
-                    invoice.IssueDate.ToString("yyyyMMdd", CultureInfo.InvariantCulture))));
+                    Xml.CompactDate(invoice.IssueDate))));
 
         // NoteType sequences Content before SubjectCode: the reverse fails the official XSD.
-        if (invoice.Note is { Length: > 0 } note)
+        // The coded notes already carry every note, the first one included, so the plain Note is
+        // only written when there are none — writing both would repeat the text.
+        if (invoice.Notes.Count > 0)
+        {
+            foreach (var extra in invoice.Notes)
+            {
+                var element = new XElement(Ram + "IncludedNote", new XElement(Ram + "Content", extra.Content));
+
+                if (extra.SubjectCode is { Length: > 0 } code)
+                {
+                    element.Add(new XElement(Ram + "SubjectCode", code));
+                }
+
+                header.Add(element);
+            }
+        }
+        else if (invoice.Note is { Length: > 0 } note)
         {
             header.Add(new XElement(Ram + "IncludedNote", new XElement(Ram + "Content", note)));
         }
 
-        foreach (var extra in invoice.Notes)
-        {
-            var element = new XElement(Ram + "IncludedNote", new XElement(Ram + "Content", extra.Content));
-
-            if (extra.SubjectCode is { Length: > 0 } code)
-            {
-                element.Add(new XElement(Ram + "SubjectCode", code));
-            }
-
-            header.Add(element);
-        }
-
         return header;
     }
+
+    /// <summary>
+    /// Whether the profile's line settlement may carry <c>InvoiceReferencedDocument</c>. Only the
+    /// EXTENDED schema has the element there; EN 16931 does not, and the official XSD rejects a
+    /// document that writes it.
+    /// </summary>
+    private static bool AllowsLineReference(FacturXProfile profile)
+        => profile is FacturXProfile.Extended or FacturXProfile.ExtendedCtcFr;
 
     private static XElement Transaction(FacturXInvoice invoice)
     {
@@ -122,7 +133,7 @@ public static class CiiWriter
         var lineNumber = 1;
         foreach (var line in invoice.Lines)
         {
-            transaction.Add(Line(line, lineNumber++));
+            transaction.Add(Line(line, lineNumber++, invoice.Currency, invoice.Profile));
         }
 
         transaction.Add(Agreement(invoice));
@@ -139,7 +150,7 @@ public static class CiiWriter
         return transaction;
     }
 
-    private static XElement Line(FacturXLine line, int number)
+    private static XElement Line(FacturXLine line, int number, string currency, FacturXProfile profile)
     {
         // DocumentLineDocumentType sequences LineID, ParentLineID, LineStatusReasonCode.
         var document = new XElement(Ram + "AssociatedDocumentLineDocument",
@@ -168,13 +179,59 @@ public static class CiiWriter
             product.Add(new XElement(Ram + "Name", name));
         }
 
+        // BT-158 follows Name in TradeProductType, before the origin and the instances.
+        foreach (var classification in line.Classifications)
+        {
+            if (classification.Code is not { Length: > 0 } classCode)
+            {
+                continue;
+            }
+
+            var coded = new XElement(Ram + "ClassCode", classCode);
+
+            if (classification.Scheme is { Length: > 0 } scheme)
+            {
+                coded.Add(new XAttribute("listID", scheme));
+            }
+
+            product.Add(new XElement(Ram + "DesignatedProductClassification", coded));
+        }
+
         item.Add(product);
 
-        var agreement = new XElement(Ram + "SpecifiedLineTradeAgreement",
-            new XElement(Ram + "NetPriceProductTradePrice",
-                new XElement(Ram + "ChargeAmount", Amount(line.UnitPrice))));
+        // GrossPriceProductTradePrice sequences before NetPriceProductTradePrice: BT-148 lives in
+        // the first and BT-146 in the second.
+        var agreement = new XElement(Ram + "SpecifiedLineTradeAgreement");
 
-        // LineTradeAgreementType places ItemSellerTradeParty after the net price.
+        if (line.GrossUnitPrice is { } gross)
+        {
+            var grossPrice = new XElement(Ram + "GrossPriceProductTradePrice",
+                new XElement(Ram + "ChargeAmount", Xml.Money(gross)));
+
+            if (line.PriceDiscount is { } discount)
+            {
+                grossPrice.Add(new XElement(Ram + "AppliedTradeAllowanceCharge",
+                    new XElement(Ram + "ChargeIndicator", new XElement(Udt + "Indicator", "false")),
+                    new XElement(Ram + "BasisAmount", Xml.Money(gross)),
+                    new XElement(Ram + "ActualAmount", Xml.Money(discount))));
+            }
+
+            agreement.Add(grossPrice);
+        }
+
+        var netPrice = new XElement(Ram + "NetPriceProductTradePrice",
+            new XElement(Ram + "ChargeAmount", Xml.Money(line.UnitPrice)));
+
+        if (line.BaseQuantity is { } baseQuantity)
+        {
+            netPrice.Add(new XElement(Ram + "BasisQuantity",
+                new XAttribute("unitCode", line.UnitCode ?? "C62"),
+                Xml.Quantity(baseQuantity)));
+        }
+
+        agreement.Add(netPrice);
+
+        // LineTradeAgreementType places ItemSellerTradeParty after the prices.
         if (line.LineSeller is { } lineSeller)
         {
             agreement.Add(Party("ItemSellerTradeParty", lineSeller));
@@ -185,7 +242,7 @@ public static class CiiWriter
         item.Add(new XElement(Ram + "SpecifiedLineTradeDelivery",
             new XElement(Ram + "BilledQuantity",
                 new XAttribute("unitCode", line.UnitCode ?? "C62"),
-                Quantity(line.Quantity))));
+                Xml.Quantity(line.Quantity))));
 
         var settlement = new XElement(Ram + "SpecifiedLineTradeSettlement");
 
@@ -199,26 +256,39 @@ public static class CiiWriter
 
             if (line.TaxRate is { } rate)
             {
-                tax.Add(new XElement(Ram + "RateApplicablePercent", Percent(rate)));
+                tax.Add(new XElement(Ram + "RateApplicablePercent", Xml.Rate(rate)));
             }
 
             settlement.Add(tax);
         }
 
+        // BG-26 and BG-27 / BG-28 precede the monetary summation in LineTradeSettlementType.
+        if (line.Period is { } linePeriod)
+        {
+            settlement.Add(Period("BillingSpecifiedPeriod", linePeriod));
+        }
+
+        foreach (var adjustment in line.AllowancesCharges)
+        {
+            settlement.Add(AllowanceCharge("SpecifiedTradeAllowanceCharge", adjustment));
+        }
+
         var summation = new XElement(Ram + "SpecifiedTradeSettlementLineMonetarySummation",
-            new XElement(Ram + "LineTotalAmount", Amount(line.LineNetAmount)));
+            new XElement(Ram + "LineTotalAmount", Xml.Money(line.LineNetAmount)));
 
         if (line.TaxTotal is { } lineTax)
         {
             summation.Add(new XElement(Ram + "TaxTotalAmount",
-                new XAttribute("currencyID", "EUR"),
-                Amount(lineTax)));
+                new XAttribute("currencyID", currency),
+                Xml.Money(lineTax)));
         }
 
         settlement.Add(summation);
 
-        // LineTradeSettlementType places InvoiceReferencedDocument after the monetary summation.
-        if (line.PriorInvoiceNumber is { Length: > 0 } prior)
+        // LineTradeSettlementType places InvoiceReferencedDocument after the monetary summation —
+        // but only the EXTENDED schema has it there: the EN 16931 profile's line settlement does
+        // not allow the element, and the official validator refuses the whole document for it.
+        if (line.PriorInvoiceNumber is { Length: > 0 } prior && AllowsLineReference(profile))
         {
             var reference = new XElement(Ram + "InvoiceReferencedDocument",
                 new XElement(Ram + "IssuerAssignedID", prior));
@@ -228,7 +298,7 @@ public static class CiiWriter
                 reference.Add(new XElement(Ram + "FormattedIssueDateTime",
                     new XElement(Qdt + "DateTimeString",
                         new XAttribute("format", "102"),
-                        priorDate.ToString("yyyyMMdd", CultureInfo.InvariantCulture))));
+                        Xml.CompactDate(priorDate))));
             }
 
             settlement.Add(reference);
@@ -265,10 +335,57 @@ public static class CiiWriter
         agreement.Add(Party("SellerTradeParty", invoice.Seller));
         agreement.Add(Party("BuyerTradeParty", invoice.Buyer));
 
+        // Agreement sequence: order reference, contract reference, additional documents, project.
         if (invoice.OrderReference is { Length: > 0 } order)
         {
             agreement.Add(new XElement(Ram + "BuyerOrderReferencedDocument",
                 new XElement(Ram + "IssuerAssignedID", order)));
+        }
+
+        if (invoice.ContractReference is { Length: > 0 } contract)
+        {
+            agreement.Add(new XElement(Ram + "ContractReferencedDocument",
+                new XElement(Ram + "IssuerAssignedID", contract)));
+        }
+
+        // BG-24: TypeCode 916 marks a supporting document, and ReferencedDocumentType sequences
+        // IssuerAssignedID, URIID, TypeCode, Name, ReferenceTypeCode.
+        foreach (var supporting in invoice.SupportingDocuments)
+        {
+            var referenced = new XElement(Ram + "AdditionalReferencedDocument");
+
+            if (supporting.Id is { Length: > 0 } id)
+            {
+                referenced.Add(new XElement(Ram + "IssuerAssignedID", id));
+            }
+
+            if (supporting.Uri is { Length: > 0 } uri)
+            {
+                referenced.Add(new XElement(Ram + "URIID", uri));
+            }
+
+            referenced.Add(new XElement(Ram + "TypeCode", "916"));
+
+            if (supporting.Description is { Length: > 0 } description)
+            {
+                referenced.Add(new XElement(Ram + "Name", description));
+            }
+
+            if (supporting.Scheme is { Length: > 0 } scheme)
+            {
+                referenced.Add(new XElement(Ram + "ReferenceTypeCode", scheme));
+            }
+
+            agreement.Add(referenced);
+        }
+
+        // BT-11 comes last in the agreement sequence. ProcuringProjectType makes both ID and Name
+        // mandatory, and EN 16931 spends only one term on the project: the reference fills both.
+        if (invoice.ProjectReference is { Length: > 0 } project)
+        {
+            agreement.Add(new XElement(Ram + "SpecifiedProcuringProject",
+                new XElement(Ram + "ID", project),
+                new XElement(Ram + "Name", project)));
         }
 
         return agreement;
@@ -296,6 +413,37 @@ public static class CiiWriter
             element.Add(new XElement(
                 Ram + "SpecifiedLegalOrganization",
                 Identified("ID", legalId, party.LegalIdScheme)));
+        }
+
+        // BG-6 / BG-9 sit between the legal organisation and the postal address. Email is the
+        // shorthand the model carried before contacts existed, so it fills the e-mail when no
+        // contact states one.
+        var contactName = party.Contact?.Name;
+        var contactPhone = party.Contact?.Phone;
+        var contactEmail = party.Contact?.Email ?? party.Email;
+
+        if (contactName is { Length: > 0 } || contactPhone is { Length: > 0 } || contactEmail is { Length: > 0 })
+        {
+            var defined = new XElement(Ram + "DefinedTradeContact");
+
+            if (contactName is { Length: > 0 })
+            {
+                defined.Add(new XElement(Ram + "PersonName", contactName));
+            }
+
+            if (contactPhone is { Length: > 0 })
+            {
+                defined.Add(new XElement(Ram + "TelephoneUniversalCommunication",
+                    new XElement(Ram + "CompleteNumber", contactPhone)));
+            }
+
+            if (contactEmail is { Length: > 0 })
+            {
+                defined.Add(new XElement(Ram + "EmailURIUniversalCommunication",
+                    new XElement(Ram + "URIID", contactEmail)));
+            }
+
+            element.Add(defined);
         }
 
         // The EN 16931 profile reorders TradeAddressType: PostcodeCode first, then the street
@@ -353,19 +501,123 @@ public static class CiiWriter
             ? new XElement(Ram + name, new XAttribute("schemeID", scheme), value)
             : new XElement(Ram + name, value);
 
+    /// <summary>A <c>BillingSpecifiedPeriod</c>, whose two date-times are optional and ordered.</summary>
+    private static XElement Period(string elementName, FacturXPeriod period)
+    {
+        var element = new XElement(Ram + elementName);
+
+        if (period.Start is { } start)
+        {
+            element.Add(new XElement(Ram + "StartDateTime",
+                new XElement(Udt + "DateTimeString",
+                    new XAttribute("format", "102"),
+                    Xml.CompactDate(start))));
+        }
+
+        if (period.End is { } end)
+        {
+            element.Add(new XElement(Ram + "EndDateTime",
+                new XElement(Udt + "DateTimeString",
+                    new XAttribute("format", "102"),
+                    Xml.CompactDate(end))));
+        }
+
+        return element;
+    }
+
+    /// <summary>
+    /// A <c>SpecifiedTradeAllowanceCharge</c>: indicator, percentage, basis, amount, reason code,
+    /// reason, then the VAT category — the order TradeAllowanceChargeType fixes.
+    /// </summary>
+    private static XElement AllowanceCharge(string elementName, FacturXAllowanceCharge adjustment)
+    {
+        var element = new XElement(Ram + elementName,
+            new XElement(Ram + "ChargeIndicator",
+                new XElement(Udt + "Indicator", adjustment.IsCharge ? "true" : "false")));
+
+        if (adjustment.Percentage is { } percentage)
+        {
+            element.Add(new XElement(Ram + "CalculationPercent", Xml.Rate(percentage)));
+        }
+
+        if (adjustment.BaseAmount is { } basis)
+        {
+            element.Add(new XElement(Ram + "BasisAmount", Xml.Money(basis)));
+        }
+
+        element.Add(new XElement(Ram + "ActualAmount", Xml.Money(adjustment.Amount)));
+
+        if (adjustment.ReasonCode is { Length: > 0 } reasonCode)
+        {
+            element.Add(new XElement(Ram + "ReasonCode", reasonCode));
+        }
+
+        if (adjustment.Reason is { Length: > 0 } reason)
+        {
+            element.Add(new XElement(Ram + "Reason", reason));
+        }
+
+        if (adjustment.VatCategory is { Length: > 0 } category)
+        {
+            var tax = new XElement(Ram + "CategoryTradeTax",
+                new XElement(Ram + "TypeCode", "VAT"),
+                new XElement(Ram + "CategoryCode", category));
+
+            if (adjustment.VatRate is { } rate)
+            {
+                tax.Add(new XElement(Ram + "RateApplicablePercent", Xml.Rate(rate)));
+            }
+
+            element.Add(tax);
+        }
+
+        return element;
+    }
+
     private static XElement Settlement(FacturXInvoice invoice)
     {
-        var settlement = new XElement(Ram + "ApplicableHeaderTradeSettlement",
-            new XElement(Ram + "InvoiceCurrencyCode", invoice.Currency));
+        var settlement = new XElement(Ram + "ApplicableHeaderTradeSettlement");
 
-        if (invoice.Iban is { Length: > 0 } iban)
+        // Settlement sequence: CreditorReferenceID (BT-89), PaymentReference (BT-83),
+        // TaxCurrencyCode (BT-6), then InvoiceCurrencyCode (BT-5).
+        if (invoice.Mandate?.Reference is { Length: > 0 } mandate)
+        {
+            settlement.Add(new XElement(Ram + "CreditorReferenceID", mandate));
+        }
+
+        if (invoice.PaymentReference is { Length: > 0 } remittance)
+        {
+            settlement.Add(new XElement(Ram + "PaymentReference", remittance));
+        }
+
+        if (invoice.TaxCurrency is { Length: > 0 } taxCurrency)
+        {
+            settlement.Add(new XElement(Ram + "TaxCurrencyCode", taxCurrency));
+        }
+
+        settlement.Add(new XElement(Ram + "InvoiceCurrencyCode", invoice.Currency));
+
+        if (invoice.Iban is { Length: > 0 }
+            || invoice.Mandate?.DebitedAccount is { Length: > 0 }
+            || invoice.PaymentMeansCode is { Length: > 0 })
         {
             // 58 is a SEPA credit transfer: the only sensible default when an IBAN is given and
             // the caller did not say how it is paid.
             var means = new XElement(Ram + "SpecifiedTradeSettlementPaymentMeans",
-                new XElement(Ram + "TypeCode", invoice.PaymentMeansCode ?? "58"),
-                new XElement(Ram + "PayeePartyCreditorFinancialAccount",
-                    new XElement(Ram + "IBANID", iban)));
+                new XElement(Ram + "TypeCode", invoice.PaymentMeansCode ?? "58"));
+
+            // BT-91: the account the direct debit is drawn on precedes the creditor's account.
+            if (invoice.Mandate?.DebitedAccount is { Length: > 0 } debited)
+            {
+                means.Add(new XElement(Ram + "PayerPartyDebtorFinancialAccount",
+                    new XElement(Ram + "IBANID", debited)));
+            }
+
+            if (invoice.Iban is { Length: > 0 } payee)
+            {
+                means.Add(new XElement(Ram + "PayeePartyCreditorFinancialAccount",
+                    new XElement(Ram + "IBANID", payee)));
+            }
 
             if (invoice.Bic is { Length: > 0 } bic)
             {
@@ -379,14 +631,14 @@ public static class CiiWriter
         foreach (var tax in invoice.TaxBreakdown)
         {
             var element = new XElement(Ram + "ApplicableTradeTax",
-                new XElement(Ram + "CalculatedAmount", Amount(tax.Amount)),
+                new XElement(Ram + "CalculatedAmount", Xml.Money(tax.Amount)),
                 new XElement(Ram + "TypeCode", "VAT"),
-                new XElement(Ram + "BasisAmount", Amount(tax.Basis)),
+                new XElement(Ram + "BasisAmount", Xml.Money(tax.Basis)),
                 new XElement(Ram + "CategoryCode", tax.Category));
 
             if (tax.Rate is { } rate)
             {
-                element.Add(new XElement(Ram + "RateApplicablePercent", Percent(rate)));
+                element.Add(new XElement(Ram + "RateApplicablePercent", Xml.Rate(rate)));
             }
 
             if (tax.ExemptionReason is { Length: > 0 } reason)
@@ -395,6 +647,17 @@ public static class CiiWriter
             }
 
             settlement.Add(element);
+        }
+
+        // BG-14 and BG-20 / BG-21 follow the VAT breakdown and precede the payment terms.
+        if (invoice.Period is { } period)
+        {
+            settlement.Add(Period("BillingSpecifiedPeriod", period));
+        }
+
+        foreach (var adjustment in invoice.AllowancesCharges)
+        {
+            settlement.Add(AllowanceCharge("SpecifiedTradeAllowanceCharge", adjustment));
         }
 
         if (invoice.PaymentTerms is { Length: > 0 } || invoice.DueDate is not null)
@@ -411,36 +674,40 @@ public static class CiiWriter
                 payment.Add(new XElement(Ram + "DueDateDateTime",
                     new XElement(Udt + "DateTimeString",
                         new XAttribute("format", "102"),
-                        due.ToString("yyyyMMdd", CultureInfo.InvariantCulture))));
+                        Xml.CompactDate(due))));
             }
 
             settlement.Add(payment);
         }
 
         var totals = new XElement(Ram + "SpecifiedTradeSettlementHeaderMonetarySummation",
-            new XElement(Ram + "LineTotalAmount", Amount(invoice.Totals.LineTotal)),
-            new XElement(Ram + "TaxBasisTotalAmount", Amount(invoice.Totals.TaxBasisTotal)),
-            new XElement(Ram + "TaxTotalAmount",
-                new XAttribute("currencyID", invoice.Currency),
-                Amount(invoice.Totals.TaxTotal)),
-            new XElement(Ram + "GrandTotalAmount", Amount(invoice.Totals.GrandTotal)));
+            new XElement(Ram + "LineTotalAmount", Xml.Money(invoice.Totals.LineTotal)));
+
+        // HeaderMonetarySummationType sequences ChargeTotalAmount before AllowanceTotalAmount.
+        if (invoice.Totals.ChargeTotal != 0m)
+        {
+            totals.Add(new XElement(Ram + "ChargeTotalAmount", Xml.Money(invoice.Totals.ChargeTotal)));
+        }
+
+        if (invoice.Totals.AllowanceTotal != 0m)
+        {
+            totals.Add(new XElement(Ram + "AllowanceTotalAmount", Xml.Money(invoice.Totals.AllowanceTotal)));
+        }
+
+        totals.Add(new XElement(Ram + "TaxBasisTotalAmount", Xml.Money(invoice.Totals.TaxBasisTotal)));
+        totals.Add(new XElement(Ram + "TaxTotalAmount",
+            new XAttribute("currencyID", invoice.Currency),
+            Xml.Money(invoice.Totals.TaxTotal)));
+        totals.Add(new XElement(Ram + "GrandTotalAmount", Xml.Money(invoice.Totals.GrandTotal)));
 
         if (invoice.Totals.Prepaid != 0m)
         {
-            totals.Add(new XElement(Ram + "TotalPrepaidAmount", Amount(invoice.Totals.Prepaid)));
+            totals.Add(new XElement(Ram + "TotalPrepaidAmount", Xml.Money(invoice.Totals.Prepaid)));
         }
 
-        totals.Add(new XElement(Ram + "DuePayableAmount", Amount(invoice.Totals.Due)));
+        totals.Add(new XElement(Ram + "DuePayableAmount", Xml.Money(invoice.Totals.Due)));
         settlement.Add(totals);
 
         return settlement;
     }
-
-    private static string Amount(decimal value) => value.ToString("0.00", CultureInfo.InvariantCulture);
-
-    private static string Percent(decimal value) =>
-        value.ToString(value == decimal.Truncate(value) ? "0" : "0.00", CultureInfo.InvariantCulture);
-
-    private static string Quantity(decimal value) =>
-        value.ToString("0.####", CultureInfo.InvariantCulture);
 }

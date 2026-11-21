@@ -19,19 +19,31 @@ public sealed partial class TypstContent
     public TypstContent Highlight(string text) => Wrap("highlight", From(text));
 
     /// <summary>Appends underlined text.</summary>
-    public TypstContent Underline(string text) => Wrap("underline", From(text));
+    public TypstContent Underline(string text) => Underline(From(text));
+
+    /// <summary>Appends underlined content.</summary>
+    public TypstContent Underline(TypstContent content) => Wrap("underline", content);
 
     /// <summary>Appends overlined text.</summary>
     public TypstContent Overline(string text) => Wrap("overline", From(text));
 
     /// <summary>Appends struck-through text.</summary>
-    public TypstContent Strikethrough(string text) => Wrap("strike", From(text));
+    public TypstContent Strikethrough(string text) => Strikethrough(From(text));
+
+    /// <summary>Appends struck-through content.</summary>
+    public TypstContent Strikethrough(TypstContent content) => Wrap("strike", content);
 
     /// <summary>Appends subscript text.</summary>
-    public TypstContent Subscript(string text) => Wrap("sub", From(text));
+    public TypstContent Subscript(string text) => Subscript(From(text));
+
+    /// <summary>Appends subscript content.</summary>
+    public TypstContent Subscript(TypstContent content) => Wrap("sub", content);
 
     /// <summary>Appends superscript text.</summary>
-    public TypstContent Superscript(string text) => Wrap("super", From(text));
+    public TypstContent Superscript(string text) => Superscript(From(text));
+
+    /// <summary>Appends superscript content.</summary>
+    public TypstContent Superscript(TypstContent content) => Wrap("super", content);
 
     /// <summary>Appends filler text.</summary>
     public TypstContent Lorem(int words = 40)

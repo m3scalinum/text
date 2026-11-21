@@ -1,8 +1,8 @@
 # FactureX — the invoice model
 
-One model covers both syntaxes the standard allows: CII (`CrossIndustryInvoice`) and UBL (`Invoice`).
-The reader fills it, the writer emits CII, and the rest of your code does not care which one the
-sender used.
+One model covers both syntaxes the standard allows: CII (`CrossIndustryInvoice`) and UBL (`Invoice`,
+`CreditNote`). The reader fills it, `CiiWriter` and `UblWriter` emit it, and the rest of your code
+does not care which one the sender used.
 
 ## The header
 
@@ -50,6 +50,23 @@ Seller = new FacturXParty
 `OperationCategory` (BT-118) and `VatOnDebits` cover the French regimes where VAT is due on debits
 rather than on the invoice.
 
+A `FacturXContact` carries the point of contact the standard makes optional: `Name` (BT-41 / BT-56),
+`Phone` (BT-42 / BT-57) and `Email` (BT-43 / BT-58). `FacturXParty.Email` remains as the shorthand for
+the contact e-mail, so a document read before contacts existed still has its address.
+
+```csharp
+Seller = new FacturXParty
+{
+    Name = "Atelier Typographique",
+    Contact = new FacturXContact
+    {
+        Name = "Jeanne Martin",
+        Phone = "+33123456789",
+        Email = "jeanne@atelier.fr",
+    },
+};
+```
+
 ## The lines and the totals
 
 Each `FacturXLine` carries its own net amount and tax rate; `TaxBreakdown` groups them by category and
@@ -71,6 +88,68 @@ Lines =
     },
 ],
 ```
+
+## Allowances, charges and periods
+
+`FacturXAllowanceCharge` covers both directions of an adjustment, at document level (`BG-20` /
+`BG-21`) and at line level (`BG-27` / `BG-28`). `IsCharge` says which: the amount stays positive, and
+the flag states whether it is added or subtracted — the standard never writes one with the other's
+sign.
+
+```csharp
+AllowancesCharges =
+[
+    new FacturXAllowanceCharge
+    {
+        Amount = 30.00m,          // BT-92
+        BaseAmount = 300.00m,     // BT-93
+        Percentage = 10m,         // BT-94
+        Reason = "Remise fidélité", // BT-97
+        ReasonCode = "95",        // BT-98
+        VatCategory = "S",        // BT-95, what places it in the breakdown
+        VatRate = 20m,            // BT-96
+    },
+    new FacturXAllowanceCharge
+    {
+        IsCharge = true,          // BG-21
+        Amount = 10.00m,          // BT-99
+        Reason = "Frais de dossier",
+        VatCategory = "S",
+        VatRate = 20m,
+    },
+],
+```
+
+A line carries its own `AllowancesCharges` (BG-27 / BG-28) and a `Period` (BG-26). The document
+carries `Period` (BG-14) as well. `FacturXPeriod` holds a `Start` and an `End`, either of which may be
+the only one known.
+
+`Totals.AllowanceTotal` (BT-107) and `Totals.ChargeTotal` (BT-108) are the sums of the document-level
+adjustments; they are what makes `TaxBasisTotal` differ from `LineTotal`.
+
+## References and payment
+
+`ContractReference` (BT-12), `ProjectReference` (BT-11) and `PaymentReference` (BT-83) are plain
+strings; `SupportingDocuments` is a list of `FacturXSupportingDocument` with an identifier, its
+scheme, a description and a location (BG-24).
+
+```csharp
+PaymentReference = "RF18539007547034",   // BT-83, what the payer quotes
+SupportingDocuments =
+[
+    new FacturXSupportingDocument
+    {
+        Id = "TS-2026-04",              // BT-122
+        Scheme = "ABZ",                 // BT-18-1
+        Description = "Feuille de temps", // BT-123
+        Uri = "https://example.test/ts.pdf", // BT-124
+    },
+],
+```
+
+A SEPA direct debit is a `FacturXMandate`: the mandate reference (BT-89) and the account debited
+(BT-91). `TaxCurrency` (BT-6) names the currency the VAT is accounted for in when it is not the
+invoice currency.
 
 ## Notes
 

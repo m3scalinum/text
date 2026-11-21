@@ -203,6 +203,57 @@ jobs:
           name: coverage-text
           path: artifacts/coverage/coverage.xml
 
+  templates:
+    name: templates
+    # The pack ships layouts, and the only way to know a layout renders is to render it: these
+    # tests need the native compiler, which the suite job deliberately does not download.
+    needs: [native]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 11.0.x
+      - uses: actions/download-artifact@v8
+        with:
+          name: native-linux-x64
+          path: native/artifacts/linux-x64
+      - run: dotnet restore
+      - run: dotnet build -c Release --no-restore
+      - name: Tests
+        env:
+          SHARPTYPST_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/linux-x64/libsharp_typst.so
+        run: dotnet test tests/Text.Templates.Tests -c Release --no-build
+      - name: Install dotnet-coverage
+        run: dotnet tool install --global dotnet-coverage
+      - name: Collect (templates)
+        env:
+          SHARPTYPST_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/linux-x64/libsharp_typst.so
+        run: >
+          dotnet-coverage collect -f cobertura -o artifacts/coverage/templates.xml
+          "dotnet test tests/Text.Templates.Tests -c Release --no-build"
+      - name: Gate
+        # Only the pack's own assembly: the compiler wrapper is linked into the output as a
+        # dependency, and counting its lines here would measure code no test in this run touches.
+        run: >
+          python3 tests/coverage-gate.py artifacts/coverage/templates.xml 90
+          --require M3scalinum.Text.SharpTypst.Templates
+      - uses: actions/upload-artifact@v7
+        with:
+          name: coverage-templates
+          path: artifacts/coverage/templates.xml
+      - name: Pack
+        run: dotnet pack src/Text.SharpTypst.Templates -c Release --no-build -o artifacts/packages
+      - name: Verify the package
+        # The same check the release runs: a satellite must pin the core version it was built
+        # against, and the licence files must be in the package.
+        run: python3 tests/verify-package.py artifacts/packages/M3scalinum.Text.Templates.*.nupkg
+      - uses: actions/upload-artifact@v7
+        with:
+          name: packages-templates
+          path: artifacts/packages/*.nupkg
+          if-no-files-found: error
+
   text:
     name: text
     runs-on: ubuntu-latest

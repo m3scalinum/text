@@ -165,6 +165,23 @@ public sealed class TypstTemplate
     public CompilationResult RenderDocument(
         TypstCompiler compiler,
         IReadOnlyDictionary<string, object?> parameters)
+        => RenderDocument(compiler, parameters, TypstDocumentKind.Paged);
+
+    /// <summary>
+    /// Renders the template with a chosen layout pass, so the result can be exported to HTML,
+    /// Markdown or plain text as well as to PDF.
+    /// </summary>
+    /// <param name="compiler">The compiler to render with.</param>
+    /// <param name="parameters">Values keyed by manifest name.</param>
+    /// <param name="kind">
+    /// <see cref="TypstDocumentKind.Paged"/> for PDF, SVG and PNG; <see cref="TypstDocumentKind.Html"/>
+    /// for HTML, Markdown and text. <see cref="CompilationResult.PageCount"/> is only meaningful for
+    /// a paged document.
+    /// </param>
+    public CompilationResult RenderDocument(
+        TypstCompiler compiler,
+        IReadOnlyDictionary<string, object?> parameters,
+        TypstDocumentKind kind)
     {
         ArgumentNullException.ThrowIfNull(compiler);
         ArgumentNullException.ThrowIfNull(parameters);
@@ -183,7 +200,9 @@ public sealed class TypstTemplate
         }
 
         using var world = builder.Build();
-        return compiler.Compile(world, new TypstCompilationOptions { Root = Manifest.Entry });
+        return compiler.Compile(
+            world,
+            new TypstCompilationOptions { Root = Manifest.Entry, DocumentKind = kind });
     }
 
     private static void EnsureRenderIsDefined(TypstTemplateManifest manifest, string source)

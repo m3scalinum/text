@@ -35,9 +35,10 @@ them is a bug.
 | `src/Text.SharpTypst` (managed API) | World builder, compiler, `CompileBoth`, export options, packages, evaluation, templates, document model |
 | `src/Text.SharpTypst.DependencyInjection` | `AddSharpTypst`, options, validation |
 | `src/Text.SharpTypst.Templates.Generator` | Roslyn generator: `template.toml` → typed options record |
+| `src/Text.SharpTypst.Templates` | The layout pack: invoice, quotation, statement and attestation, typed, bilingual labels, catalog and DI |
 | `src/Text.Pdf` | PAdES-B signatures as an incremental update, structural PDF/A and PDF/UA conformance checks; no dependency on the compiler |
 | `src/Text.Pdf.FactureX` | CII/UBL reader, EN 16931 checks, CII writer, Factur-X renderer and XMP patch |
-| Tests | 281 unit (fake native) + 44 Pdf + 125 Factur-X + 14 generator + 7 suite + 229 integration (real compiler) |
+| Tests | 281 unit (fake native) + 257 Pdf + 170 Factur-X + 14 generator + 80 templates + 7 suite + 229 integration (real compiler) |
 | Benchmarks | `benchmarks/Text.SharpTypst.Benchmarks`, baseline stored, `--check` gate in CI |
 | Build & packaging | Build files in place; native packaging wired in CI |
 

@@ -10,8 +10,8 @@ This document is normative for that package. The main library is described in
 
 | In scope | Detail |
 | --- | --- |
-| Reading | CII (`rsm:CrossIndustryInvoice`) and UBL (`Invoice`) into one model |
-| Writing | The CII syntax, which Factur-X mandates, from an invoice built in C# |
+| Reading | CII (`rsm:CrossIndustryInvoice`) and UBL (`Invoice`, `CreditNote`) into one model |
+| Writing | CII and UBL 2.1, from an invoice built in C# or read from either syntax |
 | Validation | The EN 16931 rules decidable from the document: mandatory terms and arithmetic |
 | Rendering | A4 layout through the document model, PDF/A-3b, XML attached, XMP patched |
 | XMP | The `fx:` description and its `pdfaExtension:schemas` entry |
@@ -21,7 +21,7 @@ This document is normative for that package. The main library is described in
 | Full EN 16931 / Schematron conformance | Roughly 200 rules with code lists and profile cardinalities; the CI job validates the XML against the official XSD instead |
 | Signature, transmission, Chorus Pro / Peppol | A separate concern with its own protocol |
 | Order-X, EXTENDED German extensions | Different documents; the profile enum exists so they can be added |
-| Converting CII back to UBL | Factur-X only accepts CII, so nothing needs it |
+| Peppol BIS specifics beyond the document | The ProfileID, the SMP/SML lookup and the AS4 transport are exchange concerns, not invoice terms |
 
 ## 2. The model
 
@@ -44,6 +44,25 @@ Rejected: one model per syntax (two validators, two renderers, two sets of tests
 fixed by the schemas. `Xml.Child("ID")` therefore ignores the namespace, which is what lets one
 reader serve both syntaxes and every producer that is not the one in the fixture.
 
+**Decision — the model is the EN 16931 core, not the terms one syntax happens to carry.** A model
+that stopped at what CII could state would make the UBL path lossy in both directions, and a model
+that stopped at what UBL could state would lose the CII price details. The two syntaxes are bound to
+the same semantic model, so the type holds the union of what both can express and each writer emits
+the part its schema allows:
+
+| Group | Terms |
+| --- | --- |
+| Adjustments | document-level allowances and charges (`BG-20` / `BG-21`), line-level allowances and charges (`BG-27` / `BG-28`) |
+| Periods | invoice period (`BG-14`), line period (`BG-26`) |
+| Contacts | seller and buyer contacts (`BG-6` / `BG-9`) |
+| References | supporting documents (`BG-24`), contract (`BT-12`), project (`BT-11`), payment reference (`BT-83`) |
+| Payment | SEPA mandate (`BG-19`), tax currency (`BT-6`) |
+| Price | line base quantity (`BT-149`), gross price (`BT-148`), price discount (`BT-147`), item classification (`BT-158`) |
+
+`FacturXAllowanceCharge`, `FacturXPeriod`, `FacturXContact`, `FacturXSupportingDocument`,
+`FacturXClassification` and `FacturXMandate` carry those terms; `FacturXTotals` gains `AllowanceTotal`
+(`BT-107`) and `ChargeTotal` (`BT-108`).
+
 ## 3. Reading
 
 | Entry point | Input |
@@ -59,9 +78,11 @@ The reader refuses a document with a DTD: entity expansion is how a 1 KB invoice
 `MaxCharactersInDocument` bounds the rest. An unknown root and malformed XML both surface as
 `FacturXFormatException` with the reason in the message.
 
-The subset covers the header, the parties and their tax identifiers, the payment means, the lines,
-the VAT breakdown and the totals — the terms a printed invoice needs. Anything else stays out of the
-model rather than being guessed at.
+The subset covers the header, the parties and their tax identifiers, the contacts, the payment
+means and the mandate, the invoice period, the lines with their periods, prices and adjustments, the
+document-level allowances and charges, the supporting documents, the VAT breakdown and the totals —
+the terms a printed invoice needs and a platform books. Anything else stays out of the model rather
+than being guessed at.
 
 **The round trip.** `ReadPdf` is the receiving half of the exchange: it returns the bytes the sender
 attached, not a re-serialization of them, so a platform can verify what it was given. The attachment
@@ -90,12 +111,19 @@ raises `FacturXValidationException` carrying the full result.
 | `BR-CL-17` | every VAT category is one of the nine the standard defines |
 | `BR-CL-23` | a unit code has the shape of a UN/ECE code |
 | `BR-CO-4` | every line carries a VAT category |
-| `BR-CO-9` | each breakdown basis is the sum of the lines carrying that category and rate |
-| `BR-CO-10` | line amount = quantity × unit price, and the sum matches the line total |
-| `BR-CO-13`, `BR-CO-14` | the VAT bases and amounts sum to the totals |
+| `BR-CO-9` | each breakdown basis is the sum of the lines carrying that category and rate, adjusted by the document-level allowances and charges assigned to it |
+| `BR-CO-10` | line amount = quantity at the price for one base quantity, plus the line charges, less the line allowances; and the lines sum to the line total |
+| `BR-CO-11`, `BR-CO-12` | the document allowances and charges sum to `BT-107` and `BT-108` |
+| `BR-CO-13` | line total − allowances + charges = the total without VAT (`BT-109`) |
+| `BR-CO-14` | the VAT amounts sum to the tax total |
 | `BR-CO-15` | tax basis + tax total = grand total |
 | `BR-CO-16` | grand total − prepaid = amount due |
 | `BR-CO-17` | each VAT breakdown amount = basis × rate |
+| `BR-CO-19`, `BR-CO-20` | an invoice period and a line period carry at least one of their two dates |
+| `BR-CO-21`, `BR-CO-22` | a document-level and a line-level allowance or charge carries a reason or a reason code |
+| `BR-27`, `BR-31` | a document-level allowance or charge amount is positive; the indicator states the direction |
+| `BR-32`, `BR-36` | a document-level allowance or charge carries a VAT category |
+| `BR-49` | a payment reference or a mandate is accompanied by a payment means code |
 | `BR-E-10` | an exempt breakdown carries an exemption reason |
 | `BR-S-08` | a standard-rated breakdown carries a rate above zero |
 | `BR-Z-08` | an exempt category carries no rate |
@@ -118,17 +146,47 @@ rules are unchanged — they hold for negative values.
 
 ## 5. Writing
 
-`CiiWriter.Write(invoice)` returns CII text, `CiiWriter.WriteBytes(invoice)` the bytes to embed.
+`CiiWriter.Write(invoice)` and `UblWriter.Write(invoice)` return XML text; the matching
+`WriteBytes(invoice)` returns the bytes to embed or post.
+
+```csharp
+string cii = CiiWriter.Write(invoice);   // what a Factur-X PDF embeds
+string ubl = UblWriter.Write(invoice);   // what a Peppol access point accepts
+```
+
+**Decision — a UBL writer, where the earlier decision was to write CII only.** That decision rested
+on Factur-X embedding CII: the PDF path needs one syntax, and it is that one. It does not follow that
+the package should be unable to produce the syntax its counterparties ask for. The same invoice model
+already reads UBL, and a document read as UBL had no way back out; a converter for the EN 16931
+semantic model is the same mapping table read in the other direction. `UblWriter` therefore emits an
+EN 16931 / Peppol BIS Billing 3.0 compatible UBL 2.1 `Invoice`, or a `CreditNote` when `TypeCode` is
+`381`. The PDF path is unchanged: a Factur-X PDF still carries CII, and `ReadAndRender` still converts
+a UBL source through `CiiWriter` before embedding it.
 
 **Decision — the serializer writes to a stream, not a `StringBuilder`.** `XmlWriter` over a string
 declares `encoding="utf-16"` whatever its `Encoding` setting says; the bytes were UTF-8, and the
 official validator refused the file. Writing to a `MemoryStream` makes declaration and bytes agree.
+Both writers do it.
 
-**Decision — the element order is the EN 16931 profile's, not the base CII schema's.** The profile
-redefines several sequences, and four of them are checked by the official XSD: `TypeCode` before
-`IssueDateTime`; `TypeCode` before `CategoryCode` in a line tax; `PostcodeCode` before `LineOne`,
-then `CityName`, then `CountryID`; and `IncludedSupplyChainTradeLineItem` in the `ram:` namespace,
-not `rsm:`. Each was found by validating against that schema, and each has a regression test.
+**Decision — the element order is the profile's, not the base schema's.** In CII the EN 16931 profile
+redefines several sequences, and the official XSD checks them: `TypeCode` before `IssueDateTime`;
+`TypeCode` before `CategoryCode` in a line tax; `PostcodeCode` before `LineOne`, then `CityName`, then
+`CountryID`; `IncludedSupplyChainTradeLineItem` in the `ram:` namespace, not `rsm:`; and the contact
+as `TelephoneUniversalCommunication` / `EmailURIUniversalCommunication`, which is what the profile's
+`TradeContactType` declares. UBL 2.1 is a single sequence per type, and the writer follows it
+literally: `BuyerReference` after the currency codes and before `InvoicePeriod`; the two adjustment
+totals between `TaxInclusiveAmount` and `PrepaidAmount`; `PaymentID` and then `PayerFinancialAccount`,
+`PayeeFinancialAccount`, `PaymentMandate`; and in a line, `LineExtensionAmount`, `InvoicePeriod`,
+`AllowanceCharge`, `Item`, `Price`. Each ordering has a regression test; each was found by validating
+the output against the official schema.
+
+**Decision — the two syntaxes do not carry the same terms, and neither writer invents one.** UBL has
+no subject code on a note (`BT-21`), so a note written to UBL keeps its text and loses the code; it
+has no business-process element either, so `BT-23` is written in CII only. CII's
+`SpecifiedProcuringProject` requires both an identifier and a name, and EN 16931 has one project
+reference, so the reference fills both. The line-level `InvoiceReferencedDocument` exists only in the
+EXTENDED schema — the writer emits it for `Extended` and `ExtendedCtcFr` and omits it under EN 16931,
+where the official XSD would reject it. The alternative would be a document that validates nowhere.
 
 ## 6. Rendering
 
@@ -151,6 +209,10 @@ Amounts print with the French convention (`1 204,00`), built from the invariant 
 `CultureInfo` would be the obvious implementation and the wrong one: a host running with
 `InvariantGlobalization` — the default in many containers — has no ICU and `GetCultureInfo("fr-FR")`
 throws there.
+
+The *Total HT* line prints `Totals.TaxBasisTotal` rather than the sum of the lines: a document-level
+allowance or charge moves the two apart, and a footer whose own figures do not add up is a defect a
+reader sees before any validator does.
 
 ## 7. The XMP patch
 
@@ -281,7 +343,7 @@ FNFE-MPE publication and is the authority for what remains.
 
 | Level | What it pins |
 | --- | --- |
-| Unit, `tests/Text.Pdf.FactureX.Tests` | reading both syntaxes, the validation rules, the writer's round trip, its encoding declaration, the four schema orderings, the DTD refusal |
+| Unit, `tests/Text.Pdf.FactureX.Tests` | reading both syntaxes, the validation rules including the allowance arithmetic, both writers' round trips (CII→CII, UBL→UBL, CII→UBL, UBL→CII), the encoding declaration, the schema orderings, the DTD refusal |
 | Integration, `FacturXRenderTests` | PDF/A-3 marker, `/EmbeddedFiles`, the `fx:` block and its values, the profile carried into the XMP, a refused invalid invoice |
 | Unit, `PdfExtractionTests` | the attachment is found through the name tree, inflated, and read back; a hex name, an uncompressed stream, a second attachment, and every refusal |
 | CI, job `facturx` | renders the samples, extracts the attachment and validates it against the **official XSD** with the FNFE-MPE reference library, then runs **veraPDF** against PDF/A-3B |

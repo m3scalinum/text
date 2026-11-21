@@ -25,6 +25,18 @@ public sealed class TypstDocument
     /// <summary>Creates an empty document.</summary>
     public static TypstDocument Create() => new();
 
+    /// <summary>
+    /// Builds a document from an HTML page or fragment, keeping the supported subset and dropping
+    /// the rest. Use <see cref="TypstHtmlImporter"/> when the dropped elements must be inspected.
+    /// </summary>
+    /// <param name="html">The HTML to import.</param>
+    /// <param name="options">The import options; defaults are used when null.</param>
+    public static TypstDocument FromHtml(string html, TypstHtmlImportOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(html);
+        return new TypstHtmlImporter(options).Import(html).Document;
+    }
+
     /// <summary>Configures <c>#set document(…)</c>.</summary>
     public TypstDocument Metadata(Action<TypstMetadata> configure)
     {

@@ -8,6 +8,7 @@
 | Unit (signing) | `tests/Text.Pdf.Tests` | No | 8 | < 2 s |
 | Unit (e-invoicing) | `tests/Text.Pdf.FactureX.Tests` | No | 125 | < 10 s |
 | Unit (generator) | `tests/Text.SharpTypst.Templates.Generator.Tests` | No | 14 | < 5 s |
+| Layouts | `tests/Text.Templates.Tests` | For the render tests | 80 | < 15 s |
 | Suite | `tests/Text.Suite.Tests` | No | 7 | < 2 s |
 | ABI | `native/sharp-typst` (`cargo test`) | — | 9 | < 30 s |
 | Integration | `tests/Text.SharpTypst.Integration.Tests` | Yes | 229 | < 3 min |

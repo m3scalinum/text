@@ -1,0 +1,19 @@
+name = "invoice"
+version = "1.0.0"
+entry = "template.typ"
+description = "A4 invoice (facture): seller and customer blocks, a line-item table, tax and balance, with every label supplied by the caller in English or French"
+authors = ["SharpTypst"]
+
+[parameters]
+title = { type = "string", required = true }
+number = { type = "string", required = true }
+issued = { type = "date", required = true }
+due = { type = "date", required = true }
+currency = { type = "string", default = "EUR" }
+seller = { type = "object", required = true }
+customer = { type = "object", required = true }
+items = { type = "array", of = "object", required = true }
+tax_rate = { type = "number", default = 0.2 }
+amount_paid = { type = "number", default = 0 }
+labels = { type = "object", required = true }
+notes = { type = "string", default = "" }

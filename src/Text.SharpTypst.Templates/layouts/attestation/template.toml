@@ -1,0 +1,14 @@
+name = "attestation"
+version = "1.0.0"
+entry = "template.typ"
+description = "A4 attestation (attestation de travail or de paiement): employer and employee blocks, the certifying clauses and a signature area, with every label supplied by the caller"
+authors = ["SharpTypst"]
+
+[parameters]
+title = { type = "string", required = true }
+issued = { type = "date", required = true }
+employer = { type = "object", required = true }
+employee = { type = "object", required = true }
+purpose = { type = "string", required = true }
+place = { type = "string", default = "" }
+labels = { type = "object", required = true }

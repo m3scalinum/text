@@ -7,6 +7,7 @@
 - [Getting Started](SharpTypst-Getting-Started)
 - [Compiling](SharpTypst-Compiling)
 - [Document Model](SharpTypst-Document-Model)
+- [Importing HTML](SharpTypst-Html-Import)
 - [Templates](SharpTypst-Templates)
 - [Diagnostics](SharpTypst-Diagnostics)
 - [Packages and Fonts](SharpTypst-Packages-and-Fonts)

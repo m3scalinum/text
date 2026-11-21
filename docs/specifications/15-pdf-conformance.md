@@ -194,6 +194,15 @@ conformance fixtures — a minimal PDF is not PDF/UA, and a test asserts exactly
 the two reader paths a PDF 2.0 producer may take. The conformance positives are the compiler's
 output.
 
+Around those document-level cases, `PdfReaderTests`, `PdfStandardRequirementsTests` and
+`PdfValueTests` drive the pieces the report cannot reach: every standard's version range, XMP
+identifier and flags; each cross-reference error the reader can state (a bad `startxref`, a broken
+entry, a malformed subsection, an xref stream whose `/W`, `/Index` or filter is wrong); object
+streams, ASCII hex and Flate filters, TIFF and PNG predictors; the escaped, hexadecimal and UTF-16
+string forms; and the syntax errors that must be reported as `PDF.OBJECT_UNREADABLE` rather than
+thrown. Those tests see internal types through `InternalsVisibleTo`, because the alternative is to
+assert a report that hides which parse step failed.
+
 ## 5. What is not checked, and what veraPDF still catches
 
 A structural checker reads declarations. It does not implement ISO 14289-1, and it is not a
