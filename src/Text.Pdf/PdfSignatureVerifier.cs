@@ -40,6 +40,11 @@ public static class PdfSignatureVerifier
         var document = PdfDocument.Parse(Encoding.Latin1.GetString(bytes));
         var dss = PdfDss.Read(document);
 
+        // The archival chain is judged once for the document: a signature is only B-LTA when the
+        // file as a whole is archived — a timestamp over the whole file, whose own chain the store
+        // embeds. A signature cannot be more archived than the document that carries it.
+        var archived = PdfArchiveChain.Analyze(bytes, document, dss).IsArchived;
+
         var timestamps = new List<PdfDocumentTimestampInfo>();
         var signatures = new List<(int Offset, PdfSignatureInfo Info)>();
         var pending = new List<(PdfSignatureDictionary Dictionary, byte[] Content)>();
@@ -75,7 +80,7 @@ public static class PdfSignatureVerifier
 
         foreach (var (dictionary, content) in pending)
         {
-            signatures.Add((dictionary.Offset, VerifySignature(bytes, dictionary, content, trustStore, dss, timestamps)));
+            signatures.Add((dictionary.Offset, VerifySignature(bytes, dictionary, content, trustStore, dss, timestamps, archived)));
         }
 
         signatures.Sort((left, right) => left.Offset.CompareTo(right.Offset));
@@ -91,7 +96,8 @@ public static class PdfSignatureVerifier
         byte[] content,
         PdfTrustStore? trustStore,
         PdfDss dss,
-        List<PdfDocumentTimestampInfo> timestamps)
+        List<PdfDocumentTimestampInfo> timestamps,
+        bool archived)
     {
         var claimed = PdfSyntax.Date(dictionary.ClaimedTime);
         var coversWhole = CoversWholeFile(bytes, dictionary);
@@ -159,6 +165,11 @@ public static class PdfSignatureVerifier
             if (signer.Certificate is { } certificate && dss.ProvesChain(certificate, out _))
             {
                 level = PdfSignatureLevel.BaselineLT;
+
+                if (archived)
+                {
+                    level = PdfSignatureLevel.BaselineLTA;
+                }
             }
         }
 
@@ -308,7 +319,7 @@ public static class PdfSignatureVerifier
     /// <summary>
     /// The bytes a signature covers, or the reason they cannot be trusted to name a place in the file.
     /// </summary>
-    private static bool TryCovered(
+    internal static bool TryCovered(
         byte[] bytes,
         PdfSignatureDictionary dictionary,
         out byte[] content,
@@ -341,7 +352,7 @@ public static class PdfSignatureVerifier
     /// The DER structure held by <c>/Contents</c>: the hex is padded, so its length comes from the
     /// ASN.1 header rather than from the number of hex digits.
     /// </summary>
-    private static byte[] ReadDer(byte[] bytes, PdfSignatureDictionary dictionary)
+    internal static byte[] ReadDer(byte[] bytes, PdfSignatureDictionary dictionary)
     {
         var start = dictionary.ContentsStart;
         var length = dictionary.ContentsLength;
