@@ -12,7 +12,7 @@ This document is normative for that package. The main library is described in
 | --- | --- |
 | Reading | CII (`rsm:CrossIndustryInvoice`) and UBL (`Invoice`, `CreditNote`) into one model |
 | Writing | CII and UBL 2.1, from an invoice built in C# or read from either syntax |
-| Validation | The EN 16931 rules decidable from the document: mandatory terms and arithmetic |
+| Validation | The EN 16931 rules decidable from the document — mandatory terms and arithmetic — and the Peppol CIUS rules the document decides about itself |
 | Rendering | A4 layout through the document model, PDF/A-3b, XML attached, XMP patched |
 | XMP | The `fx:` description and its `pdfaExtension:schemas` entry |
 
@@ -21,7 +21,7 @@ This document is normative for that package. The main library is described in
 | Full EN 16931 / Schematron conformance | Roughly 200 rules with code lists and profile cardinalities; the CI job validates the XML against the official XSD instead |
 | Signature, transmission, Chorus Pro / Peppol | A separate concern with its own protocol |
 | Order-X, EXTENDED German extensions | Different documents; the profile enum exists so they can be added |
-| Peppol BIS specifics beyond the document | The ProfileID, the SMP/SML lookup and the AS4 transport are exchange concerns, not invoice terms |
+| Peppol BIS beyond the document | The SMP/SML lookup, the AS4 transport and the access point's own acceptance are exchange concerns, not invoice terms |
 
 ## 2. The model
 
@@ -339,11 +339,110 @@ exchanges — the `BAR` / `TXD` treatments, the `AFL` numbering across sub-invoi
 currency checks — which a document cannot assert about itself. The reference Schematron ships in the
 FNFE-MPE publication and is the authority for what remains.
 
+## 10. The Peppol CIUS
+
+Peppol BIS Billing 3.0 is a CIUS of EN 16931 with its own rule set, and it is the rule set a Peppol
+access point enforces. The UBL schema is not what rejects a document: `UblWriter` could produce a
+document that validates against the OASIS XSD and is still refused, because a receiver routes on
+`BT-23`/`BT-24` and on the electronic addresses, and books on identifiers the XSD does not require.
+`PeppolBisValidator` covers the part of the CIUS a document decides about itself.
+
+**Decision — the official Schematron remains the reference, and this is a subset.** The published
+rule set is around 165 assertions over an XSLT 2.0 processor, and it reads the XML, not the model:
+`BT-121`, the `cac:BillingReference` cardinalities, the tax representative, the language of a note are
+all outside what `FacturXInvoice` carries. Reimplementing it in C# would be a second, silently
+diverging edition. The rules below are the ones the model states exactly, each one traceable to the
+assertion it comes from; everything else is left to the artefact, plugged in through
+`IInvoiceValidator`.
+
+### The two identifiers
+
+| Term | UBL | CII | Value |
+| --- | --- | --- | --- |
+| `BT-23` business process | `cbc:ProfileID` | `BusinessProcessSpecifiedDocumentContextParameter/ID` | `urn:fdc:peppol.eu:2017:poacc:billing:01:1.0` |
+| `BT-24` specification identifier | `cbc:CustomizationID` | `GuidelineSpecifiedDocumentContextParameter/ID` | `urn:cen.eu:en16931:2017#compliant#urn:fdc:peppol.eu:2017:poacc:billing:3.0` |
+
+`FacturXInvoice.BusinessProcess` was already `BT-23`; `FacturXInvoice.SpecificationId` is new and is
+`BT-24`. `UblWriter` now writes both — `CustomizationID`, then `ProfileID`, then `ID`, which is the
+order `InvoiceType` fixes — and `UblInvoiceReader` reads both back. Before that, a UBL document was
+written with the Factur-X guideline URN as its customization identifier and no profile identifier at
+all: schema-valid, and rejected by every access point.
+
+In CII, `BT-24` *is* the Factur-X guideline URN, and that is what selects the conformance level, so
+`CiiWriter` keeps writing `Profile.ToGuidelineUrn()` and ignores `SpecificationId`. The Peppol CIUS is
+a UBL profile: a document that declares it and is written as CII fails `BR-PEPPOL-03`, which is the
+truth.
+
+### The rules
+
+| Code | Source | Rule |
+| --- | --- | --- |
+| `BR-PEPPOL-01` | `PEPPOL-EN16931-R001` | the business process (`BT-23`) is present |
+| `BR-PEPPOL-02` | `PEPPOL-EN16931-R007` | it is one the CIUS publishes |
+| `BR-PEPPOL-03` | `PEPPOL-EN16931-R004` | the specification identifier (`BT-24`) begins with the CIUS URN and carries no `::` suffix |
+| `BR-PEPPOL-04` | `PEPPOL-EN16931-R020` | the seller electronic address (`BT-34`) is present |
+| `BR-PEPPOL-05` | `PEPPOL-EN16931-R010` | the buyer electronic address (`BT-49`) is present |
+| `BR-PEPPOL-06` | `PEPPOL-EN16931-CL008` | each present address carries a scheme (`BT-34-1` / `BT-49-1`) from the EAS code list |
+| `BR-PEPPOL-07` | `PEPPOL-EN16931-R003` | the buyer reference (`BT-10`) or the order reference (`BT-13`) is present |
+| `BR-PEPPOL-08` | `PEPPOL-EN16931-R002` | one note at most, unless both parties are German |
+| `BR-PEPPOL-09` | `PEPPOL-EN16931-P0101` | a credit note type code on a document that is not a credit note |
+| `BR-PEPPOL-10` | `PEPPOL-EN16931-P0100` | the invoice type code is one of the 26 the CIUS accepts |
+| `BR-PEPPOL-11` | `PEPPOL-EN16931-P0112` | `326`, `384` and `389` only from a German seller and buyer, `384` also from a Slovak pair |
+| `BR-PEPPOL-12` | `DE-R-026`, `NL-R-001` | a `381` or `384` names the invoice it corrects (`BT-25`, `BG-3`) |
+| `BR-PEPPOL-13` | `PEPPOL-EN16931-R061` | a direct debit (`49`, `59`) carries the mandate reference (`BT-89`) |
+| `BR-PEPPOL-14` | `BR-61` | a credit transfer (`30`, `58`) carries the payment account (`BT-84`) |
+| `BR-PEPPOL-15` | `BR-AE-02` | reverse charge carries the buyer's VAT identifier (`BT-48`) |
+| `BR-PEPPOL-16` | `BR-IC-02` | intra-community supply carries the buyer's VAT identifier (`BT-48`) |
+| `BR-PEPPOL-17` | `BR-CO-04` | every category and rate a line uses appears in the breakdown (`BG-23`) |
+| `BR-PEPPOL-18` | `BR-CO-26` | the seller carries `BT-29`, `BT-30` or `BT-31` |
+| `BR-PEPPOL-19` | `PEPPOL-EN16931-R041` | a percentage carries its base amount |
+| `BR-PEPPOL-20` | `PEPPOL-EN16931-R042` | a base amount carries its percentage |
+| `BR-PEPPOL-21` | `PEPPOL-EN16931-R040` | the amount is the base at the percentage |
+| `BR-PEPPOL-22` | `BR-E-08`, `BR-Z-08` | an exempt line carries no rate above zero |
+
+`BR-PEPPOL-12` is the one rule the core artefact does not state: Germany requires the reference for
+`384` and the Netherlands for `381`, and both are applied. A correction that names no invoice cannot
+be matched by any receiver, and the two national rules say the same thing one country at a time.
+
+Certificate and scheme syntax (`PEPPOL-COMMON-R040` to `R057`, the GS1, Norwegian, Danish, Belgian,
+Italian, Swedish, Australian and Dutch identifier formats) are not implemented: they are a dozen
+per-scheme grammars, a partial copy would reject valid documents, and the artefact already carries
+them. The same goes for `R008` (no empty element): the writers never emit one, and the model cannot
+see the difference between an absent element and an empty one.
+
+### Using it
+
+```csharp
+// The built-in rules alone: applied when the document declares the CIUS, in BT-23 or BT-24.
+var result = FacturXValidator.Validate(invoice);
+
+// The CIUS required even from a document that does not declare it, plus a rule set of your own.
+var peppol = FacturXValidator.Validate(invoice, PeppolBisValidator.Default);
+```
+
+`IInvoiceValidator` is the seam for the official artefact — a Schematron processor wrapped in it, a
+partner's rules, a national overlay. `FacturXValidator.Validate(invoice, validator)` runs the built-in
+rules, then the supplied one, and merges the two lists; an issue both report is reported once, on
+the pair of code and message.
+
+A document that declares the Peppol CIUS is not held to the French one: both gate on `BT-23`, a
+document states one business process, and the French rules would demand three legal mentions and a
+SIREN that the CIUS does not.
+
+### The fixtures
+
+`tests/fixtures/peppol` holds the OpenPEPPOL publication's own examples — `base-example.xml`,
+`base-creditnote-correction.xml` and `direct-debit.xml`, from `rules/examples` and `rules/snippets` of
+the `OpenPEPPOL/peppol-bis-invoice-3` repository. They are used unmodified as the positive cases; the
+documents that break a single rule are built from the model, because a mutation of the model is what
+a caller actually does wrong. The rule codes and the EAS list were read from the Schematron of the
+same publication. The fixtures are not validated against it here: that needs an XSLT 2.0 processor.
+
 ## 8. Tests and gates
 
 | Level | What it pins |
 | --- | --- |
-| Unit, `tests/Text.Pdf.FactureX.Tests` | reading both syntaxes, the validation rules including the allowance arithmetic, both writers' round trips (CII→CII, UBL→UBL, CII→UBL, UBL→CII), the encoding declaration, the schema orderings, the DTD refusal |
+| Unit, `tests/Text.Pdf.FactureX.Tests` | reading both syntaxes, the validation rules including the allowance arithmetic, both writers' round trips (CII→CII, UBL→UBL, CII→UBL, UBL→CII), the encoding declaration, the schema orderings, the DTD refusal, and the Peppol CIUS: one document per rule, the conformant model, and the OpenPEPPOL samples |
 | Integration, `FacturXRenderTests` | PDF/A-3 marker, `/EmbeddedFiles`, the `fx:` block and its values, the profile carried into the XMP, a refused invalid invoice |
 | Unit, `PdfExtractionTests` | the attachment is found through the name tree, inflated, and read back; a hex name, an uncompressed stream, a second attachment, and every refusal |
 | CI, job `facturx` | renders the samples, extracts the attachment and validates it against the **official XSD** with the FNFE-MPE reference library, then runs **veraPDF** against PDF/A-3B |

@@ -680,6 +680,24 @@ public static class CiiWriter
             settlement.Add(payment);
         }
 
+        // BG-3: InvoiceReferencedDocument sits just before the monetary summation in
+        // HeaderTradeSettlementType.
+        if (invoice.PrecedingInvoiceNumber is { Length: > 0 } precedingInvoice)
+        {
+            var reference = new XElement(Ram + "InvoiceReferencedDocument",
+                new XElement(Ram + "IssuerAssignedID", precedingInvoice));
+
+            if (invoice.PrecedingInvoiceDate is { } precedingDate)
+            {
+                reference.Add(new XElement(Ram + "FormattedIssueDateTime",
+                    new XElement(Udt + "DateTimeString",
+                        new XAttribute("format", "102"),
+                        Xml.CompactDate(precedingDate))));
+            }
+
+            settlement.Add(reference);
+        }
+
         var totals = new XElement(Ram + "SpecifiedTradeSettlementHeaderMonetarySummation",
             new XElement(Ram + "LineTotalAmount", Xml.Money(invoice.Totals.LineTotal)));
 

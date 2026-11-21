@@ -62,7 +62,15 @@ public static class UblWriter
             new XAttribute(XNamespace.Xmlns + "cac", Cac),
             new XAttribute(XNamespace.Xmlns + "cbc", Cbc),
             new XElement(Cbc + "UBLVersionID", "2.1"),
-            new XElement(Cbc + "CustomizationID", invoice.Profile.ToGuidelineUrn()),
+            // BT-24: the profile the document claims. Peppol names its own; Factur-X's URN is the
+            // default because it is what the conformance level declares.
+            new XElement(Cbc + "CustomizationID", invoice.SpecificationId is { Length: > 0 } specification
+                ? specification
+                : invoice.Profile.ToGuidelineUrn()),
+            // BT-23: UBL spells the business process ProfileID, and it sequences before ID.
+            invoice.BusinessProcess is { Length: > 0 } process
+                ? new XElement(Cbc + "ProfileID", process)
+                : null,
             new XElement(Cbc + "ID", invoice.Number),
             new XElement(Cbc + "IssueDate", Xml.IsoDate(invoice.IssueDate)));
 
@@ -110,6 +118,21 @@ public static class UblWriter
         {
             root.Add(new XElement(Cac + "OrderReference",
                 new XElement(Cbc + "ID", order)));
+        }
+
+        // BG-3: BillingReference follows OrderReference and precedes ContractDocumentReference in
+        // InvoiceType; InvoiceDocumentReference sequences ID before IssueDate.
+        if (invoice.PrecedingInvoiceNumber is { Length: > 0 } preceding)
+        {
+            var reference = new XElement(Cac + "InvoiceDocumentReference",
+                new XElement(Cbc + "ID", preceding));
+
+            if (invoice.PrecedingInvoiceDate is { } precedingDate)
+            {
+                reference.Add(new XElement(Cbc + "IssueDate", Xml.IsoDate(precedingDate)));
+            }
+
+            root.Add(new XElement(Cac + "BillingReference", reference));
         }
 
         if (invoice.ContractReference is { Length: > 0 } contract)

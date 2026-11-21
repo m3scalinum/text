@@ -128,6 +128,13 @@ Not yet published. Embeds Typst 0.15.1.
   carry a column or row span, emitted as `table.cell(colspan: …, rowspan: …)`.
 - `TypstContent.Underline`, `Strikethrough`, `Subscript` and `Superscript` accept content, not only
   a string, so a nested run can be decorated without flattening it.
+- Per-page text from a paged document: `CompilationResult.ExtractText(page)` and
+  `CompilationResult.ExtractTextPages()`. The page's frame is walked in order, groups included, and
+  each text run contributes the characters its glyphs were shaped from, so the result carries the
+  page boundary the layout decided. It is the layout's text in frame order, not a semantic
+  reconstruction: no headings, no list structure, and hyphenation and ligatures come out as the
+  font mapped them. `ExportText()` is unchanged and still reads the HTML tree. The ABI grows
+  `tn_document_page_text`.
 
 ### Changed
 

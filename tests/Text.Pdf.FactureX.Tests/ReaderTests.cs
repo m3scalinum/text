@@ -11,13 +11,16 @@ namespace M3scalinum.Text.Pdf.FactureX.Tests;
 /// </summary>
 public sealed class ReaderTests
 {
-    internal static string Fixture(string name)
+    internal static string Fixture(string name) => FixtureAt(Path.Combine("facturx", name));
+
+    /// <summary>A fixture by its path below <c>tests/fixtures</c>.</summary>
+    internal static string FixtureAt(string relative)
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
 
         while (directory is not null)
         {
-            var candidate = Path.Combine(directory.FullName, "tests", "fixtures", "facturx", name);
+            var candidate = Path.Combine(directory.FullName, "tests", "fixtures", relative);
             if (File.Exists(candidate))
             {
                 return File.ReadAllText(candidate);
@@ -27,7 +30,7 @@ public sealed class ReaderTests
         }
 
         throw new InvalidOperationException(
-            $"could not find tests/fixtures/facturx/{name} above {AppContext.BaseDirectory}");
+            $"could not find tests/fixtures/{relative} above {AppContext.BaseDirectory}");
     }
 
     [Fact]

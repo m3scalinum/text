@@ -88,6 +88,51 @@ public sealed class LeakTests
     }
 
     [Fact]
+    public void Ten_thousand_page_text_reads_release_every_buffer()
+    {
+        const string source = """
+            #set page(paper: "a4", margin: 2cm)
+
+            ZEBRAALPHA
+
+            #pagebreak()
+
+            ZEBRABETA
+            """;
+
+        using var world = new TypstWorldBuilder().AddSource("main.typ", source).Build();
+        using var result = new TypstCompiler().Compile(world);
+
+        // Warm up: the first reads allocate the collector's strings.
+        for (var index = 0; index < 50; index++)
+        {
+            _ = result.ExtractText(0);
+        }
+
+        var before = ManagedBytes();
+        var documentsBefore = TypstNative.LiveDocumentCount;
+
+        for (var index = 0; index < Cycles; index++)
+        {
+            _ = result.ExtractText(0);
+            _ = result.ExtractText(1);
+        }
+
+        var growth = ManagedBytes() - before;
+
+        // Every call returns an owned TnBuffer that the managed side copies and frees, so a missed
+        // free is invisible to the managed heap and hidden by the allocator: what this asserts is
+        // that neither copy is retained across 20 000 reads.
+        Assert.True(
+            growth < 8 * 1024 * 1024,
+            $"managed memory grew by {growth / 1024} KiB over {Cycles} page-text reads");
+        Assert.InRange(
+            Math.Abs(TypstNative.LiveDocumentCount - documentsBefore),
+            0,
+            HandleTolerance);
+    }
+
+    [Fact]
     public void Ten_thousand_worlds_release_every_native_handle()
     {
         // Ask the native library how many worlds it holds, instead of reading the process working

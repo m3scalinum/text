@@ -15,13 +15,61 @@ public static class FacturXValidator
 {
     private const decimal Tolerance = 0.02m;
 
-    /// <summary>Validates an invoice.</summary>
+    /// <summary>Validates an invoice against the built-in rules.</summary>
+    /// <remarks>
+    /// A document that declares the Peppol CIUS is also held to <see cref="PeppolBisValidator"/>;
+    /// one that declares a French framework is held to the French rules. The two overlays are
+    /// mutually exclusive: they gate on the same term, <c>BT-23</c>, and a document states one
+    /// business process.
+    /// </remarks>
     public static FacturXValidationResult Validate(FacturXInvoice invoice)
     {
         ArgumentNullException.ThrowIfNull(invoice);
 
         var issues = new List<FacturXIssue>();
+        Collect(invoice, issues);
 
+        return new FacturXValidationResult(issues);
+    }
+
+    /// <summary>
+    /// Validates an invoice against the built-in rules and a caller-supplied rule set, and merges
+    /// the issues.
+    /// </summary>
+    /// <param name="invoice">The invoice to check.</param>
+    /// <param name="validator">
+    /// The rule set to add — the official Schematron wrapped in an <see cref="IInvoiceValidator"/>,
+    /// a partner's rules, or <see cref="PeppolBisValidator.Default"/> to require the CIUS even from
+    /// a document that does not declare it.
+    /// </param>
+    /// <returns>Every issue, in the order the built-in rules found them, then the supplied ones.</returns>
+    /// <remarks>
+    /// An issue both rule sets report is reported once: the pair of code and message is the
+    /// identity, so a caller plugging in a rule set that overlaps the built-in ones does not get a
+    /// doubled line in a log.
+    /// </remarks>
+    public static FacturXValidationResult Validate(FacturXInvoice invoice, IInvoiceValidator validator)
+    {
+        ArgumentNullException.ThrowIfNull(invoice);
+        ArgumentNullException.ThrowIfNull(validator);
+
+        var issues = new List<FacturXIssue>();
+        Collect(invoice, issues);
+
+        foreach (var issue in validator.Validate(invoice))
+        {
+            if (!issues.Contains(issue))
+            {
+                issues.Add(issue);
+            }
+        }
+
+        return new FacturXValidationResult(issues);
+    }
+
+    /// <summary>The built-in rules, appended to <paramref name="issues"/>.</summary>
+    private static void Collect(FacturXInvoice invoice, List<FacturXIssue> issues)
+    {
         if (string.IsNullOrWhiteSpace(invoice.Number))
         {
             issues.Add(new("BR-02", "the invoice number (BT-1) is missing"));
@@ -196,9 +244,14 @@ public static class FacturXValidator
 
         CheckAllowances(issues, invoice);
 
-        CheckFrench(issues, invoice);
-
-        return new FacturXValidationResult(issues);
+        if (PeppolBisValidator.IsPeppol(invoice))
+        {
+            issues.AddRange(PeppolBisValidator.Default.Validate(invoice));
+        }
+        else
+        {
+            CheckFrench(issues, invoice);
+        }
     }
 
     /// <summary>

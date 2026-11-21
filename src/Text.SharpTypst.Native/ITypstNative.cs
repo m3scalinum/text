@@ -35,6 +35,11 @@ internal interface ITypstNative
 
     byte[] Evaluate(TypstDocumentHandle document);
 
+    /// <summary>
+    /// The text of one page of a paged document, read from the layout's frame tree.
+    /// </summary>
+    byte[] PageText(TypstDocumentHandle document, int page);
+
     byte[] FontFamilies(TypstWorldHandle world);
 
     TypstWorldHandle CloneWorld(TypstWorldHandle world);

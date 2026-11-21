@@ -134,6 +134,63 @@ public sealed class CompilationResult : IDisposable
     public string ExportText() => Encoding.UTF8.GetString(Export(ExportFormat.Text));
 
     /// <summary>
+    /// Reads the text of one page of a paged document: the characters of the layout's frames, in
+    /// the order the frame tree yields them.
+    /// </summary>
+    /// <remarks>
+    /// This is the layout's text, not a semantic reconstruction: it carries the page boundary the
+    /// layout decided, but a heading is just text on a line and a list item is just a line that
+    /// starts with a bullet. Ligatures and hyphenation come out as the font mapped them. Use
+    /// <see cref="ExportText"/> for a document compiled as HTML when structure matters.
+    /// </remarks>
+    /// <param name="page">Zero-based page index.</param>
+    /// <exception cref="TypstNativeException">
+    /// The document is not paged, or <paramref name="page"/> is out of range.
+    /// </exception>
+    public string ExtractText(int page)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        try
+        {
+            return Encoding.UTF8.GetString(_native.PageText(_handle, page));
+        }
+        catch (NativeCallException exception)
+        {
+            throw NativeErrorTranslator.Translate(exception);
+        }
+    }
+
+    /// <summary>
+    /// Reads the text of every page of a paged document, one entry per page, in page order.
+    /// </summary>
+    /// <exception cref="TypstNativeException">The document is not paged.</exception>
+    public IReadOnlyList<string> ExtractTextPages()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        // A paged document always has at least one page, so a document with no pages is one that
+        // was not laid out as pages at all. Saying so is more useful than returning an empty list
+        // and letting the caller believe the document has no text.
+        if (Kind != TypstDocumentKind.Paged)
+        {
+            throw new TypstNativeException(
+                "page text requires a paged document; compile with document = \"paged\"",
+                TypstErrorCode.InvalidArgument);
+        }
+
+        var count = PageCount;
+        var pages = new List<string>(count);
+
+        for (var page = 0; page < count; page++)
+        {
+            pages.Add(ExtractText(page));
+        }
+
+        return pages;
+    }
+
+    /// <summary>
     /// Exports the files of a bundle. Requires a document compiled with
     /// <see cref="TypstDocumentKind.Bundle"/>.
     /// </summary>
