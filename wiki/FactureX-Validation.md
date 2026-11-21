@@ -30,7 +30,14 @@ Only what can be decided from the document itself:
 - **Line arithmetic.** Quantity × unit price against the line net amount, and the lines against the
   header totals. In cascade invoicing the header counts root lines only.
 - **VAT.** The breakdown must match the lines that carry it, category by category and rate by rate,
-  and the exemption categories must state a reason.
+  adjusted by the document-level allowances and charges assigned to that category, and the exemption
+  categories must state a reason.
+- **Allowances and charges.** The document allowances and charges sum to `BT-107` and `BT-108`, the
+  total without VAT is the line total less the allowances plus the charges, and each adjustment says
+  what it is for and which VAT category it belongs to. The line amount includes the line's own
+  adjustments and divides the price by its base quantity.
+- **Periods and payment.** A period that is present has at least one date; a payment reference or a
+  mandate comes with a payment means code.
 - **Closed code lists.** The nine VAT categories, the payment means codes, the document type codes, the
   currencies and the units, checked for shape.
 - **Dates.** A due date before the issue date is refused.

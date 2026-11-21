@@ -23,11 +23,25 @@ public sealed class FacturXInvoice
     /// <summary>The ISO 4217 currency code, <c>BT-5</c>.</summary>
     public string Currency { get; init; } = "EUR";
 
+    /// <summary>
+    /// The currency the VAT is accounted for in when it is not the invoice currency, <c>BT-6</c>.
+    /// </summary>
+    /// <remarks>
+    /// A document that states it carries a second tax total in that currency; the model keeps the
+    /// code, not that second total, because the rate is what a receiver applies.
+    /// </remarks>
+    public string? TaxCurrency { get; init; }
+
     /// <summary>The issue date, <c>BT-2</c>.</summary>
     public DateOnly IssueDate { get; init; }
 
     /// <summary>The payment due date, <c>BT-9</c>.</summary>
     public DateOnly? DueDate { get; init; }
+
+    /// <summary>
+    /// The period the invoice covers, <c>BG-14</c> — a month of service, a delivery window.
+    /// </summary>
+    public FacturXPeriod? Period { get; init; }
 
     /// <summary>The buyer reference, <c>BT-10</c>.</summary>
     public string? BuyerReference { get; init; }
@@ -45,6 +59,12 @@ public sealed class FacturXInvoice
     /// <summary>The order reference, <c>BT-13</c>.</summary>
     public string? OrderReference { get; init; }
 
+    /// <summary>The contract the invoice is issued under, <c>BT-12</c>.</summary>
+    public string? ContractReference { get; init; }
+
+    /// <summary>The project the invoice relates to, <c>BT-11</c>.</summary>
+    public string? ProjectReference { get; init; }
+
     /// <summary>A free-text note, <c>BT-22</c>. The first of <see cref="Notes"/>, for the simple case.</summary>
     public string? Note { get; init; }
 
@@ -56,6 +76,15 @@ public sealed class FacturXInvoice
 
     /// <summary>The payment means code, <c>BT-81</c>: <c>58</c> for a SEPA credit transfer.</summary>
     public string? PaymentMeansCode { get; init; }
+
+    /// <summary>
+    /// The remittance information the payer quotes when paying, <c>BT-83</c> — the structured
+    /// reference a reconciliation engine matches on.
+    /// </summary>
+    public string? PaymentReference { get; init; }
+
+    /// <summary>The SEPA direct debit the invoice is collected under, <c>BG-19</c>.</summary>
+    public FacturXMandate? Mandate { get; init; }
 
     /// <summary>Whether this document is a credit note (<c>BT-3</c> = <c>381</c>).</summary>
     public bool IsCreditNote => string.Equals(TypeCode, "381", StringComparison.Ordinal);
@@ -102,6 +131,12 @@ public sealed class FacturXInvoice
     /// <summary>The invoice lines, <c>BG-25</c>.</summary>
     public IReadOnlyList<FacturXLine> Lines { get; init; } = [];
 
+    /// <summary>The allowances and charges of the document, <c>BG-20</c> and <c>BG-21</c>.</summary>
+    public IReadOnlyList<FacturXAllowanceCharge> AllowancesCharges { get; init; } = [];
+
+    /// <summary>The documents the invoice refers to, <c>BG-24</c>.</summary>
+    public IReadOnlyList<FacturXSupportingDocument> SupportingDocuments { get; init; } = [];
+
     /// <summary>The VAT breakdown, <c>BG-23</c>.</summary>
     public IReadOnlyList<FacturXTaxBreakdown> TaxBreakdown { get; init; } = [];
 
@@ -118,18 +153,31 @@ public sealed class FacturXInvoice
         TypeCode = TypeCode,
         Profile = profile,
         Currency = Currency,
+        TaxCurrency = TaxCurrency,
         IssueDate = IssueDate,
         DueDate = DueDate,
+        Period = Period,
         BuyerReference = BuyerReference,
+        BusinessProcess = BusinessProcess,
         OrderReference = OrderReference,
+        ContractReference = ContractReference,
+        ProjectReference = ProjectReference,
         Note = Note,
+        Notes = Notes,
         PaymentTerms = PaymentTerms,
         PaymentMeansCode = PaymentMeansCode,
+        PaymentReference = PaymentReference,
+        Mandate = Mandate,
         Iban = Iban,
         Bic = Bic,
         Seller = Seller,
         Buyer = Buyer,
+        DeliveryAddress = DeliveryAddress,
+        OperationCategory = OperationCategory,
+        VatOnDebits = VatOnDebits,
         Lines = Lines,
+        AllowancesCharges = AllowancesCharges,
+        SupportingDocuments = SupportingDocuments,
         TaxBreakdown = TaxBreakdown,
         Totals = Totals,
     };

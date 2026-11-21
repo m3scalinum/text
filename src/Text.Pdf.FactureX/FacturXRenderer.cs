@@ -253,8 +253,11 @@ public static class FacturXRenderer
             });
         }
 
+        // The total without tax is the taxable base, not the sum of the lines: a document-level
+        // allowance or charge moves one away from the other, and printing the line total would make
+        // "Total HT + TVA" disagree with the total below it.
         var totals = new StringBuilder()
-            .Append("Total HT : ").Append(FormatAmount(invoice.Totals.LineTotal)).Append(' ').Append(invoice.Currency)
+            .Append("Total HT : ").Append(FormatAmount(invoice.Totals.TaxBasisTotal)).Append(' ').Append(invoice.Currency)
             .Append("\nTotal TVA : ").Append(FormatAmount(invoice.Totals.TaxTotal)).Append(' ').Append(invoice.Currency);
 
         if (invoice.Totals.Prepaid != 0m)
