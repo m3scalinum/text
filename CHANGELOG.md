@@ -32,3 +32,16 @@ Not yet published on nuget.org.
   rules, and the French profile with its SIREN/SIRET, billing-framework and mandatory-note rules.
 - Conformance verified outside the test suite: the embedded XML against the official EN 16931 schema
   with the FNFE-MPE reference library, and the rendered files against PDF/A-3B with veraPDF.
+- Signature verification, PAdES B-T and B-LT (RFC 3161 timestamps and a DSS carrying the chain and
+  revocation data), a document timestamp over the whole file, and a visible signature appearance.
+- A structural conformance check for PDF/UA-1 and PDF/A read straight from the bytes: tagged
+  structure, language and title, alternative text on figures, font embedding and `ToUnicode`, the
+  cross-reference chain and the XMP identifier. veraPDF remains the reference validator.
+- UBL writing alongside the CII writer, and the EN 16931 terms the model was missing — allowances and
+  charges, invoice and line periods, contacts, supporting documents, payment reference, SEPA mandate,
+  tax currency, gross price and price discount — round-tripped between both syntaxes.
+- HTML import into the document model, with a published fidelity contract: prose, headings, nested
+  lists, tables with spanning cells, inline emphasis, code, links, images from registered assets,
+  block quotes and definition lists.
+- A template pack of typed business layouts — invoice, quotation, account statement and attestation —
+  bilingual, embedded, resolvable by id and version, with dependency-injection registration.
