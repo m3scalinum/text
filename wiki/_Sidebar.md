@@ -36,4 +36,5 @@
 - [Reading](FactureX-Reading)
 - [Validation](FactureX-Validation)
 - [The Peppol CIUS](FactureX-Peppol)
+- [The XRechnung CIUS](FactureX-XRechnung)
 - [The French profile](FactureX-French-Profile)

@@ -34,6 +34,24 @@ Not yet published.
   and a scanned page comes back empty. Verified on compiler output (two pages with a marker each, a
   table and a footnote) and on a browser-printed document, plus hand-written files for a Type0 CMap
   in every shape, a font with no CMap, a form XObject and an encrypted trailer.
+- `M3scalinum.Text.Pdf.FactureX` and `XRechnungValidator`: the XRechnung CIUS rules that can be
+  decided from the document — the specification identifier (`BT-24`) in its 3.0, extension, vehicle
+  and 4.0 pre-release spellings, the business process (`BT-23`), the buyer reference (`BT-10`) as the
+  Leitweg-ID, the seller contact (`BG-6`) with its name, telephone and e-mail, the seller and buyer
+  postal terms, the deliver-to group, the seller and buyer electronic addresses, the document type
+  code list, the payment instructions and the account or mandate each payment means requires, the
+  IBAN check digits, the `SKONTO` spelling of the payment terms, the VAT rate of each breakdown and
+  the seller identification the VAT categories require, the price base quantity, the gross-to-net
+  price arithmetic, the line period against the invoice period, the allowance and charge base,
+  percentage and amount, and the German terms of a corrected invoice, the VAT accounting currency and
+  the sub invoice lines the CIUS does not support. `FacturXValidator.Validate(invoice)` now selects
+  one of the three overlays by declaration — XRechnung first, then Peppol, then the French rules —
+  because a German document carries the Peppol billing process in `BT-23` while declaring the German
+  CIUS in `BT-24`, and a gate on `BT-23` alone would hold every Peppol invoice to the German rules.
+  `CiiWriter` writes the CIUS identifier in `BT-24` when that is what `SpecificationId` holds, so an
+  XRechnung CII document is no longer written as a plain EN 16931 one. The official KoSIT Schematron
+  remains the reference: this is the subset `FacturXInvoice` states exactly, with one document built
+  from the model per rule as the negative case and one conformant invoice as the positive one.
 - `M3scalinum.Text.Mcp`: a Model Context Protocol server over stdio, exposing `render_document`
   (Typst source, or a layout of `M3scalinum.Text.Templates` with its parameters), `render_invoice`
   (a `FacturXInvoice`-shaped JSON payload, validated and rendered as Factur-X PDF/A-3) and
