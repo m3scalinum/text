@@ -21,6 +21,7 @@
 - [Getting Started](Pdf-Getting-Started)
 - [Signing](Pdf-Signing)
 - [Checking conformance](Pdf-Conformance)
+- [Pages and forms](Pdf-Pages-and-Forms)
 
 **FactureX** — build and read an e-invoice
 
