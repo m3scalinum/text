@@ -60,6 +60,7 @@ public sealed class NativeAbiTests
         }
 
         Assert.Equal(1u, NativeMethods.AbiVersion());
+        Assert.Equal(1u, NativeOcr.Library.AbiVersion());
     }
 
     [Fact]
@@ -104,6 +105,49 @@ public sealed class NativeAbiTests
         var before = NativeOcr.LiveHandleCount();
 
         Assert.Throws<OcrException>(() => OcrEngine.FromModels([1, 2, 3, 4], [1, 2, 3, 4]));
+
+        Assert.Equal(before, NativeOcr.LiveHandleCount());
+    }
+
+    [Fact]
+    public void The_recognize_entry_points_refuse_a_null_engine_instead_of_dereferencing_it()
+    {
+        if (!NativeProbe.IsAvailable)
+        {
+            Assert.Skip(NativeProbe.SkipReason);
+        }
+
+        var imageStatus = NativeOcr.Library.EngineRecognize(
+            IntPtr.Zero, [], out var imageDocument, out var imageError);
+        var pdfStatus = NativeOcr.Library.EngineRecognizePdf(
+            IntPtr.Zero, [], 300, 0, 0, out var pdfDocument, out var pdfError);
+
+        Assert.NotEqual(0, imageStatus);
+        Assert.NotEqual(0, pdfStatus);
+        Assert.Equal(imageStatus, NativeMethods.ErrorCode(imageError));
+        Assert.Equal(pdfStatus, NativeMethods.ErrorCode(pdfError));
+        Assert.Equal(0, (int)imageDocument.Length);
+        Assert.Equal(0, (int)pdfDocument.Length);
+
+        var imageException = NativeOcr.ToException(imageError);
+        var pdfException = NativeOcr.ToException(pdfError);
+
+        Assert.Equal("invalid_argument", imageException.Code);
+        Assert.Equal("invalid_argument", pdfException.Code);
+        Assert.Contains("engine must not be null", imageException.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Freeing_a_null_engine_is_harmless()
+    {
+        if (!NativeProbe.IsAvailable)
+        {
+            Assert.Skip(NativeProbe.SkipReason);
+        }
+
+        var before = NativeOcr.LiveHandleCount();
+
+        NativeOcr.Library.EngineFree(IntPtr.Zero);
 
         Assert.Equal(before, NativeOcr.LiveHandleCount());
     }

@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Text.Json;
 using M3scalinum.Text.Ocr.Internal;
 using Xunit;
 
@@ -96,6 +98,96 @@ public sealed class ResultParserTests
         Assert.Equal(string.Empty, result.Text);
         Assert.Equal(0.0, result.MeanConfidence);
     }
+
+    [Fact]
+    public void A_malformed_document_is_refused_rather_than_half_read()
+        => Assert.ThrowsAny<JsonException>(
+            () => ResultParser.ParseImage(Bytes("""{"width":2480,""")));
+
+    [Fact]
+    public void A_document_missing_a_field_the_shape_promises_is_refused()
+        => Assert.Throws<KeyNotFoundException>(() => ResultParser.ParseImage(Bytes(
+            """{"width":10,"height":10,"text":"","meanConfidence":0.0}""")));
+
+    [Fact]
+    public void A_field_the_native_side_gains_later_is_ignored()
+    {
+        var result = ResultParser.ParseImage(Bytes(
+            """
+            {"engine":"ocrs","elapsedMs":12,"width":10,"height":10,"text":"a","meanConfidence":0.5,
+             "lines":[{"kind":"text","text":"a","bounds":{"x":0,"y":0,"width":5,"height":5},
+                       "confidence":0.5,"words":[{"lang":"la","text":"a",
+                       "bounds":{"x":0,"y":0,"width":5,"height":5},"confidence":0.5}]}]}
+            """));
+
+        Assert.Equal("a", result.Text);
+        Assert.Equal("a", Assert.Single(Assert.Single(result.Lines).Words).Text);
+    }
+
+    [Fact]
+    public void A_box_that_runs_off_the_page_is_clipped_to_it()
+    {
+        var line = Assert.Single(ResultParser.ParseImage(Bytes(
+            """
+            {"width":100,"height":50,"text":"e","meanConfidence":0.5,
+             "lines":[{"text":"e","bounds":{"x":90,"y":40,"width":50,"height":20},"confidence":0.5,
+                       "words":[{"text":"e","bounds":{"x":-5,"y":-5,"width":20,"height":10},
+                                 "confidence":0.5}]}]}
+            """)).Lines);
+
+        Assert.Equal([90, 40, 10, 10], Boxes(line.Bounds));
+        Assert.Equal([0, 0, 15, 5], Boxes(Assert.Single(line.Words).Bounds));
+    }
+
+    [Fact]
+    public void A_line_box_with_no_area_takes_the_box_that_holds_its_words()
+    {
+        var line = Assert.Single(ResultParser.ParseImage(Bytes(
+            """
+            {"width":100,"height":50,"text":"ab","meanConfidence":0.5,
+             "lines":[{"text":"ab","bounds":{"x":20,"y":10,"width":0,"height":0},"confidence":0.5,
+                       "words":[{"text":"b","bounds":{"x":40,"y":10,"width":10,"height":5},
+                                 "confidence":0.5},
+                                {"text":"a","bounds":{"x":20,"y":10,"width":15,"height":5},
+                                 "confidence":0.5}]}]}
+            """)).Lines);
+
+        Assert.Equal([20, 10, 30, 5], Boxes(line.Bounds));
+    }
+
+    [Fact]
+    public void A_line_with_no_words_and_no_area_stays_an_empty_box()
+    {
+        var line = Assert.Single(ResultParser.ParseImage(Bytes(
+            """
+            {"width":100,"height":50,"text":"","meanConfidence":0.0,
+             "lines":[{"text":"","bounds":{"x":0,"y":0,"width":0,"height":0},"confidence":0.0,
+                       "words":[]}]}
+            """)).Lines);
+
+        Assert.Equal([0, 0, 0, 0], Boxes(line.Bounds));
+    }
+
+    [Fact]
+    public void The_words_of_a_line_come_back_in_reading_order()
+    {
+        var line = Assert.Single(ResultParser.ParseImage(Bytes(
+            """
+            {"width":100,"height":50,"text":"c a b","meanConfidence":0.5,
+             "lines":[{"text":"c a b","bounds":{"x":10,"y":10,"width":80,"height":10},
+                       "confidence":0.5,
+                       "words":[{"text":"c","bounds":{"x":70,"y":10,"width":10,"height":10},
+                                 "confidence":0.5},
+                                {"text":"a","bounds":{"x":10,"y":10,"width":10,"height":10},
+                                 "confidence":0.5},
+                                {"text":"b","bounds":{"x":30,"y":10,"width":10,"height":10},
+                                 "confidence":0.5}]}]}
+            """)).Lines);
+
+        Assert.Equal(["a", "b", "c"], line.Words.Select(word => word.Text));
+    }
+
+    private static int[] Boxes(OcrBox box) => [box.X, box.Y, box.Width, box.Height];
 
     private static byte[] Bytes(string document) => Encoding.UTF8.GetBytes(document);
 }

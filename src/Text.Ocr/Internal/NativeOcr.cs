@@ -1,6 +1,4 @@
 using System;
-using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 
@@ -13,6 +11,11 @@ namespace M3scalinum.Text.Ocr.Internal;
 internal static class NativeOcr
 {
     /// <summary>
+    /// The one implementation a consumer gets: the P/Invoke declarations.
+    /// </summary>
+    internal static IOcrNative Library { get; } = new NativeLibraryOcr();
+
+    /// <summary>
     /// Installs the library resolver once, before any P/Invoke runs, so an override
     /// path or the <c>runtimes/&lt;rid&gt;/native/</c> layout is found without a probe
     /// call. <see cref="OcrEngineHandle"/>'s static constructor is the single caller,
@@ -21,13 +24,19 @@ internal static class NativeOcr
     internal static void Initialize() => NativeLibraryResolver.Initialize();
 
     /// <summary>The handle count the native library keeps, for leak tests.</summary>
-    internal static uint LiveHandleCount() => NativeMethods.EngineLiveCount();
+    internal static uint LiveHandleCount() => Library.EngineLiveCount();
 
-    internal static string BuildInfo()
+    internal static string BuildInfo() => BuildInfo(Library);
+
+    /// <summary>
+    /// The build information, or an empty string when the library cannot be loaded:
+    /// a host that asks what the package carries must get an answer, not a crash.
+    /// </summary>
+    internal static string BuildInfo(IOcrNative library)
     {
         try
         {
-            return NativeMethods.ReadUtf8(NativeMethods.BuildInfo());
+            return NativeMethods.ReadUtf8(library.BuildInfo());
         }
         catch (DllNotFoundException)
         {
@@ -38,7 +47,18 @@ internal static class NativeOcr
     /// <summary>
     /// Turns an error object into an exception and frees it.
     /// </summary>
-    internal static OcrException ToException(IntPtr error)
+    internal static OcrException ToException(IntPtr error) => ToException(Library, error);
+
+    /// <summary>
+    /// Turns an error object into an exception and frees it.
+    /// </summary>
+    /// <remarks>
+    /// The status code returned alongside the error is not the contract: it is a
+    /// convenience for a C host that has no JSON reader. The <c>code</c> inside the
+    /// error document is what <see cref="OcrException.Code"/> reports, so the two
+    /// halves can gain a status without the managed side learning a status table.
+    /// </remarks>
+    internal static OcrException ToException(IOcrNative library, IntPtr error)
     {
         var code = "unknown";
         var message = "the native library failed without an error object";
@@ -47,7 +67,7 @@ internal static class NativeOcr
         {
             try
             {
-                var buffer = NativeMethods.ErrorJson(error);
+                var buffer = library.ErrorJson(error);
                 try
                 {
                     var text = Encoding.UTF8.GetString(buffer.ToArray());
@@ -66,12 +86,12 @@ internal static class NativeOcr
                 }
                 finally
                 {
-                    NativeMethods.BufferFree(buffer);
+                    library.BufferFree(buffer);
                 }
             }
             finally
             {
-                NativeMethods.ErrorFree(error);
+                library.ErrorFree(error);
             }
         }
 
@@ -80,67 +100,137 @@ internal static class NativeOcr
 }
 
 /// <summary>
-/// An engine handle. It owns the models: disposing it drops them in Rust.
+/// The <see cref="IOcrNative"/> that talks to the Rust library. Every method here only
+/// forwards: pinning and the out-parameters stay on this side of the interface, so
+/// <see cref="OcrEngineHandle"/> holds no pointers and can be driven by a double.
 /// </summary>
-internal sealed unsafe class OcrEngineHandle : IDisposable
+internal sealed unsafe class NativeLibraryOcr : IOcrNative
 {
-    private IntPtr _handle;
+    /// <inheritdoc />
+    public uint AbiVersion() => NativeMethods.AbiVersion();
 
-    static OcrEngineHandle() => NativeOcr.Initialize();
+    /// <inheritdoc />
+    public IntPtr BuildInfo() => NativeMethods.BuildInfo();
 
-    private OcrEngineHandle(IntPtr handle) => _handle = handle;
-
-    internal static OcrEngineHandle Create(byte[] detectionModel, byte[] recognitionModel, byte[]? dictionary)
+    /// <inheritdoc />
+    public IntPtr EngineCreate(
+        byte[] detectionModel,
+        byte[] recognitionModel,
+        byte[]? dictionary,
+        out IntPtr error)
     {
         fixed (byte* detection = detectionModel)
         fixed (byte* recognition = recognitionModel)
         fixed (byte* alphabet = dictionary)
         {
-            var handle = NativeMethods.EngineCreate(
+            return NativeMethods.EngineCreate(
                 detection, (nuint)detectionModel.Length,
                 recognition, (nuint)recognitionModel.Length,
                 alphabet, (nuint)(dictionary?.Length ?? 0),
-                out var error);
-
-            if (handle == IntPtr.Zero)
-            {
-                throw NativeOcr.ToException(error);
-            }
-
-            if (error != IntPtr.Zero)
-            {
-                // A handle and an error together means a bug in Rust; never leak the error.
-                NativeMethods.ErrorFree(error);
-            }
-
-            return new OcrEngineHandle(handle);
+                out error);
         }
+    }
+
+    /// <inheritdoc />
+    public void EngineFree(IntPtr engine) => NativeMethods.EngineFree(engine);
+
+    /// <inheritdoc />
+    public uint EngineLiveCount() => NativeMethods.EngineLiveCount();
+
+    /// <inheritdoc />
+    public int EngineRecognize(IntPtr engine, byte[] image, out NativeBuffer json, out IntPtr error)
+    {
+        fixed (byte* pixels = image)
+        {
+            return NativeMethods.EngineRecognize(engine, pixels, (nuint)image.Length, out json, out error);
+        }
+    }
+
+    /// <inheritdoc />
+    public int EngineRecognizePdf(
+        IntPtr engine,
+        byte[] pdf,
+        uint dpi,
+        uint firstPage,
+        uint pageCount,
+        out NativeBuffer json,
+        out IntPtr error)
+    {
+        fixed (byte* bytes = pdf)
+        {
+            return NativeMethods.EngineRecognizePdf(
+                engine, bytes, (nuint)pdf.Length, dpi, firstPage, pageCount, out json, out error);
+        }
+    }
+
+    /// <inheritdoc />
+    public NativeBuffer ErrorJson(IntPtr error) => NativeMethods.ErrorJson(error);
+
+    /// <inheritdoc />
+    public void ErrorFree(IntPtr error) => NativeMethods.ErrorFree(error);
+
+    /// <inheritdoc />
+    public void BufferFree(NativeBuffer buffer) => NativeMethods.BufferFree(buffer);
+}
+
+/// <summary>
+/// An engine handle. It owns the models: disposing it drops them in Rust.
+/// </summary>
+internal sealed class OcrEngineHandle : IDisposable
+{
+    private readonly IOcrNative _library;
+    private IntPtr _handle;
+
+    static OcrEngineHandle() => NativeOcr.Initialize();
+
+    private OcrEngineHandle(IOcrNative library, IntPtr handle)
+    {
+        _library = library;
+        _handle = handle;
+    }
+
+    internal static OcrEngineHandle Create(byte[] detectionModel, byte[] recognitionModel, byte[]? dictionary)
+        => Create(NativeOcr.Library, detectionModel, recognitionModel, dictionary);
+
+    internal static OcrEngineHandle Create(
+        IOcrNative library,
+        byte[] detectionModel,
+        byte[] recognitionModel,
+        byte[]? dictionary)
+    {
+        var handle = library.EngineCreate(detectionModel, recognitionModel, dictionary, out var error);
+
+        if (handle == IntPtr.Zero)
+        {
+            throw NativeOcr.ToException(library, error);
+        }
+
+        if (error != IntPtr.Zero)
+        {
+            // A handle and an error together means a bug in Rust; never leak the error.
+            library.ErrorFree(error);
+        }
+
+        return new OcrEngineHandle(library, handle);
     }
 
     internal byte[] Recognize(byte[] image)
     {
         var handle = Handle();
 
-        fixed (byte* pixels = image)
-        {
-            var status = NativeMethods.EngineRecognize(
-                handle, pixels, (nuint)image.Length, out var json, out var error);
+        var status = _library.EngineRecognize(handle, image, out var json, out var error);
 
-            return Take(status, json, error);
-        }
+        return Take(status, json, error);
     }
 
     internal byte[] RecognizePdf(byte[] pdf, uint dpi, uint firstPage, uint pageCount)
     {
         var handle = Handle();
 
-        fixed (byte* bytes = pdf)
-        {
-            var status = NativeMethods.EngineRecognizePdf(
-                handle, bytes, (nuint)pdf.Length, dpi, firstPage, pageCount, out var json, out var error);
+        var status = _library.EngineRecognizePdf(
+            handle, pdf, dpi, firstPage, pageCount, out var json, out var error);
 
-            return Take(status, json, error);
-        }
+        return Take(status, json, error);
     }
 
     public void Dispose()
@@ -150,20 +240,20 @@ internal sealed unsafe class OcrEngineHandle : IDisposable
 
         if (handle != IntPtr.Zero)
         {
-            NativeMethods.EngineFree(handle);
+            _library.EngineFree(handle);
         }
     }
 
-    private static byte[] Take(int status, NativeBuffer json, IntPtr error)
+    private byte[] Take(int status, NativeBuffer json, IntPtr error)
     {
         if (status != 0)
         {
             if (json.Pointer != IntPtr.Zero)
             {
-                NativeMethods.BufferFree(json);
+                _library.BufferFree(json);
             }
 
-            throw NativeOcr.ToException(error);
+            throw NativeOcr.ToException(_library, error);
         }
 
         try
@@ -172,7 +262,7 @@ internal sealed unsafe class OcrEngineHandle : IDisposable
         }
         finally
         {
-            NativeMethods.BufferFree(json);
+            _library.BufferFree(json);
         }
     }
 
