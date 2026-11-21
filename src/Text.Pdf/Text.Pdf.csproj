@@ -30,6 +30,13 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- The conformance tests drive the reader directly: the lexer, the cross-reference sections
+         and the value types have no public entry point, and testing them through a report would
+         assert symptoms instead of the parse. -->
+    <InternalsVisibleTo Include="M3scalinum.Text.Pdf.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Sized to the runtime, like the Microsoft.Extensions.* packages of the DI package. -->
     <PackageReference Include="System.Security.Cryptography.Pkcs" VersionOverride="$(PkcsVersion)" />
     <PackageReference Include="System.IO.Hashing" VersionOverride="8.0.0" />
