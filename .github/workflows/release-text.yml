@@ -18,29 +18,97 @@ env:
 permissions:
   contents: read
 
-# Everything in the suite that does not embed the compiler: today M3scalinum.Text.Pdf and
-# M3scalinum.Text.Pdf.FactureX, tomorrow whatever else lands under M3scalinum.Text. These packages do
-# not version themselves after Typst, they follow TextVersion, so they need their own tag namespace
-# and their own workflow. No six-RID matrix here — nothing in this family ships a native asset.
+# Everything in the suite that does not embed the compiler: M3scalinum.Text.Pdf, .Pdf.FactureX,
+# .Templates, .Mcp, .Charts, .Epub, and the three that carry a Rust library of their own — .Barcodes,
+# .Ocr and .Docx. These packages do not version themselves after Typst, they follow TextVersion, so
+# they need their own tag namespace and their own workflow. The three native ones are the reason the
+# `native` job below exists: they ship five RIDs each, built here and packed by `pack`.
 jobs:
+  native:
+    name: native (${{ matrix.crate }}, ${{ matrix.rid }})
+    # Five RIDs, not the compiler's six: none of these crates has a hand-linked musl artefact, so
+    # `linux-musl-x64` is deliberately absent and an Alpine consumer gets the resolver's explicit
+    # error instead of a silent one.
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        crate: [text-barcodes, text-ocr, text-docx]
+        include:
+          - { os: windows-latest, rid: win-x64 }
+          - { os: windows-11-arm, rid: win-arm64 }
+          - { os: ubuntu-latest, rid: linux-x64 }
+          - { os: ubuntu-24.04-arm, rid: linux-arm64 }
+          # The universal dylib cross-compiles from either macOS host; the Intel pool keeps CI off
+          # the arm64 queue GitHub throttles.
+          - { os: macos-15-intel, rid: osx }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native/${{ matrix.crate }}
+      - name: Build (host)
+        if: matrix.rid != 'osx'
+        run: cargo build --release --manifest-path native/${{ matrix.crate }}/Cargo.toml
+      - name: Build (universal)
+        if: matrix.rid == 'osx'
+        run: |
+          rustup target add x86_64-apple-darwin aarch64-apple-darwin
+          cargo build --release --manifest-path native/${{ matrix.crate }}/Cargo.toml --target x86_64-apple-darwin
+          cargo build --release --manifest-path native/${{ matrix.crate }}/Cargo.toml --target aarch64-apple-darwin
+          lib="$(basename "$(ls native/${{ matrix.crate }}/target/x86_64-apple-darwin/release/*.dylib)")"
+          lipo -create -output "native/${{ matrix.crate }}/target/release/${lib%%-*}-universal.dylib"             "native/${{ matrix.crate }}/target/x86_64-apple-darwin/release/$lib"             "native/${{ matrix.crate }}/target/aarch64-apple-darwin/release/$lib"
+      - name: Stage the library
+        shell: bash
+        run: |
+          mkdir -p "native/artifacts/${{ matrix.rid }}"
+          cp native/${{ matrix.crate }}/target/release/*sharp_text*.dll "native/artifacts/${{ matrix.rid }}/" 2>/dev/null || true
+          cp native/${{ matrix.crate }}/target/release/*sharp_text*.so  "native/artifacts/${{ matrix.rid }}/" 2>/dev/null || true
+          cp native/${{ matrix.crate }}/target/release/*sharp_text*.dylib "native/artifacts/${{ matrix.rid }}/" 2>/dev/null || true
+          ls -l "native/artifacts/${{ matrix.rid }}/"
+      - uses: actions/upload-artifact@v7
+        # The artifact root is `native/artifacts`, so a merged download in `pack` reassembles the
+        # `<rid>/<library>` layout the csproj files look for.
+        with:
+          name: ${{ matrix.crate }}-${{ matrix.rid }}
+          path: native/artifacts
+          if-no-files-found: error
+
   pack:
     name: pack
+    needs: [native]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 11.0.x
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: text-*-*
+          merge-multiple: true
+          path: native/artifacts
       - run: dotnet restore
       - name: Tests
         # The MCP server's protocol tests need no compiler; its render tests skip themselves without
         # SHARPTYPST_NATIVE_PATH, which this job does not download — the pack train ships no native
         # asset and the render path is gated in ci-text.yml's mcp job.
+        env:
+          SHARPTYPST_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/linux-x64/libsharp_typst.so
+          BARCODES_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/linux-x64/libsharp_text_barcodes.so
+          M3SCALINUM_OCR_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/linux-x64/libsharp_text_ocr.so
+          SHARPTEXTDOCX_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/linux-x64/libsharp_text_docx.so
         run: |
           dotnet build -c Release --no-restore
           dotnet test tests/Text.Pdf.Tests -c Release --no-build
           dotnet test tests/Text.Pdf.FactureX.Tests -c Release --no-build
           dotnet test tests/Text.Mcp.Tests -c Release --no-build
+          dotnet test tests/Text.Barcodes.Tests -c Release --no-build
+          dotnet test tests/Text.Docx.Tests -c Release --no-build
+          dotnet test tests/Text.Ocr.Tests -c Release --no-build
+          dotnet test tests/Text.Charts.Tests -c Release --no-build
+          dotnet test tests/Text.Epub.Tests -c Release --no-build
       - name: Check the release notes
         # A tag without its changelog section would reach nuget.org and only then fail to describe
         # what it published. Checked before anything is packed, so the run stops here instead.
@@ -90,6 +158,7 @@ jobs:
           dotnet restore src/Text.Pdf.FactureX -p:CoreVersion="$core"
           dotnet restore src/Text.SharpTypst.Templates -p:CoreVersion="$core"
           dotnet restore src/Text.Mcp -p:CoreVersion="$core"
+          dotnet restore src/Text.Docx -p:CoreVersion="$core"
           dotnet pack src/Text.Pdf -c Release -o artifacts/packages "${version_args[@]}"
           dotnet pack src/Text.Pdf.FactureX -c Release --no-restore \
             -o artifacts/packages -p:CoreVersion="$core" "${version_args[@]}"
@@ -98,6 +167,15 @@ jobs:
           # The MCP server sits on both the e-invoicing package and the layout pack, so it is packed
           # after them: all three are this train's, and the tag is their version.
           dotnet pack src/Text.Mcp -c Release --no-restore \
+            -o artifacts/packages -p:CoreVersion="$core" "${version_args[@]}"
+          # The three native carriers, and the two managed-only packages beside them. Charts and
+          # EPUB depend on nothing, so they take the tag's version alone; Docx sits on the compiler
+          # wrapper and needs the same published core the others do.
+          dotnet pack src/Text.Barcodes -c Release --no-build -o artifacts/packages "${version_args[@]}"
+          dotnet pack src/Text.Charts -c Release --no-build -o artifacts/packages "${version_args[@]}"
+          dotnet pack src/Text.Epub -c Release --no-build -o artifacts/packages "${version_args[@]}"
+          dotnet pack src/Text.Ocr -c Release --no-build -o artifacts/packages "${version_args[@]}"
+          dotnet pack src/Text.Docx -c Release --no-restore \
             -o artifacts/packages -p:CoreVersion="$core" "${version_args[@]}"
       - name: Verify the packages
         run: |

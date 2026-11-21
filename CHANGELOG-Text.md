@@ -19,6 +19,26 @@ Not yet published.
 
 ### Added
 
+- `M3scalinum.Text.Barcodes`: ten symbologies in both directions — QR Code, DataMatrix, Aztec, PDF417,
+  Code 128, Code 39, EAN-13, EAN-8, ITF and Codabar — encoded to SVG at one unit per module or to a
+  PNG at a chosen scale, and decoded back from a PNG. The engine is `rxing` (Apache-2.0), a Rust port
+  of ZXing, in a native library of its own.
+- `M3scalinum.Text.Ocr`: text, lines and word boxes out of a page image, and pages out of a PDF, with
+  the detection and recognition models supplied by the caller as bytes. Nothing is downloaded and no
+  default path is read; the engine is `ocrs`/`rten` over `hayro`.
+- `M3scalinum.Text.Docx`: a Word document read into the document model — runs with their emphasis,
+  headings, tables with spanning and merged cells, lists, images and page setup — and renderable by
+  the compiler like any other document. The OOXML is parsed directly over `zip` 9 and `roxmltree`.
+- `M3scalinum.Text.Charts`: line, area, grouped and stacked bar, scatter, pie, donut and sparkline
+  charts from a typed model, rendered to standalone SVG, with no dependency at all.
+- `M3scalinum.Text.Epub`: a valid EPUB 3 container — `mimetype` stored first, OPF, nav, one XHTML
+  document per chapter, assets — built by hand, because the crate that does it is GPL-3.0.
+- `PdfArchiveTimestamp` and PAdES B-LTA: a document timestamp over the whole file including the DSS,
+  refreshable as the algorithms age, with `Inspect` reporting what each entry covers and whether the
+  chain still holds.
+- `PdfAConverter.Convert`: an existing PDF turned into PDF/A, or refused with the blocking issue
+  named — an untagged document cannot be given a structure tree, and it does not pretend otherwise.
+  The verdict comes from `PdfConformance.Check` on the produced bytes.
 - `M3scalinum.Text.Pdf.FactureX` and the national syntaxes: `FatturaPaReader` / `FatturaPaWriter` read
   and write FatturaPA 1.2.2 (`FatturaElettronica` — `DatiTrasmissione` with the `CodiceDestinatario` or
   the PEC address, `CedentePrestatore` and `CessionarioCommittente`, `DatiGeneraliDocumento`,

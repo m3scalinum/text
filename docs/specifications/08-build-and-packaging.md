@@ -295,9 +295,10 @@ A consumer can therefore tell which compiler a package carries from its version 
 `0.15.1.*` → `0.15.2.*` bump is unambiguously a Typst upgrade.
 
 **The packages that do not embed it** — `M3scalinum.Text.Pdf` (PAdES signing,
-[14](14-pdf-signature.md)), `M3scalinum.Text.Pdf.FactureX` ([13](13-facturx.md)),
-`M3scalinum.Text.Templates` (the layout pack, [05](05-templates.md)) and `M3scalinum.Text.Mcp`
-(the protocol server, [17](17-mcp.md)) — carry whatever
+[14](14-pdf-signature.md)), `.Pdf.FactureX` ([13](13-facturx.md)), `.Templates` (the layout pack,
+[05](05-templates.md)), `.Mcp` (the protocol server, [17](17-mcp.md)), and the five that arrived with
+their own engine or none: `.Barcodes` ([20](20-barcodes.md)), `.Ocr` ([21](21-ocr.md)), `.Docx`
+([22](22-docx.md)), `.Charts` ([23](23-charts.md)) and `.Epub` ([25](25-epub.md)) — carry whatever
 version their tag names. `v0.51.2` publishes `0.51.2`, `v1.0.0` publishes `1.0.0`:
 
 ```
@@ -358,7 +359,7 @@ library reports, so bumping the Rust crate without bumping `TypstVersion` fails 
 - A Typst upgrade is a **minor** version of `M3scalinum.Text.SharpTypst` unless it changes emitted
   output, in which case it is a major (golden files change).
 
-`EnablePackageValidation` is on for the seven packable projects. With no
+`EnablePackageValidation` is on for the twelve packable projects. With no
 `PackageValidationBaselineVersion` it still does real work: it compares the API surface of
 `net8.0`, `net9.0` and `net10.0` against `net11.0`, which is exactly where a conditional
 `PackageReference` or an `#if` would quietly drop a type. Once 1.0 is on nuget.org, set the baseline
@@ -369,7 +370,7 @@ parameter type instead of letting it reach a consumer.
 
 The suite is split along the same line as the versions. `.github/workflows/ci-sharptypst.yml`
 owns everything that needs the compiler; `.github/workflows/ci-text.yml` builds, tests and packs the
-four packages that do not.
+nine packages that do not.
 
 `ci-sharptypst.yml`:
 

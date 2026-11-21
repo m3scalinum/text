@@ -333,3 +333,127 @@ jobs:
           name: packages-text
           path: artifacts/packages/*.nupkg
           if-no-files-found: error
+
+  native-extras:
+    # The three libraries that are not the compiler: barcodes, OCR and the DOCX reader. Each is its own
+    # crate with its own Cargo.lock, and before this job existed nothing compiled them — a Dependabot
+    # bump of `zip` in native/text-docx reached main with every check green and a broken build.
+    name: native (${{ matrix.crate }})
+    strategy:
+      fail-fast: false
+      matrix:
+        crate: [text-barcodes, text-ocr, text-docx]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native/${{ matrix.crate }}
+      - name: Format
+        working-directory: native/${{ matrix.crate }}
+        run: cargo fmt --check
+      - name: Clippy
+        working-directory: native/${{ matrix.crate }}
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Unit tests
+        working-directory: native/${{ matrix.crate }}
+        run: cargo test --lib
+      - name: Build
+        working-directory: native/${{ matrix.crate }}
+        run: cargo build --release
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.crate }}-linux-x64
+          path: native/${{ matrix.crate }}/target/release/libsharp_*.so
+          if-no-files-found: error
+
+  extras:
+    name: extras
+    # Five packages in one job: two are pure managed (charts, epub) and three carry their own native
+    # library. One job keeps the coverage measurement per assembly explicit rather than spreading five
+    # near-identical jobs across the workflow.
+    needs: [native, native-extras]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 11.0.x
+      - uses: actions/download-artifact@v8
+        with:
+          name: native-linux-x64
+          path: native/artifacts/linux-x64
+      - uses: actions/download-artifact@v8
+        with:
+          name: text-barcodes-linux-x64
+          path: native/artifacts/barcodes
+      - uses: actions/download-artifact@v8
+        with:
+          name: text-ocr-linux-x64
+          path: native/artifacts/ocr
+      - uses: actions/download-artifact@v8
+        with:
+          name: text-docx-linux-x64
+          path: native/artifacts/docx
+      - run: dotnet restore
+      - run: dotnet build -c Release --no-restore
+      - name: Tests
+        env:
+          SHARPTYPST_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/linux-x64/libsharp_typst.so
+          BARCODES_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/barcodes/libsharp_text_barcodes.so
+          M3SCALINUM_OCR_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/ocr/libsharp_text_ocr.so
+          SHARPTEXTDOCX_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/docx/libsharp_text_docx.so
+        run: |
+          dotnet test tests/Text.Barcodes.Tests -c Release --no-build
+          dotnet test tests/Text.Docx.Tests -c Release --no-build
+          dotnet test tests/Text.Epub.Tests -c Release --no-build
+          dotnet test tests/Text.Charts.Tests -c Release --no-build
+          dotnet test tests/Text.Ocr.Tests -c Release --no-build
+      - name: Install dotnet-coverage
+        run: dotnet tool install --global dotnet-coverage
+      - name: Collect
+        env:
+          SHARPTYPST_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/linux-x64/libsharp_typst.so
+          BARCODES_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/barcodes/libsharp_text_barcodes.so
+          M3SCALINUM_OCR_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/ocr/libsharp_text_ocr.so
+          SHARPTEXTDOCX_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/docx/libsharp_text_docx.so
+        run: |
+          dotnet-coverage collect -f cobertura -o artifacts/coverage/barcodes.xml "dotnet test tests/Text.Barcodes.Tests -c Release --no-build"
+          dotnet-coverage collect -f cobertura -o artifacts/coverage/docx.xml "dotnet test tests/Text.Docx.Tests -c Release --no-build"
+          dotnet-coverage collect -f cobertura -o artifacts/coverage/epub.xml "dotnet test tests/Text.Epub.Tests -c Release --no-build"
+          dotnet-coverage collect -f cobertura -o artifacts/coverage/charts.xml "dotnet test tests/Text.Charts.Tests -c Release --no-build"
+          dotnet-coverage collect -f cobertura -o artifacts/coverage/ocr.xml "dotnet test tests/Text.Ocr.Tests -c Release --no-build"
+          dotnet-coverage merge -f cobertura -o artifacts/coverage/extras.xml artifacts/coverage/barcodes.xml artifacts/coverage/docx.xml artifacts/coverage/epub.xml artifacts/coverage/charts.xml artifacts/coverage/ocr.xml
+      - name: Gate
+        # One merge, five required assemblies: a package that ships with no test collected would
+        # otherwise read as uncovered rather than unmeasured.
+        run: >
+          python3 tests/coverage-gate.py artifacts/coverage/extras.xml 90
+          --require M3scalinum.Text.Barcodes M3scalinum.Text.Charts M3scalinum.Text.Docx
+          M3scalinum.Text.Epub M3scalinum.Text.Ocr
+      - uses: actions/upload-artifact@v7
+        with:
+          name: coverage-extras
+          path: artifacts/coverage/extras.xml
+      - name: Pack
+        run: |
+          dotnet pack src/Text.Barcodes -c Release --no-build -o artifacts/packages
+          dotnet pack src/Text.Charts -c Release --no-build -o artifacts/packages
+          dotnet pack src/Text.Docx -c Release --no-build -o artifacts/packages
+          dotnet pack src/Text.Epub -c Release --no-build -o artifacts/packages
+          dotnet pack src/Text.Ocr -c Release --no-build -o artifacts/packages
+      - name: Verify the packages
+        # Three of them carry a native library each: a missing RID fails here rather than as a
+        # DllNotFoundException in a consumer's application.
+        run: |
+          python3 tests/verify-package.py artifacts/packages/M3scalinum.Text.Barcodes.*.nupkg
+          python3 tests/verify-package.py artifacts/packages/M3scalinum.Text.Charts.*.nupkg
+          python3 tests/verify-package.py artifacts/packages/M3scalinum.Text.Docx.*.nupkg
+          python3 tests/verify-package.py artifacts/packages/M3scalinum.Text.Epub.*.nupkg
+          python3 tests/verify-package.py artifacts/packages/M3scalinum.Text.Ocr.*.nupkg
+      - uses: actions/upload-artifact@v7
+        with:
+          name: packages-extras
+          path: artifacts/packages/*.nupkg
+          if-no-files-found: error

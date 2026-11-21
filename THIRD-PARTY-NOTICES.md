@@ -449,3 +449,50 @@ INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
 CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 POSSIBILITY OF SUCH DAMAGE.
+
+================================================================================
+The native libraries that are not Typst
+================================================================================
+`M3scalinum.Text.Barcodes`, `M3scalinum.Text.Ocr` and `M3scalinum.Text.Docx` each embed a Rust
+library of their own rather than the compiler. Every crate below is pinned in the `Cargo.lock` beside
+the library that uses it, and every one is reproduced under the licence its own package declares.
+
+| Crate | Version | Licence | Source |
+| --- | --- | --- | --- |
+| rxing | 0.9.4 | Apache-2.0 | https://github.com/rxing-core/rxing |
+| image | 0.25.8, 0.25.10 | MIT OR Apache-2.0 | https://github.com/image-rs/image |
+| ocrs | 0.14.0 | MIT OR Apache-2.0 | https://github.com/robertknight/ocrs |
+| rten | 0.28.0 | MIT OR Apache-2.0 | https://github.com/robertknight/rten |
+| rten-tensor | 0.28.0 | MIT OR Apache-2.0 | https://github.com/robertknight/rten |
+| hayro | 0.9.0 | Apache-2.0 OR MIT | https://github.com/LaurenzV/hayro |
+| zip | 9.8.1 | MIT | https://github.com/zip-rs/zip2 |
+| roxmltree | 0.21.2 | MIT OR Apache-2.0 | https://github.com/RazrFalcon/roxmltree |
+
+`rxing` is a Rust port of ZXing and carries Apache-2.0, the same licence as this project. The full
+text of the Apache License, Version 2.0 is in the `LICENSE` file at the root of this package and
+covers every component above that names it.
+
+The MIT-licensed components, with the copyright line each package carries:
+
+* `zip` 9.8.1 — Copyright (c) 2014 Mathijs van de Nes
+* `roxmltree` 0.21.2 — Copyright (c) 2018 Yevhenii Reizner
+* `image` 0.25.x — Copyright the image-rs developers
+* `ocrs` 0.14.0, `rten` 0.28.0, `rten-tensor` 0.28.0 — Copyright Robert Knight
+* `hayro` 0.9.0 — Copyright the Hayro Authors
+
+MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+associated documentation files (the "Software"), to deal in the Software without restriction,
+including without limitation the rights to use, copy, modify, merge, publish, distribute,
+sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial
+portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT
+NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES
+OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.

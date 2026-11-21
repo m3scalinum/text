@@ -23,6 +23,7 @@
     <ProjectReference Include="..\..\src\Text.Charts\Text.Charts.csproj" />
     <ProjectReference Include="..\..\src\Text.Ocr\Text.Ocr.csproj" />
     <ProjectReference Include="..\..\src\Text.Epub\Text.Epub.csproj" />
+    <ProjectReference Include="..\..\src\Text.Docx\Text.Docx.csproj" />
   </ItemGroup>
 
   <ItemGroup>

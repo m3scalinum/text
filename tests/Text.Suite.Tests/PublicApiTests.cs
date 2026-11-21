@@ -23,6 +23,7 @@ public sealed class PublicApiTests
         yield return typeof(M3scalinum.Text.Charts.Chart).Assembly;
         yield return typeof(M3scalinum.Text.Ocr.OcrEngine).Assembly;
         yield return typeof(M3scalinum.Text.Epub.EpubWriter).Assembly;
+        yield return typeof(M3scalinum.Text.Docx.DocxReader).Assembly;
     }
 
     [Fact]
