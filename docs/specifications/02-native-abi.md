@@ -89,6 +89,7 @@ int32_t  tn_world_add_font  (TnWorld *world, const uint8_t *data, size_t len,
 int32_t  tn_world_clear_sources(TnWorld *world, TnError **out_error);
 uint32_t tn_world_font_count(const TnWorld *world);
 uint32_t tn_world_source_count(const TnWorld *world);
+uint32_t tn_world_live_count(void);
 ```
 
 `config_json`:
@@ -128,7 +129,13 @@ TnDocument* tn_compile(TnWorld *world, const char *options_json, TnError **out_e
 void        tn_document_free(TnDocument *document);
 
 uint32_t    tn_document_page_count(const TnDocument *document);
+uint32_t    tn_document_live_count(void);
 ```
+
+`tn_world_live_count` and `tn_document_live_count` report how many handles of that kind are alive in
+the process. They exist so a host can prove that every handle it created was released: the process
+working set cannot answer that question, because it is process-wide and every platform retains freed
+native blocks differently. They are diagnostics, not limits — nothing is enforced against them.
 
 `options_json`:
 

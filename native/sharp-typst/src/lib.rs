@@ -14,6 +14,7 @@ mod world;
 
 use std::ffi::{CString, c_char};
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use typst::foundations::Output;
 use typst_html::HtmlDocument;
@@ -45,6 +46,58 @@ pub enum Document {
 pub struct TnDocument {
     document: Document,
     diagnostics: String,
+}
+
+// ---------------------------------------------------------------------------
+// Live handles
+// ---------------------------------------------------------------------------
+
+/// Handles alive right now, so a host can prove that every one it created was released.
+///
+/// The process working set cannot witness that: it is process-wide, and every platform retains
+/// freed native blocks differently — a soak that was flat on x64 grew by 492 MiB on Windows x64
+/// and by 78 MiB on linux-arm64 for the same code. The handle count is the property this library
+/// owns, and it is exact.
+static LIVE_WORLDS: AtomicUsize = AtomicUsize::new(0);
+static LIVE_DOCUMENTS: AtomicUsize = AtomicUsize::new(0);
+
+impl Drop for TnWorld {
+    fn drop(&mut self) {
+        LIVE_WORLDS.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
+impl Drop for TnDocument {
+    fn drop(&mut self) {
+        LIVE_DOCUMENTS.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
+/// The only way a world handle is created: counting it here is what keeps the count exact.
+fn world_handle(inner: NetWorld) -> Box<TnWorld> {
+    LIVE_WORLDS.fetch_add(1, Ordering::Relaxed);
+    Box::new(TnWorld { inner })
+}
+
+/// The only way a document handle is created. See [`world_handle`].
+fn document_handle(document: Document, diagnostics: String) -> Box<TnDocument> {
+    LIVE_DOCUMENTS.fetch_add(1, Ordering::Relaxed);
+    Box::new(TnDocument {
+        document,
+        diagnostics,
+    })
+}
+
+/// Number of world handles alive right now.
+#[unsafe(no_mangle)]
+pub extern "C" fn tn_world_live_count() -> u32 {
+    LIVE_WORLDS.load(Ordering::Relaxed) as u32
+}
+
+/// Number of document handles alive right now.
+#[unsafe(no_mangle)]
+pub extern "C" fn tn_document_live_count() -> u32 {
+    LIVE_DOCUMENTS.load(Ordering::Relaxed) as u32
 }
 
 // ---------------------------------------------------------------------------
@@ -162,7 +215,7 @@ pub unsafe extern "C" fn tn_world_create(
             };
             let config = WorldConfig::parse(json)?;
             let inner = NetWorld::new(config)?;
-            Ok(Box::new(TnWorld { inner }))
+            Ok(world_handle(inner))
         })
     }
 }
@@ -332,10 +385,7 @@ pub unsafe extern "C" fn tn_compile(
                 }
             };
 
-            Ok(Box::new(TnDocument {
-                document,
-                diagnostics,
-            }))
+            Ok(document_handle(document, diagnostics))
         })
     }
 }
@@ -549,7 +599,7 @@ pub unsafe extern "C" fn tn_world_clone(
             }
 
             let clone = (*world).inner.clone_world()?;
-            *out = Box::into_raw(Box::new(TnWorld { inner: clone }));
+            *out = Box::into_raw(world_handle(clone));
             Ok(())
         })
     }
