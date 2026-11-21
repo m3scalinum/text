@@ -19,6 +19,21 @@ Not yet published.
 
 ### Added
 
+- `M3scalinum.Text.Pdf` and `PdfText`: `Extract` and `ExtractPage` read the text a received PDF
+  draws, as bytes in and bytes out. The walk decodes the page content streams, runs the text state
+  (`BT`/`ET`, `Tf`, `Td`/`TD`/`Tm`/`T*`, `Tj`/`TJ`/`'`/`"`, spacing, `q`/`Q`, `cm`) and recurses into
+  form XObjects with their own resources; glyph codes are mapped through each font's `/ToUnicode`
+  CMap, including `bfchar`, both `bfrange` forms and the code-space ranges that decide the code
+  width. A font with no CMap is read through its `/Differences` or as raw code values, and the page
+  names it in `FallbackFonts` instead of emitting mojibake silently; `SkippedContentStreams` counts
+  streams whose filter is not implemented. Words are separated by a space where the layout leaves a
+  horizontal gap, lines by a newline, and a page with text ends with one newline, the shape the
+  compiler's per-page text has. An encrypted document is refused with `PdfTextException` and
+  `PdfTextError.Encrypted`, naming the security handler; decryption is not implemented. What is
+  recovered is glyph order as the content stream yields it — no reading order, no layout, no OCR —
+  and a scanned page comes back empty. Verified on compiler output (two pages with a marker each, a
+  table and a footnote) and on a browser-printed document, plus hand-written files for a Type0 CMap
+  in every shape, a font with no CMap, a form XObject and an encrypted trailer.
 - `M3scalinum.Text.Mcp`: a Model Context Protocol server over stdio, exposing `render_document`
   (Typst source, or a layout of `M3scalinum.Text.Templates` with its parameters), `render_invoice`
   (a `FacturXInvoice`-shaped JSON payload, validated and rendered as Factur-X PDF/A-3) and
