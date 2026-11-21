@@ -296,17 +296,43 @@ misconfigured deployment is diagnosable from the log line alone.
 
 ## 10. The shipped layouts
 
-`M3scalinum.Text.Templates` ships four layouts as embedded resources, each with its manifest:
-`invoice` (facture), `quotation` (devis), `statement` (relevé de compte) and `attestation`. Their
-typed records are `InvoiceOptions`, `QuotationOptions`, `StatementOptions` and
-`AttestationOptions`, and `TemplateCatalog` resolves a layout by id and version:
+`M3scalinum.Text.Templates` ships seven layouts as embedded resources, each with its manifest:
+
+| Id | Document | Parameters beyond `title`, `number`, `issued` and `labels` |
+| --- | --- | --- |
+| `invoice` | invoice (facture) | `due`, `currency`, `seller`, `customer`, `items`, `tax_rate`, `amount_paid`, `notes` |
+| `quotation` | quotation (devis) | `valid_until`, `currency`, `seller`, `customer`, `items`, `tax_rate`, `notes` |
+| `statement` | account statement (relevé de compte) | `period_start`, `period_end`, `account`, `opening_balance`, `transactions`, `currency`, `notes` |
+| `attestation` | attestation | `employer`, `employee`, `purpose`, `place` |
+| `contract` | service or employment contract (contrat) | `effective`, `party_a`, `party_b`, `clauses`, `place`, `notes` |
+| `payslip` | payslip (bulletin de paie) | `period_start`, `period_end`, `employer`, `employee`, `earnings`, `contributions`, `currency`, `notes` |
+| `purchase-order` | purchase order (bon de commande) | `buyer`, `supplier`, `items`, `delivery`, `currency`, `tax_rate`, `terms`, `notes` |
+
+Their typed records are `InvoiceOptions`, `QuotationOptions`, `StatementOptions`,
+`AttestationOptions`, `ContractOptions`, `PayslipOptions` and `PurchaseOrderOptions`, and
+`TemplateCatalog` resolves a layout by id and version.
+
+The three newest layouts follow the same shape as the four they join: every free-form block is a
+dictionary the caller shapes, and the layout reads only the keys it declares as optional.
+
+- `contract` prints two parties (each with `name`, optional `address` lines, `contact`,
+  `registration` and `representative`), then one numbered article per entry of `clauses`, each a
+  `heading` and a `text` with an optional `items` list rendered as bullets, then the signature block
+  with one line per party and the place and date above it.
+- `payslip` prints an employer and an employee block, the period, the `earnings` lines and the
+  `contributions` lines — each a `label`, an optional `base`, an optional `rate` as a fraction and an
+  `amount` — and computes the gross, the withheld total and the net. Nothing is recomputed from a
+  rate: the amounts are the caller's, because a payslip is a declaration, not a calculator.
+- `purchase-order` prints the buyer, the supplier and the `delivery` block (`name`, `address`
+  lines, `contact`, `date`), the ordered `items` with their quantity, unit price and amount, the
+  subtotal, the tax at `tax_rate` and the total, then the `terms` and the two signature lines.
 
 ```csharp
 var catalog = TemplateCatalog.Default;
-var descriptor = catalog.Get("statement");
+var descriptor = catalog.Get("contract");
 
 var embedded = descriptor.Template;                     // resources of the package
-var onDisk = TypstTemplate.Load("templates/statement");  // the same files, from a directory
+var onDisk = TypstTemplate.Load("templates/contract");   // the same files, from a directory
 ```
 
 Labels are data, not layout text: `TemplateLabels.For("invoice", TemplateLanguage.English)` returns

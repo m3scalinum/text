@@ -23,6 +23,7 @@
 - [Checking conformance](Pdf-Conformance)
 - [Pages and forms](Pdf-Pages-and-Forms)
 - [Reading text](Pdf-Text)
+- [Encryption](Pdf-Encryption)
 
 **MCP** — render from a model
 

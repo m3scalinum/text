@@ -22,6 +22,9 @@ public sealed class TemplateLabelTests
         TemplateIds.Quotation,
         TemplateIds.Statement,
         TemplateIds.Attestation,
+        TemplateIds.Contract,
+        TemplateIds.Payslip,
+        TemplateIds.PurchaseOrder,
     };
 
     [Theory]
@@ -73,11 +76,30 @@ public sealed class TemplateLabelTests
     {
         // The labels are the only place a word can live: a layout that spells one out would render
         // the same text in both languages, which is the defect this pack exists to avoid.
-        foreach (var id in new[] { TemplateIds.Invoice, TemplateIds.Quotation, TemplateIds.Statement, TemplateIds.Attestation })
+        foreach (var id in new[]
+        {
+            TemplateIds.Invoice,
+            TemplateIds.Quotation,
+            TemplateIds.Statement,
+            TemplateIds.Attestation,
+            TemplateIds.Contract,
+            TemplateIds.Payslip,
+            TemplateIds.PurchaseOrder,
+        })
         {
             var source = Samples.Source(id);
 
-            foreach (var word in new[] { "INVOICE", "QUOTATION", "ACCOUNT STATEMENT", "Bill to", "Subtotal" })
+            foreach (var word in new[]
+            {
+                "INVOICE",
+                "QUOTATION",
+                "ACCOUNT STATEMENT",
+                "CONTRACT",
+                "PAYSLIP",
+                "PURCHASE ORDER",
+                "Bill to",
+                "Subtotal",
+            })
             {
                 Assert.DoesNotContain(word, source, StringComparison.Ordinal);
             }

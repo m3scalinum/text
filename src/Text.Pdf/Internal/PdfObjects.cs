@@ -133,3 +133,38 @@ internal sealed class PdfStream(PdfDictionary dictionary, byte[] data) : PdfValu
 
 /// <summary>The file is not a PDF this reader can parse, beyond what a report can describe.</summary>
 internal sealed class PdfFormatException(string message) : Exception(message);
+
+/// <summary>Rebuilds an object value applying one transform to every string it holds.</summary>
+internal static class PdfObjectTree
+{
+    /// <summary>
+    /// Returns <paramref name="value"/> with every <see cref="PdfString"/> replaced by
+    /// <paramref name="transform"/> of its bytes, recursing into arrays and dictionaries. A stream's
+    /// data and the strings of its dictionary are left to the caller, which knows whether the stream
+    /// is one the format leaves in the clear.
+    /// </summary>
+    public static PdfValue TransformStrings(PdfValue value, Func<byte[], byte[]> transform)
+    {
+        switch (value)
+        {
+            case PdfString text:
+                return text.Bytes.Length == 0 ? text : new PdfString(transform(text.Bytes));
+            case PdfArray array:
+                for (var index = 0; index < array.Items.Count; index++)
+                {
+                    array.Items[index] = TransformStrings(array.Items[index], transform);
+                }
+
+                return array;
+            case PdfDictionary dictionary:
+                foreach (var key in new List<string>(dictionary.Entries.Keys))
+                {
+                    dictionary.Entries[key] = TransformStrings(dictionary.Entries[key], transform);
+                }
+
+                return dictionary;
+            default:
+                return value;
+        }
+    }
+}

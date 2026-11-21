@@ -218,4 +218,209 @@ internal static class Samples
 
         return movements;
     }
+
+    /// <summary>A service contract with three clauses.</summary>
+    internal static Dictionary<string, object?> MinimalContract() => new(StringComparer.Ordinal)
+    {
+        ["title"] = "Contrat de prestation de conseil",
+        ["number"] = "CT-2026-0007",
+        ["issued"] = new DateOnly(2026, 3, 2),
+        ["effective"] = new DateOnly(2026, 4, 1),
+        ["party_a"] = Provider(),
+        ["party_b"] = Client(),
+        ["clauses"] = Clauses(3),
+        ["labels"] = Labels(TemplateIds.Contract, TemplateLanguage.French),
+    };
+
+    /// <summary>A contract with enough clauses to break across pages.</summary>
+    internal static Dictionary<string, object?> RealisticContract()
+    {
+        var data = MinimalContract();
+        data["clauses"] = Clauses(12);
+        data["place"] = "Paris";
+        data["notes"] = "Contrat établi en deux exemplaires originaux.";
+        return data;
+    }
+
+    /// <summary>A payslip for one month, with two earnings and two contributions.</summary>
+    internal static Dictionary<string, object?> MinimalPayslip() => new(StringComparer.Ordinal)
+    {
+        ["title"] = "Bulletin de paie 03/2026",
+        ["number"] = "BP-2026-0312",
+        ["issued"] = new DateOnly(2026, 4, 2),
+        ["period_start"] = new DateOnly(2026, 3, 1),
+        ["period_end"] = new DateOnly(2026, 3, 31),
+        ["employer"] = Employer(),
+        ["employee"] = Salaried(),
+        ["earnings"] = Earnings(),
+        ["contributions"] = Contributions(2),
+        ["labels"] = Labels(TemplateIds.Payslip, TemplateLanguage.French),
+    };
+
+    /// <summary>A payslip with a realistic number of contribution lines.</summary>
+    internal static Dictionary<string, object?> RealisticPayslip()
+    {
+        var data = MinimalPayslip();
+        data["contributions"] = Contributions(30);
+        data["notes"] = "Cumuls annuels disponibles sur demande.";
+        return data;
+    }
+
+    /// <summary>A purchase order for two lines.</summary>
+    internal static Dictionary<string, object?> MinimalPurchaseOrder() => new(StringComparer.Ordinal)
+    {
+        ["title"] = "Bon de commande mobilier",
+        ["number"] = "BC-2026-0145",
+        ["issued"] = new DateOnly(2026, 3, 5),
+        ["buyer"] = Buyer(),
+        ["supplier"] = Supplier(),
+        ["items"] = OrderLines(2),
+        ["delivery"] = Delivery(),
+        ["labels"] = Labels(TemplateIds.PurchaseOrder, TemplateLanguage.French),
+    };
+
+    /// <summary>A purchase order with enough lines to break across pages.</summary>
+    internal static Dictionary<string, object?> RealisticPurchaseOrder()
+    {
+        var data = MinimalPurchaseOrder();
+        data["items"] = OrderLines(30);
+        data["terms"] = "Livraison franco de port, paiement à 45 jours.";
+        return data;
+    }
+
+    internal static Dictionary<string, object?> Provider() => new(StringComparer.Ordinal)
+    {
+        ["name"] = "Atelier Dupont SAS",
+        ["registration"] = "RCS Paris 812 345 678",
+        ["address"] = new[] { "12 rue des Lilas", "75011 Paris" },
+        ["contact"] = "contact@atelier-dupont.example",
+        ["representative"] = "Camille Dupont, Présidente",
+    };
+
+    internal static Dictionary<string, object?> Client() => new(StringComparer.Ordinal)
+    {
+        ["name"] = "Clinique des Tilleuls",
+        ["registration"] = "SIRET 447 118 902 00031",
+        ["address"] = new[] { "4 avenue de la Gare", "69002 Lyon" },
+        ["contact"] = "direction@tilleuls.example",
+        ["representative"] = "Sarah Lemoine, Directrice",
+    };
+
+    internal static Dictionary<string, object?> Salaried() => new(StringComparer.Ordinal)
+    {
+        ["name"] = "Samir Benali",
+        ["position"] = "Ingénieur logiciel",
+        ["number"] = "E-0042",
+        ["start_date"] = new DateOnly(2021, 9, 1),
+        ["address"] = "8 rue Voltaire, 75011 Paris",
+    };
+
+    internal static Dictionary<string, object?> Buyer() => new(StringComparer.Ordinal)
+    {
+        ["name"] = "Atelier Dupont SAS",
+        ["address"] = new[] { "12 rue des Lilas", "75011 Paris" },
+        ["contact"] = "achats@atelier-dupont.example",
+        ["vat_id"] = "FR 32 812345678",
+        ["legal"] = "SAS au capital de 50 000 € · RCS Paris 812 345 678",
+    };
+
+    internal static Dictionary<string, object?> Supplier() => new(StringComparer.Ordinal)
+    {
+        ["name"] = "Mobiliers Rousseau",
+        ["address"] = new[] { "3 zone des Artisans", "44300 Nantes" },
+        ["contact"] = "commandes@rousseau.example",
+        ["account"] = "F-2291",
+    };
+
+    internal static Dictionary<string, object?> Delivery() => new(StringComparer.Ordinal)
+    {
+        ["name"] = "Entrepôt de Vitry",
+        ["address"] = new[] { "9 quai du Port", "94400 Vitry-sur-Seine" },
+        ["contact"] = "Livraison sur rendez-vous",
+        ["date"] = new DateOnly(2026, 4, 2),
+    };
+
+    private static List<Dictionary<string, object?>> Clauses(int count)
+    {
+        var clauses = new List<Dictionary<string, object?>>(count);
+
+        for (var index = 1; index <= count; index++)
+        {
+            var clause = new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["heading"] = "Clause " + index.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                ["text"] =
+                    "Le prestataire exécute la prestation " + index.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    + " avec les moyens dont il dispose, dans le respect des délais convenus et des règles "
+                    + "de l'art, et rend compte de son avancement au client à chaque fin de mois.",
+            };
+
+            if (index == 1)
+            {
+                clause["heading"] = "Objet";
+                clause["text"] = "Le prestataire accompagne le client dans la refonte de son système d'information.";
+            }
+
+            if (index % 2 == 0)
+            {
+                clause["items"] = new[] { "Renouvellement tacite.", "Préavis de trois mois." };
+            }
+
+            clauses.Add(clause);
+        }
+
+        return clauses;
+    }
+
+    private static List<Dictionary<string, object?>> Earnings() =>
+    [
+        new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["label"] = "Salaire de base",
+            ["base"] = 151.67m,
+            ["rate"] = 0.325m,
+            ["amount"] = 4929.28m,
+        },
+        new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["label"] = "Prime d'ancienneté",
+            ["amount"] = 123.47m,
+        },
+    ];
+
+    private static List<Dictionary<string, object?>> Contributions(int count)
+    {
+        var lines = new List<Dictionary<string, object?>>(count);
+
+        for (var index = 1; index <= count; index++)
+        {
+            lines.Add(new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["label"] = "Cotisation " + index.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                ["base"] = 5052.75m,
+                ["rate"] = 0.0075m * index,
+                ["amount"] = 37.90m * index,
+            });
+        }
+
+        return lines;
+    }
+
+    private static List<Dictionary<string, object?>> OrderLines(int count)
+    {
+        var lines = new List<Dictionary<string, object?>>(count);
+
+        for (var index = 1; index <= count; index++)
+        {
+            lines.Add(new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["description"] = index == 1 ? "Bureau assis-debout" : "Fourniture " + index.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                ["reference"] = "REF-" + index.ToString("0000", System.Globalization.CultureInfo.InvariantCulture),
+                ["quantity"] = index,
+                ["unit_price"] = 349.00m + index,
+            });
+        }
+
+        return lines;
+    }
 }

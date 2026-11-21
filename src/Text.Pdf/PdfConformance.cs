@@ -66,7 +66,7 @@ public static class PdfConformance
             findings.Error(
                 PdfConformanceCodes.Encrypted,
                 "trailer",
-                "the file is encrypted, so nothing inside it can be checked");
+                "the file is encrypted, so nothing inside it can be checked; decrypt it with PdfEncryption.Open and check the bytes it returns");
 
             return findings.Build(version);
         }

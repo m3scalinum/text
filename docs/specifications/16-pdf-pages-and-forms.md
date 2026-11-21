@@ -21,8 +21,8 @@ appearances into page content and removing the fields that were drawn.
 
 | Not done | Why |
 | --- | --- |
-| Encryption and decryption | An encrypted document is refused, not half-rewritten. |
-| Text extraction | `PdfText` owns it (see document 18); a page operation rebuilds bytes and never interprets characters. |
+| Encryption and decryption | `PdfEncryption` owns both (see [19](19-pdf-encryption.md)); a page operation refuses an encrypted document rather than half-rewriting it. |
+| Text extraction | `PdfText` owns it (see [18](18-pdf-text.md)); a page operation rebuilds bytes and never interprets characters. |
 | Redaction, OCR | Not a page operation; both need interpretation of the page. |
 | Rebuilding tagging, outlines or named destinations after a page change | A structure tree spans pages and has no meaning once pages are renumbered out of it. |
 | Regenerating an appearance a field does not have | The value is written; the viewer draws it. A field the writer cannot draw is reported, not guessed. |

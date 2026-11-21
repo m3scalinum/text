@@ -19,6 +19,10 @@ namespace M3scalinum.Text.Pdf;
 /// is computed on the result, the CMS is produced over the two ranges, and the placeholder is
 /// overwritten in place. Nothing before the appended block changes, so a document that was PDF/A
 /// stays PDF/A and a document that was already signed keeps its earlier signatures valid.
+/// <para>
+/// An encrypted document is refused: an incremental update to one would append plaintext that no
+/// reader would decrypt. Decrypt it with <see cref="PdfEncryption.Open"/> and sign those bytes.
+/// </para>
 /// </remarks>
 public static class PdfSigner
 {

@@ -129,3 +129,48 @@ var inMemory = TypstTemplate.Load(manifestToml, new Dictionary<string, byte[]>
 | Missing parameter | A `required` parameter was not supplied. |
 | Unknown parameter | A key was supplied that the manifest does not declare, and `allowExtraParameters` is false. |
 | Missing `render` | The entry file does not define `render`. |
+
+## The layouts that ship in the package
+
+`M3scalinum.Text.Templates` embeds seven layouts, each with a generated options record, a label set
+in English and French, and an entry in `TemplateCatalog`:
+
+| Id | Document | Record |
+| --- | --- | --- |
+| `invoice` | invoice (facture) | `InvoiceOptions` |
+| `quotation` | quotation (devis) | `QuotationOptions` |
+| `statement` | account statement (relevé de compte) | `StatementOptions` |
+| `attestation` | attestation | `AttestationOptions` |
+| `contract` | service or employment contract (contrat) | `ContractOptions` |
+| `payslip` | payslip (bulletin de paie) | `PayslipOptions` |
+| `purchase-order` | purchase order (bon de commande) | `PurchaseOrderOptions` |
+
+```csharp
+using M3scalinum.Text.SharpTypst.Templates;
+
+var descriptor = TemplateCatalog.Default.Get(TemplateIds.Contract);
+var template = descriptor.LoadTyped<ContractOptions>();
+
+var pdf = template.Render(new TypstCompiler(), new ContractOptions
+{
+    Title = "Contrat de prestation de conseil",
+    Number = "CT-2026-0007",
+    Issued = new DateOnly(2026, 3, 2),
+    Effective = new DateOnly(2026, 4, 1),
+    PartyA = new Dictionary<string, object?> { ["name"] = "Atelier Dupont SAS" },
+    PartyB = new Dictionary<string, object?> { ["name"] = "Clinique des Tilleuls" },
+    Clauses = [ new Dictionary<string, object?> { ["heading"] = "Objet", ["text"] = "…" } ],
+    Labels = TemplateLabels.For(TemplateIds.Contract, TemplateLanguage.French),
+});
+```
+
+The labels are the whole vocabulary of a layout: the three newest ones print `CONTRAT`,
+`BULLETIN DE PAIE` and `BON DE COMMANDE` in French and their English counterparts in English
+without a second `.typ` file. `TemplateLabels.For` returns exactly the dictionary the `labels`
+parameter expects, and a test compares the keys a layout reads with the keys both languages declare.
+
+| Layout | Free-form blocks it reads |
+| --- | --- |
+| `contract` | `party_a` and `party_b`: `name`, `address` lines, `contact`, `registration`, `representative`; each `clauses` entry: `heading`, `text`, optional `items` bullet list |
+| `payslip` | `employer`: `name`, `address`, `establishment`, `registration`, `legal`, `bank`; `employee`: `name`, `position`, `number`, `start_date`, `address`; `earnings` and `contributions` entries: `label`, optional `base`, optional `rate` (a fraction), `amount` |
+| `purchase-order` | `buyer` and `supplier`: `name`, `address` lines, `contact`, `vat_id` / `account`; `items` entries: `description`, `reference`, `quantity`, `unit_price`; `delivery`: `name`, `address` lines, `contact`, `date` |

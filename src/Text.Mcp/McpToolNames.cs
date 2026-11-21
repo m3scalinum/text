@@ -17,4 +17,13 @@ public static class McpToolNames
 
     /// <summary>Lists the layouts of the template pack this server serves.</summary>
     public const string ListTemplates = "list_templates";
+
+    /// <summary>Signs a PDF with a PKCS#12 certificate, as a PAdES signature.</summary>
+    public const string SignDocument = "sign_document";
+
+    /// <summary>Merges two or more PDFs into one, in the order given.</summary>
+    public const string MergeDocuments = "merge_documents";
+
+    /// <summary>Extracts the text each page of a PDF draws.</summary>
+    public const string ExtractText = "extract_text";
 }

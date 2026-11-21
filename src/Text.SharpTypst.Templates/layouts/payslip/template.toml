@@ -1,0 +1,19 @@
+name = "payslip"
+version = "1.0.0"
+entry = "template.typ"
+description = "A4 payslip (bulletin de paie): employer and employee blocks, the period, the gross earnings lines, the contributions and the net pay, with every label supplied by the caller"
+authors = ["SharpTypst"]
+
+[parameters]
+title = { type = "string", required = true }
+number = { type = "string", required = true }
+issued = { type = "date", required = true }
+period_start = { type = "date", required = true }
+period_end = { type = "date", required = true }
+employer = { type = "object", required = true }
+employee = { type = "object", required = true }
+earnings = { type = "array", of = "object", required = true }
+contributions = { type = "array", of = "object", required = true }
+currency = { type = "string", default = "EUR" }
+labels = { type = "object", required = true }
+notes = { type = "string", default = "" }

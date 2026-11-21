@@ -35,6 +35,30 @@ Not yet published.
   a per-line tax amount in FatturaPA, a unit code outside Facturae's numeric list — stays out of the
   document rather than being invented. New fixtures under `tests/fixtures/national` are constructed
   from the published schemas.
+- `M3scalinum.Text.Templates`: three more layouts, `contract` (contrat: two parties, numbered clauses
+  with an optional bullet list each, and a signature block), `payslip` (bulletin de paie: employer
+  and employee blocks, the period, the gross earnings lines, the contributions and the net, computed
+  from the amounts the caller supplies) and `purchase-order` (bon de commande: buyer, supplier,
+  delivery address, ordered lines with tax and total, terms and two signature lines). Each ships as
+  an embedded `layouts/<id>/template.toml` and `template.typ`, a typed options record generated from
+  the manifest (`ContractOptions`, `PayslipOptions`, `PurchaseOrderOptions`), an English and French
+  label set in `TemplateLabels`, and an entry in `TemplateCatalog` — seven layouts in all. The
+  layouts print no word of their own: every heading, clause phrase, column title and date pattern is
+  a label, so the same file renders in English or in French. Tested with a minimal and a realistic
+  dataset per layout (page count, a known string in the text the PDF draws, both languages) and with
+  the typed exception a missing required parameter raises.
+- `M3scalinum.Text.Mcp`: three more tools. `sign_document` signs a PDF with a PKCS#12 certificate and
+  its password, with an optional reason and location, and returns the PAdES-signed file; the key is
+  loaded into memory only. `merge_documents` merges two or more PDFs, in the order given, and
+  `extract_text` reads the text each page draws, through the fonts' `/ToUnicode` maps, as
+  `{"pageCount":N,"pages":[{"page":…,"text":…}]}`. A document arrives base64-encoded, or as a path
+  only when the host set `AllowFileOutput` — a path a model chose is ambient access, so it is refused
+  with `-32602` exactly as `outputPath` is — and every input is bounded by `MaxDocumentSize`. The
+  tools share the existing dispatch, limits and error mapping: a bad argument is a JSON-RPC error, a
+  failed signature or an unreadable document is a tool error carrying the reason. Tested with real
+  frames: a `%PDF` header and a signature `PdfSignatureVerifier` reads back as intact, a page count
+  and the markers of the pages merged, the text of a page, plus the invalid-argument and
+  `AllowFileOutput=false` refusals.
 - `M3scalinum.Text.Pdf` and `PdfText`: `Extract` and `ExtractPage` read the text a received PDF
   draws, as bytes in and bytes out. The walk decodes the page content streams, runs the text state
   (`BT`/`ET`, `Tf`, `Td`/`TD`/`Tm`/`T*`, `Tj`/`TJ`/`'`/`"`, spacing, `q`/`Q`, `cm`) and recurses into
@@ -97,6 +121,26 @@ Not yet published.
   a signature field — is left interactive and reported in `PdfFormFlattenResult.Skipped`, because a
   flattened form that lost its values is worse than one that is still editable. Encrypted documents
   are refused, and page operations, filling and flattening invalidate existing signatures.
+- `M3scalinum.Text.Pdf` and `PdfEncryption`: `Open(pdf, password)` returns a `PdfDecryptionResult` —
+  the decrypted document as whole bytes, the `PdfPermissions` the password grants, the handler
+  revision and whether the owner password matched — and `Encrypt(pdf, userPassword, permissions,
+  ownerPassword)` writes AES-256. Both are the standard security handler in the two revisions real
+  documents carry: AES-256 with `V=5/R=6`, whose file key comes from the hardened SHA-256 algorithm
+  of ISO 32000-2, and AES-128 with `V=4/R=4` and an `/AESV2` crypt filter, whose key comes from the
+  legacy MD5 derivation over `/O`, `/P` and `/ID`. Passwords are validated against `/U` and `/O`,
+  strings and streams are decrypted per object (with the per-object key revision 4 requires), the
+  metadata exemption is honoured, and the `/Encrypt` dictionary and `/ID` are left in the clear. A
+  wrong password is a `PdfEncryptionException`, not a damaged document; RC4, revision 5 and
+  public-key encryption are refused with the `V`/`R` or crypt filter they declare. `Encrypt` writes
+  a fresh key, `/ID` and salts per call, sets `/P` from the permission bits and `/Perms` from them,
+  and defaults the owner password to the user one. `PdfPages`, `PdfForm`, `PdfSigner`,
+  `PdfDocumentTimestamp` and `PdfSignatureVerifier` now refuse an encrypted document with a message
+  naming `PdfEncryption.Open` instead of failing on ciphertext, and `PdfConformance` keeps reporting
+  `PDF.ENCRYPTED`. Verified by a round trip on real Typst output (page count and text read back
+  through `/ToUnicode`), a wrong and an empty password, the permission bits read back through both
+  the user and the owner password, an AES-128 document built in the test project from the
+  specification's own algorithms, and a 256-bit AES document qpdf wrote, so neither direction is
+  only checked against itself.
 - `M3scalinum.Text.Pdf.FactureX` and `PeppolBisValidator`: the Peppol BIS Billing 3.0 CIUS rules that
   can be decided from the document — the business process (`BT-23`) and the specification identifier
   (`BT-24`), the seller and buyer electronic addresses (`BT-34` / `BT-49`) and their EAS scheme codes,
