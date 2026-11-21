@@ -18,6 +18,21 @@ Not yet published.
 
 ### Added
 
+- `M3scalinum.Text.Pdf.FactureX` and `PeppolBisValidator`: the Peppol BIS Billing 3.0 CIUS rules that
+  can be decided from the document — the business process (`BT-23`) and the specification identifier
+  (`BT-24`), the seller and buyer electronic addresses (`BT-34` / `BT-49`) and their EAS scheme codes,
+  the invoice and credit note type codes, the credit-note reference (`BG-3`), the direct-debit mandate
+  and the credit-transfer account, the reverse-charge and intra-community buyer identifiers, the VAT
+  breakdown coverage, the seller identifier, and the allowance and charge percentage, base and amount.
+  `UblWriter` now writes `cbc:ProfileID` and honours `FacturXInvoice.SpecificationId` for
+  `cbc:CustomizationID`, and both readers and both writers carry the preceding invoice reference, so a
+  document that was schema-valid and rejected by every access point is now diagnosable. The new
+  `IInvoiceValidator` extension point and `FacturXValidator.Validate(invoice, IInvoiceValidator)` run a
+  caller's rule set — the official Schematron — alongside the built-in ones and merge the issues. The
+  official Schematron remains the reference: this is the subset the model states exactly, and the
+  `PEPPOL-COMMON` identifier grammars are left to it. Verified against the OpenPEPPOL publication's own
+  sample invoice, credit note and direct-debit snippet, with one document built from the model per
+  rule as the negative case.
 - `M3scalinum.Text.Pdf` and `PdfConformance`: check PDF/UA-1 and PDF/A conformance from the bytes,
   with `Check` returning a `PdfConformanceReport` and `Assert` throwing a
   `PdfConformanceException`. The checker establishes catalog and cross-reference integrity, tagged

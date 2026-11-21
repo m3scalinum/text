@@ -40,8 +40,14 @@ internal static class CiiInvoiceReader
             IssueDate = DateOf(document.Child("IssueDateTime")) ?? default,
             DueDate = DateOf(settlement?.Child("SpecifiedTradePaymentTerms")?.Child("DueDateDateTime")),
             Period = Period(settlement?.Child("BillingSpecifiedPeriod")),
+            // BT-24 in CII is the guideline URN: it is what selects the conformance level, so it is
+            // read as both the profile (below, through Xml.Profile) and the specification identifier.
+            SpecificationId = root.Child("ExchangedDocumentContext")
+                ?.Child("GuidelineSpecifiedDocumentContextParameter")?.Text("ID"),
             BusinessProcess = root.Child("ExchangedDocumentContext")
                 ?.Child("BusinessProcessSpecifiedDocumentContextParameter")?.Text("ID"),
+            PrecedingInvoiceNumber = settlement?.Child("InvoiceReferencedDocument")?.Text("IssuerAssignedID"),
+            PrecedingInvoiceDate = DateOf(settlement?.Child("InvoiceReferencedDocument")?.Child("FormattedIssueDateTime")),
             BuyerReference = agreement?.Text("BuyerReference"),
             OrderReference = agreement?.Child("BuyerOrderReferencedDocument")?.Text("IssuerAssignedID"),
             ContractReference = agreement?.Child("ContractReferencedDocument")?.Text("IssuerAssignedID"),
