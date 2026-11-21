@@ -9,13 +9,13 @@ using M3scalinum.Text.SharpTypst;
 
 namespace M3scalinum.Text.Pdf.FactureX;
 
-/// <summary>Reads a Factur-X invoice from CII or UBL XML.</summary>
+/// <summary>Reads an invoice from CII, UBL, FatturaPA or Facturae XML.</summary>
 public static class FacturXReader
 {
     private const long MaxDocumentBytes = 16 * 1024 * 1024;
 
     /// <summary>Reads an invoice from its XML text.</summary>
-    /// <exception cref="FacturXFormatException">The document is not CII or UBL, or lacks a required part.</exception>
+    /// <exception cref="FacturXFormatException">The document is not a syntax this reader knows, or lacks a required part.</exception>
     public static FacturXInvoice Read(string xml)
     {
         ArgumentNullException.ThrowIfNull(xml);
@@ -128,18 +128,28 @@ public static class FacturXReader
         }
     }
 
+    /// <summary>
+    /// Dispatches on the root element. The two national schemas are syntaxes, not rule overlays:
+    /// they state the same invoice in their own vocabulary, so they are read into the same model
+    /// and a caller never has to know which one arrived.
+    /// </summary>
     private static FacturXInvoice FromRoot(XElement root) => root.Name.LocalName switch
     {
         "CrossIndustryInvoice" => CiiInvoiceReader.Read(root),
         "Invoice" or "CreditNote" => UblInvoiceReader.Read(root),
+        "FatturaElettronica" => FatturaPaReader.Read(root),
+        "Facturae" => FacturaeReader.Read(root),
         var other => throw new FacturXFormatException(
-            $"unrecognized document root `{other}`; expected a CII `CrossIndustryInvoice` or a UBL `Invoice`"),
+            $"unrecognized document root `{other}`; expected a CII `CrossIndustryInvoice`, a UBL "
+            + "`Invoice`, a FatturaPA `FatturaElettronica` or a Facturae `Facturae`"),
     };
 
     private static string SyntaxOf(string rootName) => rootName switch
     {
         "CrossIndustryInvoice" => "CII",
         "Invoice" or "CreditNote" => "UBL",
+        "FatturaElettronica" => "FatturaPA",
+        "Facturae" => "Facturae",
         var other => throw new FacturXFormatException($"unrecognized document root `{other}`"),
     };
 
