@@ -22,6 +22,24 @@ Not yet published.
   so a PDF/A document stays PDF/A, an embedded Factur-X attachment stays readable, and an earlier
   signature stays valid. Verified with pyHanko (intact, trusted, entire file) and, on a signed
   Factur-X invoice, with veraPDF in PDF/A-3B.
+- `PdfSignatureVerifier.Verify(ReadOnlySpan<byte>, PdfTrustStore?)`: reads every signature back and
+  reports what it could prove — intactness, whether the byte range reaches the end of the file, the
+  signer's subject, issuer and validity window, the claimed and the timestamped signing time, whether
+  a document timestamp covers it, the PAdES baseline level, and the chain's standing against the
+  caller's trust store. The machine's trust store is never consulted, and no revocation data is
+  fetched.
+- PAdES-B-T: `PdfSignatureOptions.TimestampAuthority` and `TimestampClient` timestamp the signature
+  value over RFC 3161, with the TSA and the `HttpClient` supplied by the caller. The token is checked
+  before it is written: a token whose imprint is not this signature produces an exception, not a
+  document.
+- PAdES-B-LT: `PdfSignatureOptions.Dss` writes a document security store carrying the chain and the
+  caller's OCSP responses and CRLs. Nothing is fetched; a store without revocation data is written
+  as it is, and the verifier reports the level it actually proves.
+- `PdfSignatureOptions.Appearance` and `PdfSignatureAppearance`: a visible signature at a page and a
+  rectangle in PDF points, drawn as text or as a PNG/JPEG image, still written as an incremental
+  update with the page's earlier annotations kept.
+- `PdfDocumentTimestamp.Add`: an RFC 3161 document timestamp over the whole file, to be added after
+  the signatures it covers.
 - `M3scalinum.Text.Pdf.FactureX`: read a CII or UBL invoice into one model, check it against the
   EN 16931 rules, and render a PDF/A-3 whose XML is attached and whose XMP carries the `fx:`
   extension the standard requires. `CiiWriter` produces the syntax Factur-X mandates from an
