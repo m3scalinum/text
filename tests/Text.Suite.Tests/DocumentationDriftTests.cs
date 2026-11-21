@@ -141,6 +141,7 @@ public sealed class DocumentationDriftTests
         yield return typeof(TypstOptions).Assembly;
         yield return typeof(M3scalinum.Text.Pdf.PdfSigner).Assembly;
         yield return typeof(M3scalinum.Text.Pdf.FactureX.FacturXInvoice).Assembly;
+        yield return typeof(M3scalinum.Text.SharpTypst.Templates.TemplateCatalog).Assembly;
     }
 
     private static IEnumerable<(string File, string Block)> CSharpBlocks()

@@ -1,0 +1,18 @@
+name = "quotation"
+version = "1.0.0"
+entry = "template.typ"
+description = "A4 quotation (devis): what is offered, at what price, until when, with the acceptance block at the foot of the page and every label supplied by the caller"
+authors = ["SharpTypst"]
+
+[parameters]
+title = { type = "string", required = true }
+number = { type = "string", required = true }
+issued = { type = "date", required = true }
+valid_until = { type = "date", required = true }
+currency = { type = "string", default = "EUR" }
+seller = { type = "object", required = true }
+customer = { type = "object", required = true }
+items = { type = "array", of = "object", required = true }
+tax_rate = { type = "number", default = 0.2 }
+labels = { type = "object", required = true }
+notes = { type = "string", default = "" }

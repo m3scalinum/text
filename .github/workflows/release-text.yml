@@ -84,8 +84,11 @@ jobs:
           echo "packing against M3scalinum.Text.SharpTypst $core"
 
           dotnet restore src/Text.Pdf.FactureX -p:CoreVersion="$core"
+          dotnet restore src/Text.SharpTypst.Templates -p:CoreVersion="$core"
           dotnet pack src/Text.Pdf -c Release -o artifacts/packages "${version_args[@]}"
           dotnet pack src/Text.Pdf.FactureX -c Release --no-restore \
+            -o artifacts/packages -p:CoreVersion="$core" "${version_args[@]}"
+          dotnet pack src/Text.SharpTypst.Templates -c Release --no-restore \
             -o artifacts/packages -p:CoreVersion="$core" "${version_args[@]}"
       - name: Verify the packages
         run: |

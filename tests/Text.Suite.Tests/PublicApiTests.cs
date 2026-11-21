@@ -17,6 +17,7 @@ public sealed class PublicApiTests
         yield return typeof(TypstOptions).Assembly;
         yield return typeof(M3scalinum.Text.Pdf.PdfSigner).Assembly;
         yield return typeof(M3scalinum.Text.Pdf.FactureX.FacturXInvoice).Assembly;
+        yield return typeof(M3scalinum.Text.SharpTypst.Templates.TemplateCatalog).Assembly;
     }
 
     [Fact]

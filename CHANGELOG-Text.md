@@ -18,6 +18,12 @@ Not yet published.
 
 ### Added
 
+- `M3scalinum.Text.Templates`: four business-document layouts — invoice (facture), quotation
+  (devis), account statement (relevé de compte) and attestation — embedded as Typst sources with
+  their `template.toml` manifests and the typed records generated from them, each usable from a
+  directory on disk or from the embedded copy. `TemplateCatalog` resolves a layout by id and
+  version, `TemplateLabels` supplies the English or French labels a layout prints, and
+  `AddTextTemplates` registers the catalog for `Microsoft.Extensions.DependencyInjection`.
 - `M3scalinum.Text.Pdf` and `PdfSigner.Sign`: a PAdES-B signature written as an incremental update,
   so a PDF/A document stays PDF/A, an embedded Factur-X attachment stays readable, and an earlier
   signature stays valid. Verified with pyHanko (intact, trusted, entire file) and, on a signed
