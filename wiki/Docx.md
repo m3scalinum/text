@@ -109,5 +109,30 @@ cd native/text-docx && cargo build --release
 export SHARPTEXTDOCX_NATIVE_PATH=$PWD/target/release/sharp_text_docx.dll
 ```
 
-The specification — the AST, the ABI, what is lost and why `docx-rs` was chosen — is
-`docs/specifications/22-docx.md`.
+## Why the reader is ours
+
+`native/text-docx` reads the OOXML itself: the container with `zip` 9.8, the XML with `roxmltree`.
+
+It used to delegate to `docx-rs` 0.4.22, and that crate pins `zip ^8.6.0`. `zip` 8.6.0 carries a
+critical advisory — a parser differential, where a package one reader renders is not the package
+another sees — plus three high ones (decoder denial of service, unbounded symlink handling, a write
+outside the extraction directory) and a medium one (an AES HMAC bypass on premature EOF). The fix is
+in `zip` 9.x, which `docx-rs` cannot take: 0.4.22 is its latest release. So the crate that sat between
+this package and the container is gone, and nothing can pin a vulnerable decoder again.
+
+The C ABI and the JSON AST did not change: `M3scalinum.Text.Docx` and its tests are untouched by the
+rewrite, and the fixture the tests read produces byte-identical JSON.
+
+What the reader does about input it did not write:
+
+- **A part name is never trusted.** Every zip entry is reached through a relationship of the package,
+  and a target that is `..`, absolute, a drive letter, a URI scheme, or outside `word/media/` is
+  refused — the rule the EPUB writer already applies to asset names.
+- **A size is measured, not believed.** A part is refused when the zip header declares more than
+  32 MiB *and* refused again when the decoded bytes pass it, so a header that understates its payload
+  cannot smuggle a different part past this reader. Nothing is ever extracted to disk.
+- **Depth and volume are bounded.** 64 levels of nested blocks, 200 000 runs, 50 000 cells, 2 048 media
+  parts, and 64 MiB for the document unless the caller lowers it.
+
+The two crates are `zip` 9.8.1 (MIT) and `roxmltree` 0.21.2 (MIT OR Apache-2.0). The specification —
+the AST, the ABI, the bounds, what is lost and the notice text — is `docs/specifications/22-docx.md`.

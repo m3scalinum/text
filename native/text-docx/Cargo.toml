@@ -2,8 +2,8 @@
 name = "sharp-text-docx"
 version = "0.1.0"
 edition = "2024"
-# `docx-rs` 0.4.22 and its `zip` 8.6 dependency are the real floor; edition 2024 asks for 1.85.
-rust-version = "1.85"
+# `zip` 9.8 asks for 1.88; edition 2024 asks for 1.85. The higher floor wins.
+rust-version = "1.88"
 publish = false
 description = "C ABI over a DOCX reader, for M3scalinum.Text.Docx"
 license = "Apache-2.0"
@@ -13,14 +13,13 @@ name = "sharp_text_docx"
 crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
-# `default-features = false` drops the `image` crate: this reader hands the original media bytes back
-# and never decodes or re-encodes an image, so the decoder would be dead weight and a wider licence
-# surface.
-docx-rs = { version = "0.4.22", default-features = false }
-# The package is opened here before docx-rs sees it, so "not a zip" and "no word/document.xml" are
-# told apart instead of collapsing into one reader error. Cargo shares the `zip` 8.6 build with
-# docx-rs, so this is not a second copy of the crate.
-zip = { version = "8.6", default-features = false, features = ["deflate"] }
+# The container, and only the container: `default-features = false` keeps the AES, bzip2, lzma,
+# zstd and deflate64 decoders — and their advisories — out of the graph. A `.docx` is stored or
+# deflated, and those are the only two methods a package may use here.
+zip = { version = "9.8", default-features = false, features = ["deflate"] }
+# The XML: a read-only tree with no DTD and no entity expansion, which is the property that matters
+# when the bytes come from the sender.
+roxmltree = "0.21"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
