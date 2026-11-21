@@ -78,10 +78,21 @@ public static class CiiWriter
 
         context.Add(new XElement(
             Ram + "GuidelineSpecifiedDocumentContextParameter",
-            new XElement(Ram + "ID", invoice.Profile.ToGuidelineUrn())));
+            new XElement(Ram + "ID", Guideline(invoice))));
 
         return context;
     }
+
+    /// <summary>
+    /// The <c>BT-24</c> value for the CII document. Factur-X states its guideline URN here, which is
+    /// what selects the conformance level; XRechnung publishes CII as well, and there the identifier
+    /// is the CIUS one — writing the guideline URN instead would produce a document no German
+    /// receiver reads as XRechnung.
+    /// </summary>
+    private static string Guideline(FacturXInvoice invoice)
+        => XRechnungValidator.IsXRechnungSpecificationId(invoice.SpecificationId)
+            ? invoice.SpecificationId!
+            : invoice.Profile.ToGuidelineUrn();
 
     private static XElement Header(FacturXInvoice invoice)
     {

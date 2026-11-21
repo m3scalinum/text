@@ -21,6 +21,7 @@
       See fixtures/encryption/README.md for its origin and password.
     -->
     <None Update="fixtures\encryption\**\*" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="fixtures\text\**\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
