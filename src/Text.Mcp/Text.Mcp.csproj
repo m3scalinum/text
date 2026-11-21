@@ -13,8 +13,8 @@
     <InformationalVersion>$(Version)</InformationalVersion>
     <IsPackable>true</IsPackable>
     <PackageId>M3scalinum.Text.Mcp</PackageId>
-    <Description>A Model Context Protocol server over stdio for M3scalinum.Text: render Typst documents and Factur-X invoices from a model, list the layout pack, sign, merge and read PDFs, and write nothing to disk unless the host says so.</Description>
-    <PackageTags>mcp;model-context-protocol;json-rpc;stdio;typst;pdf;facturx;invoice;sign;pades;merge</PackageTags>
+    <Description>A Model Context Protocol server over stdio or HTTP for M3scalinum.Text: render Typst documents and Factur-X invoices from a model, list the layout pack, sign, merge and read PDFs, and write nothing to disk unless the host says so.</Description>
+    <PackageTags>mcp;model-context-protocol;json-rpc;stdio;http;streamable-http;typst;pdf;facturx;invoice;sign;pades;merge</PackageTags>
     <TargetFrameworks>net8.0;net9.0;net10.0;net11.0</TargetFrameworks>
     <TargetFramework />
     <SuppressTfmSupportBuildWarnings>true</SuppressTfmSupportBuildWarnings>

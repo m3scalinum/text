@@ -1,7 +1,8 @@
 # 17 — Model Context Protocol server
 
 `M3scalinum.Text.Mcp` serves the suite over the Model Context Protocol: a client — an editor, an
-agent, anything that speaks MCP — asks for a document and gets the PDF back over stdio. It depends on
+agent, anything that speaks MCP — asks for a document and gets the PDF back over stdio, or over the
+streamable-HTTP shape a document service exposes to more than one client. It depends on
 the compiler wrapper, the layout pack, the e-invoicing package and the PDF post-processing package, so
 it follows the suite train (`TextVersion`), like `M3scalinum.Text.Pdf` and
 `M3scalinum.Text.Pdf.FactureX`: a package that follows the Typst version cannot depend on one that
@@ -11,17 +12,17 @@ does not.
 
 | In scope | Detail |
 | --- | --- |
-| Transport | stdio: one UTF-8 JSON-RPC 2.0 message per line, no headers, no length prefix |
-| Lifecycle | `initialize`, notifications, `ping`, end of input as shutdown |
+| Transport | stdio: one UTF-8 JSON-RPC 2.0 message per line, no headers, no length prefix. HTTP/1.1: the MCP streamable-HTTP shape, authenticated, on loopback by default |
+| Lifecycle | `initialize`, notifications, `ping`, end of input as shutdown; HTTP sessions issued, required and deleted |
 | Discovery | `tools/list` with a JSON Schema per tool |
 | Tools | `render_document`, `render_invoice`, `list_templates`, `sign_document`, `merge_documents`, `extract_text` |
-| Limits | document size, message size, allowed template ids, wall clock, file output |
+| Limits | document size, message size, allowed template ids, wall clock, file output, concurrent sessions |
 
 | Out of scope | Why |
 | --- | --- |
-| HTTP, SSE and streamable transports | The stdio loop is the transport a host embeds; another one is another host |
+| Streaming responses, `GET` event streams, HTTP/2, chunked request bodies | One request carries one JSON-RPC message and one answer is written: a render finishes or fails inside `RenderTimeout`, so there is nothing to stream. A request has a declared length, so a body of unknown size is refused rather than buffered |
+| TLS inside the process | A host that exposes this beyond loopback terminates TLS in a reverse proxy it already operates; the server keeps one job, and one set of crypto, out of the process |
 | Resources, prompts, sampling, roots | This server renders; it has nothing to read or ask |
-| Authentication | A stdio server is started by the process that trusts it — there is no peer to authenticate |
 | Progress and cancellation notifications | A call either finishes inside the timeout or fails; the loop is sequential |
 | Batch requests | MCP does not define them; the server answers a batch with `-32600` |
 
@@ -29,7 +30,7 @@ does not.
 (`Microsoft.Extensions.Hosting`, dependency injection, logging) the suite does not otherwise use, and
 it is not verified here to be trim- and AOT-clean. This repository forbids reflection-based JSON and
 requires `PublishAot` to keep working, so the surface a client can reach is small and fixed: four
-methods, six tools, one transport. It is written directly against `Utf8JsonWriter` and a
+methods, six tools, two transports. It is written directly against `Utf8JsonWriter` and a
 source-generated serialization context, which keeps `IsAotCompatible` meaningful — an analyzer failure
 here is a publish failure in a consumer. If the SDK becomes the right answer, the protocol methods
 below are the contract to keep.
@@ -57,7 +58,91 @@ The loop is sequential. Messages are answered in the order they arrive, and one 
 completion before the next is read — a compilation is CPU-bound, and interleaving responses would
 serve nobody.
 
-## 3. The protocol surface
+## 3. Transports
+
+The protocol core does not know about a transport. `McpServer.HandleMessageAsync` takes one JSON-RPC
+message and returns one answer as UTF-8 bytes — or `null` when the message is a notification — and
+`IMcpTransport` is the interface a host serves it over. Two implementations ship:
+
+| Transport | Role | Framing |
+| --- | --- | --- |
+| `StdioTransport` | what `RunStdioAsync` and `RunAsync(input, output)` use | one JSON-RPC message per line; end of input ends the loop |
+| `McpHttpServer` | more than one client, a document service | HTTP/1.1 in the MCP streamable-HTTP shape, with sessions and a bearer token |
+
+`RunAsync(IMcpTransport)` is the whole hosting model:
+
+```csharp
+var options = new McpServerOptions { MaxDocumentSize = 512 * 1024 };
+var server = new McpServer(options);
+
+// stdio, from a pair of streams a host owns:
+await server.RunAsync(input, output);
+
+// or HTTP, on a loopback port the operating system assigns:
+await using var http = new McpHttpServer(options, new McpHttpServerOptions { BearerToken = token });
+await http.StartAsync(server);
+Console.WriteLine(http.Endpoint);   // http://127.0.0.1:54321/mcp, served until the host stops
+```
+
+The stdio path is the same loop it was before the abstraction: the existing protocol tests run
+unchanged against it, which is what makes the refactor behaviour-neutral rather than merely intended
+to be.
+
+### 3.1 The HTTP transport
+
+`McpHttpServer` follows the streamable-HTTP transport of MCP **2025-06-18**, the revision
+`McpServer.ProtocolVersion` reports. It was introduced in 2025-03-26 and is unchanged in shape since.
+
+- **Endpoint.** `POST` to one path, `/mcp` unless the host changes it. The body is one JSON-RPC
+  message; the answer is `200` with `application/json` and one JSON-RPC message, or `202 Accepted`
+  with an empty body when there is nothing to answer — a notification. A request with
+  `Accept: text/event-stream` and no `application/json` is answered with the same message framed as a
+  single SSE event (`event: message`, one `data:` line), which is the spec's alternative encoding for
+  a response. It is one event, not a stream: `GET` is `405`.
+- **Sessions.** `initialize` issues `Mcp-Session-Id` in the response. Every later request must send
+  it; a request without it — other than `initialize` — or with an id the server does not know is
+  `404`. `DELETE` with the header ends the session with `204`, and a `POST` carrying that id
+  afterwards is `404`. A session is forgotten after `SessionIdleTimeout` of inactivity
+  (one hour by default), and no more than `MaxSessions` exist at once (`503` beyond that).
+- **Authentication.** Every `POST` and `DELETE` must carry `Authorization: Bearer <token>`, where the
+  token is `McpHttpServerOptions.BearerToken` — required, with no default. The comparison is
+  `CryptographicOperations.FixedTimeEquals` over the SHA-256 of both sides, so a caller learns only
+  whether it matched, not how far into the token it got. A missing header and a wrong one are both
+  `401`.
+- **Binding.** `IPAddress.Loopback` unless the host says otherwise, and port `0` — the operating
+  system assigns one — unless the host names a port. `Port` and `Endpoint` are readable as soon as
+  `StartAsync` returns.
+- **Refusals.** Any path other than the endpoint is `404`; any method other than `POST` and `DELETE`
+  is `405` with `Allow`; a body larger than `MaxRequestSize` is `413`, decided on the declared
+  `Content-Length` before a single body byte is stored; a request with no length is `411`; a
+  `Transfer-Encoding` (chunked) body is `411`; a non-JSON `Content-Type` is `415`; a header block
+  above `MaxHeaderBytes` is `431`. A refused request closes its connection after the response.
+
+`McpHttpServerOptions` is the network surface, and the protocol limits stay where they were:
+
+| Option | Default | Effect |
+| --- | --- | --- |
+| `BearerToken` | — (required) | The token every request must carry |
+| `Address` | `IPAddress.Loopback` | The address the listener binds |
+| `Port` | `0` | The port; `0` asks the operating system |
+| `Path` | `/mcp` | The only path served |
+| `MaxSessions` | 16 | Sessions alive at once; `initialize` beyond it is `503` |
+| `SessionIdleTimeout` | 1 h | How long an untouched session is remembered |
+| `RequestTimeout` | 30 s | Head plus body of one request |
+| `MaxHeaderBytes` | 16 KiB | Ceiling on one header block |
+| `McpServerOptions.MaxRequestSize` | 4 MiB | Ceiling on one body, enforced before it is read |
+| `McpServerOptions.MaxDocumentSize` | 1 MiB | Ceiling on the document a call carries, applied after the body is parsed |
+
+**Decision — `TcpListener` and a hand-written HTTP/1.1 parser, not `HttpListener`.** `HttpListener` on
+Windows binds through the HTTP Server API, which normally needs a URL reservation the process does not
+have: a test host or a service account would have to be configured, or run elevated, before the server
+could listen at all. It is also not verified here to be trim- and AOT-clean, which this package's
+`IsAotCompatible` requires. `TcpListener` is in the shared framework, needs no reservation on
+loopback, adds no dependency, and the protocol this server needs is a request line, headers, and a
+`Content-Length` body. Refusing chunked encoding, upgrades and HTTP/2 keeps the parser small enough to
+read in one sitting, which is the point of writing it rather than taking one.
+
+## 4. The protocol surface
 
 Every response is `{"jsonrpc":"2.0","id":…}` plus either `result` or `error`.
 
@@ -90,7 +175,7 @@ A call that was well formed and whose *work* failed — Typst rejected the sourc
 EN 16931 rule, the path could not be written — is a result with `"isError": true` and one text block
 carrying the reason. The client can fix the call; the protocol did nothing wrong.
 
-## 4. The tools
+## 5. The tools
 
 ### `render_document`
 
@@ -192,7 +277,7 @@ The `uri` is an identifier, not an address: nothing serves it, and the bytes are
 host allowed file output and the call named `outputPath`, the PDF is written there and the result
 carries one text block with `path`, `byteLength` and, for a document, `pageCount`.
 
-## 5. Security posture
+## 6. Security posture
 
 A tool call is written by a model, not by a programmer. The server assumes it is hostile, and the
 options are the whole of what a host can relax.
@@ -205,18 +290,27 @@ options are the whole of what a host can relax.
   `documentPaths` or `certificatePath` is refused with the same `-32602` while file access is
   disabled — a read a model chose is ambient access just as much as a write. A path that is allowed
   is bounded by `MaxDocumentSize` before it is read.
-- **No network.** No socket is opened, no package is fetched, no TSA or OCSP is consulted. The
-  compiler's package resolution is not reachable from a tool call.
+- **No outbound network.** No package is fetched, no TSA or OCSP is consulted, nothing leaves the
+  process but the answer. The compiler's package resolution is not reachable from a tool call. The
+  HTTP transport listens; it never connects.
+- **The network surface is opt-in, authenticated and bounded.** Nothing listens unless the host
+  constructs an `McpHttpServer`: the stdio server opens no socket at all. When it does, it binds
+  loopback by default, requires a bearer token, compares it in constant time, serves exactly one
+  path, refuses every other method, caps the header block, the body (on its declared length, before
+  reading it) and the number of live sessions, and forgets a session that goes idle. TLS is not
+  terminated here; a host that exposes the port beyond loopback puts it behind a proxy.
 - **Bounded work.** `MaxDocumentSize` caps one document in UTF-8 bytes before it is parsed or
   compiled; `MaxRequestSize` caps one JSON-RPC line while it is being read, discarding the rest of an
   oversized line and answering `-32700` rather than growing a buffer; `RenderTimeout` bounds one
   compilation, queue time included.
 - **Bounded surface.** `AllowedTemplateIds` restricts which layouts may be rendered and listed — a
   host can ship the invoice layout alone. The tool list never changes.
-- **No state.** The server holds no session state between messages: no working directory, no cache,
-  no loaded document. Two callers of the same process cannot see each other's work.
+- **No state.** The protocol core holds no state between messages: no working directory, no cache,
+  no loaded document. An HTTP session is a name the transport remembers, not a conversation the
+  server keeps — it carries no document and no compiler state, so expiry costs a client its id, not
+  its work. Two callers of the same process cannot see each other's work.
 
-## 6. Tests
+## 7. Tests
 
 `tests/Text.Mcp.Tests` drives the server over an in-memory pair of streams with real frames:
 `initialize`, `tools/list`, `list_templates`, a successful render asserting the `%PDF` header, an
@@ -228,3 +322,16 @@ and a marker each page draws, plus the refusal a path earns while file output is
 protocol and argument tests need no native library; the ones that compile or render read
 `SHARPTYPST_NATIVE_PATH` and skip with the path to set when it is absent, so a change to the JSON-RPC
 layer is testable without a Rust build.
+
+The transports are tested twice over. A shared suite — `TransportSuiteTests` — runs the same messages
+through `StdioProtocolClient` and through an `McpHttpServer`, so a divergence between the two fails
+one of the pair; it also covers the parts of the protocol that are easy to lose when a transport is
+added: a notification that is never answered, a batch, malformed JSON, an unknown method, an unknown
+tool. `HttpTransportTests` then covers the network surface itself, over a real `HttpClient` on a
+loopback port the operating system assigned: `initialize` issuing a session id, `tools/list` and a
+`tools/call` that returns a PDF inside the session, `401` with no token and with a wrong one, `404`
+for a session id the server never issued or for a closed session after `DELETE`, `404` for another
+path, `405` for a `GET`, `202` for a notification, `413` for a body over `MaxRequestSize`, the
+session cap, and an `Accept: text/event-stream` client receiving its answer as one event. No real MCP
+client was run against the HTTP transport: the shape is exercised with the HTTP client every .NET
+process carries, which proves the wire, not another SDK's interpretation of it.
