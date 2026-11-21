@@ -60,6 +60,20 @@ Console.WriteLine($"{received.Number} {received.Totals.GrandTotal} {received.Cur
 `Render` validates first and refuses an invoice that breaks a rule, so the line above cannot quietly
 produce a document that looks authoritative and is wrong.
 
+## The other syntax
+
+Factur-X PDFs carry CII, and that is what `Render` embeds. A counterparty that asks for UBL gets the
+same invoice from `UblWriter`: an EN 16931 / Peppol BIS Billing 3.0 compatible UBL 2.1 `Invoice`, or a
+`CreditNote` when the type code is `381`.
+
+```csharp
+string ubl = UblWriter.Write(invoice);
+byte[] posted = UblWriter.WriteBytes(invoice);
+```
+
+A document read from UBL can go back out the same way, and a document read from CII can be written as
+UBL — the model in the middle is the EN 16931 semantic model, which is what both syntaxes bind to.
+
 ## Where to go
 
 - **[The invoice model](FactureX-Model)** — every field, and what the standard expects of it.

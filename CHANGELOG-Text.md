@@ -25,7 +25,21 @@ Not yet published.
 - `M3scalinum.Text.Pdf.FactureX`: read a CII or UBL invoice into one model, check it against the
   EN 16931 rules, and render a PDF/A-3 whose XML is attached and whose XMP carries the `fx:`
   extension the standard requires. `CiiWriter` produces the syntax Factur-X mandates from an
-  invoice built in C#.
+  invoice built in C#, and `UblWriter` produces an EN 16931 / Peppol BIS Billing 3.0 compatible
+  UBL 2.1 `Invoice` — or a `CreditNote` for `TypeCode` 381. The element order of both writers
+  follows the official schemas, and both round trips are tested in every direction.
+- The model gains the EN 16931 terms both syntaxes bind to: document-level (`BG-20` / `BG-21`) and
+  line-level (`BG-27` / `BG-28`) allowances and charges, the invoice period (`BG-14`) and line
+  period (`BG-26`), seller and buyer contacts (`BG-6` / `BG-9`), supporting documents (`BG-24`),
+  contract (`BT-12`) and project (`BT-11`) references, the payment reference (`BT-83`), the SEPA
+  mandate (`BG-19`), the tax currency (`BT-6`), the line base quantity, gross price and price
+  discount, and item classification codes. `FacturXTotals` gains `AllowanceTotal` (`BT-107`) and
+  `ChargeTotal` (`BT-108`).
+- `FacturXAllowanceCharge`, `FacturXPeriod`, `FacturXContact`, `FacturXSupportingDocument`,
+  `FacturXClassification` and `FacturXMandate` carry those terms, and both readers and both
+  writers keep them in step.
+- The validator covers the new arithmetic and identifiers: `BR-CO-11`, `BR-CO-12`, `BR-CO-13`,
+  `BR-CO-19`, `BR-CO-20`, `BR-CO-21`, `BR-CO-22`, `BR-27`, `BR-31`, `BR-32`, `BR-36` and `BR-49`.
 - `FacturXReader.ReadPdf(ReadOnlySpan<byte>)` and `FacturXReader.TryExtractXml(…)`: the invoice is
   read back out of a Factur-X PDF, byte for byte, so a receiver can verify what it was given. The
   attachment is located through the catalog's name tree and inflated when compressed.

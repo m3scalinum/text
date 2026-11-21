@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace M3scalinum.Text.Pdf.FactureX;
 
@@ -14,17 +15,44 @@ public sealed class FacturXLine
     /// <summary>The seller's own article number.</summary>
     public string? SellerAssignedId { get; init; }
 
+    /// <summary>
+    /// The classification codes of the item, <c>BT-158</c> — a CPV code, a UNSPSC code, or whatever
+    /// code list the two parties agreed on.
+    /// </summary>
+    public IReadOnlyList<FacturXClassification> Classifications { get; init; } = [];
+
     /// <summary>Billed quantity.</summary>
     public decimal Quantity { get; init; }
 
     /// <summary>UN/ECE Recommendation 20 unit code, for example <c>C62</c> for a piece.</summary>
     public string? UnitCode { get; init; }
 
-    /// <summary>The unit price, excluding tax.</summary>
+    /// <summary>
+    /// The quantity the unit price applies to, <c>BT-149</c> — the base of the price, when the
+    /// price is for a pack rather than for one unit.
+    /// </summary>
+    public decimal? BaseQuantity { get; init; }
+
+    /// <summary>The unit price, excluding tax, after the price discount.</summary>
     public decimal UnitPrice { get; init; }
+
+    /// <summary>
+    /// The unit price before the price discount, <c>BT-148</c>. CII states it explicitly; UBL
+    /// derives it from the price and the discount.
+    /// </summary>
+    public decimal? GrossUnitPrice { get; init; }
+
+    /// <summary>The discount applied to the unit price, <c>BT-147</c>.</summary>
+    public decimal? PriceDiscount { get; init; }
 
     /// <summary>The line net amount, excluding tax.</summary>
     public decimal LineNetAmount { get; init; }
+
+    /// <summary>The period the line covers, <c>BG-26</c>.</summary>
+    public FacturXPeriod? Period { get; init; }
+
+    /// <summary>The line allowances and charges, <c>BG-27</c> and <c>BG-28</c>.</summary>
+    public IReadOnlyList<FacturXAllowanceCharge> AllowancesCharges { get; init; } = [];
 
     /// <summary>The VAT category code: <c>S</c>, <c>Z</c>, <c>E</c>, <c>AE</c>, <c>O</c>…</summary>
     public string? TaxCategory { get; init; }

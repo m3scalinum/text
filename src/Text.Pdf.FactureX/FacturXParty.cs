@@ -39,6 +39,9 @@ public sealed class FacturXParty
     /// <summary>The VAT identifier, without the country prefix guessing.</summary>
     public string? VatId { get; init; }
 
+    /// <summary>The point of contact at this party, <c>BG-6</c> / <c>BG-9</c>.</summary>
+    public FacturXContact? Contact { get; init; }
+
     /// <summary>Address line 1.</summary>
     public string? Line1 { get; init; }
 
@@ -54,6 +57,12 @@ public sealed class FacturXParty
     /// <summary>ISO 3166-1 alpha-2 country code.</summary>
     public string? Country { get; init; }
 
-    /// <summary>The contact e-mail, when the document carries one.</summary>
+    /// <summary>
+    /// The contact e-mail, when the document carries one.
+    /// </summary>
+    /// <remarks>
+    /// Kept for the documents read before <see cref="Contact"/> existed: the reader sets it from the
+    /// contact, and the writers fall back to it when no contact is given.
+    /// </remarks>
     public string? Email { get; init; }
 }

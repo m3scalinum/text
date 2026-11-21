@@ -76,4 +76,24 @@ internal static class Xml
 
         return FacturXProfiles.TryParse(value, out var profile) ? profile : FacturXProfile.En16931;
     }
+
+    /// <summary>An amount, as both syntaxes want it: a dot and two decimals.</summary>
+    public static string Money(decimal value) => value.ToString("0.00", CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// A percentage, without trailing zeros. Both schemas accept <c>20</c> and <c>5.5</c>; writing
+    /// <c>20.00</c> is legal but differs from every producer's output, so the round trips would
+    /// compare text rather than meaning.
+    /// </summary>
+    public static string Rate(decimal value)
+        => value.ToString(value == decimal.Truncate(value) ? "0" : "0.00", CultureInfo.InvariantCulture);
+
+    /// <summary>A quantity, up to four decimals.</summary>
+    public static string Quantity(decimal value) => value.ToString("0.####", CultureInfo.InvariantCulture);
+
+    /// <summary>A date in the CII <c>format="102"</c> spelling.</summary>
+    public static string CompactDate(DateOnly value) => value.ToString("yyyyMMdd", CultureInfo.InvariantCulture);
+
+    /// <summary>A date in the UBL <c>yyyy-MM-dd</c> spelling.</summary>
+    public static string IsoDate(DateOnly value) => value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 }
