@@ -544,13 +544,13 @@ public sealed class McpServer
     private ToolCallResultDto ExtractText(JsonElement arguments)
     {
         var pdf = ReadBinary(arguments, "pdf", "pdfPath");
-        var pages = PdfPageText.Pages(pdf);
+        var extracted = PdfText.Extract(pdf);
 
         var result = new ExtractedTextDto
         {
-            PageCount = pages.Count,
-            Pages = pages
-                .Select((text, index) => new ExtractedPageDto { Page = index + 1, Text = text })
+            PageCount = extracted.PageCount,
+            Pages = extracted.Pages
+                .Select(page => new ExtractedPageDto { Page = page.PageNumber, Text = page.Text })
                 .ToArray(),
         };
 
@@ -697,7 +697,11 @@ public sealed class McpServer
     {
         try
         {
-            return PdfPageText.PageCount(pdf);
+            return PdfText.Extract(pdf).PageCount;
+        }
+        catch (PdfTextException)
+        {
+            return null;
         }
         catch (PdfOperationException)
         {
