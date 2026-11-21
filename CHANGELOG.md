@@ -56,3 +56,16 @@ Not yet published on nuget.org.
   re-deriving its pages from the Markdown export.
 - A Model Context Protocol server over stdio: `render_document`, `render_invoice` and
   `list_templates`, with size limits and no ambient file access.
+- The XRechnung CIUS, selected by what the document declares, alongside Peppol and the French
+  profile — the Leitweg-ID, the contact block, the payment rules and the German terms that can be
+  decided from the document.
+- FatturaPA 1.2.2 and Facturae 3.2.2 as syntaxes: readers and writers onto the same invoice model,
+  reached by sniffing the root element, so an Italian or a Spanish document arrives as an invoice
+  rather than as an unknown format.
+- Text extraction from a PDF the library did not produce — glyphs through each font's `ToUnicode`
+  map, one string per page, with the fallbacks a page had to make reported instead of guessed.
+- Reading and writing AES-encrypted documents (AES-256 and AES-128), with the permission flags
+  returned to the caller and every other operation refusing an encrypted file rather than rewriting
+  it half-way.
+- Three more business layouts (contract, payslip, purchase order) and three more MCP tools
+  (`sign_document`, `merge_documents`, `extract_text`).
