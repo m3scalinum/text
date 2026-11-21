@@ -228,4 +228,33 @@ public sealed class OcrEngineTests
     [Fact]
     public void OcrBox_formats_as_a_size_and_a_position()
         => Assert.Equal("120x18 at (10, 20)", new OcrBox(10, 20, 120, 18).ToString());
+
+    [Fact]
+    public void A_result_formats_as_its_text_and_so_does_a_line_and_a_word()
+    {
+        using var engine = new OcrEngine(new FakeOcrBackend());
+
+        var result = engine.Recognize([1]);
+        var line = result.Lines[0];
+
+        Assert.Equal("first line\nsecond line", result.ToString());
+        Assert.Equal("first line", line.ToString());
+        Assert.Equal("first", line.Words[0].ToString());
+        Assert.Equal("first line", engine.RecognizePdf([1])[0].ToString());
+    }
+
+    [Fact]
+    public void An_exception_built_by_a_caller_carries_the_unknown_code()
+    {
+        var bare = new OcrException();
+        var withMessage = new OcrException("the scan is unreadable");
+        var withCause = new OcrException("the scan is unreadable", new InvalidOperationException("decoder"));
+
+        Assert.Equal("unknown", bare.Code);
+        Assert.Equal("the scan is unreadable", withMessage.Message);
+        Assert.Equal("unknown", withMessage.Code);
+        Assert.Equal("decoder", withCause.InnerException!.Message);
+        Assert.Equal("unknown", withCause.Code);
+        Assert.Null(bare.InnerException);
+    }
 }

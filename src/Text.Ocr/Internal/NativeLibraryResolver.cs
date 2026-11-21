@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -36,23 +37,37 @@ internal static class NativeLibraryResolver
         NativeLibrary.SetDllImportResolver(typeof(NativeLibraryResolver).Assembly, Resolve);
     }
 
-    private static IntPtr Resolve(string libraryName, Assembly assembly, DllImportSearchPath? searchPath)
+    internal static IntPtr Resolve(
+        string libraryName,
+        Assembly assembly,
+        DllImportSearchPath? searchPath)
+        => Resolve(libraryName, OverridePaths(), Candidates());
+
+    /// <summary>
+    /// The probe itself, with the two lists it searches supplied by the caller: the
+    /// override paths first, then the layout candidates under the application
+    /// directory. Split out so the fallback rules can be exercised without a native
+    /// library sitting in the test output, in any order.
+    /// </summary>
+    internal static IntPtr Resolve(
+        string libraryName,
+        IReadOnlyList<string> overrides,
+        IReadOnlyList<string> candidates)
     {
         if (!string.Equals(libraryName, NativeMethods.LibraryName, StringComparison.Ordinal))
         {
             return IntPtr.Zero;
         }
 
-        foreach (var variable in new[] { OverrideVariable, CompanionOverrideVariable })
+        foreach (var overridePath in overrides)
         {
-            var overridePath = Environment.GetEnvironmentVariable(variable);
-            if (!string.IsNullOrEmpty(overridePath) && File.Exists(overridePath))
+            if (File.Exists(overridePath))
             {
                 return NativeLibrary.Load(overridePath);
             }
         }
 
-        foreach (var candidate in Candidates())
+        foreach (var candidate in candidates)
         {
             if (File.Exists(candidate))
             {
@@ -63,6 +78,26 @@ internal static class NativeLibraryResolver
         // Fall back to the default probing rules; if that fails, the runtime raises
         // DllNotFoundException naming the library, which is the clearest signal we can give.
         return IntPtr.Zero;
+    }
+
+    /// <summary>
+    /// Every override path that is set, in the order they are honoured. A variable
+    /// that is set but empty is not a path and is skipped.
+    /// </summary>
+    internal static IReadOnlyList<string> OverridePaths()
+    {
+        var paths = new List<string>();
+
+        foreach (var variable in new[] { OverrideVariable, CompanionOverrideVariable })
+        {
+            var path = Environment.GetEnvironmentVariable(variable);
+            if (!string.IsNullOrEmpty(path))
+            {
+                paths.Add(path);
+            }
+        }
+
+        return paths;
     }
 
     internal static string[] Candidates()

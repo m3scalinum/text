@@ -16,6 +16,12 @@ internal sealed class NativeOcrBackend : IOcrBackend
     internal static NativeOcrBackend Create(byte[] detectionModel, byte[] recognitionModel, byte[]? dictionary)
         => new(OcrEngineHandle.Create(detectionModel, recognitionModel, dictionary));
 
+    /// <summary>
+    /// Wraps a handle the caller already made, which is how the tests reach the
+    /// document mapping and the page-range arithmetic without a model.
+    /// </summary>
+    internal static NativeOcrBackend Create(OcrEngineHandle handle) => new(handle);
+
     public OcrResult Recognize(byte[] image)
         => ResultParser.ParseImage(_handle.Recognize(image));
 
