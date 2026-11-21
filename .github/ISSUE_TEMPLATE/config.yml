@@ -5,4 +5,4 @@ contact_links:
     about: Report a vulnerability privately. Please do not open a public issue for it.
   - name: Question or usage help
     url: https://github.com/m3scalinum/text/wiki
-    about: The user guide is organised by package — compiling, templates, fonts, diagnostics, PDF signing and Factur-X.
+    about: The user guide is organised by package — compiling, templates, fonts, diagnostics and PDF signing.

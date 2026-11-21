@@ -16,7 +16,7 @@ public enum BarcodeSymbology
     QrCode = 0,
 
     /// <summary>DataMatrix (ECC 200): square or rectangular, the symbology of GS1 and of the
-    /// Factur-X invoice headers.</summary>
+    /// invoice headers.</summary>
     DataMatrix = 1,
 
     /// <summary>Aztec: a bullseye finder, no quiet zone needed, good for a dense payload on a

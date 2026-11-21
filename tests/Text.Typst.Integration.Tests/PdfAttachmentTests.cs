@@ -25,10 +25,10 @@ public sealed class PdfAttachmentTests
 
     private const string Markup = """
         #pdf.attach(
-          "factur-x.xml",
+          "invoice.xml",
           relationship: "supplement",
           mime-type: "text/xml",
-          description: "Factur-X invoice data",
+          description: "Invoice data",
         )
 
         #set page(paper: "a4", margin: 2cm)
@@ -40,7 +40,7 @@ public sealed class PdfAttachmentTests
     {
         using var world = new TypstWorldBuilder()
             .AddSource("main.typ", Markup)
-            .AddAsset("factur-x.xml", Encoding.UTF8.GetBytes(InvoiceXml))
+            .AddAsset("invoice.xml", Encoding.UTF8.GetBytes(InvoiceXml))
             .Build();
 
         using var result = new TypstCompiler().Compile(world);
@@ -57,25 +57,25 @@ public sealed class PdfAttachmentTests
     {
         var pdf = Encoding.Latin1.GetString(RenderPdfA3());
 
-        Assert.Contains("factur-x.xml", pdf, StringComparison.Ordinal);
+        Assert.Contains("invoice.xml", pdf, StringComparison.Ordinal);
         Assert.Contains("/EmbeddedFiles", pdf, StringComparison.Ordinal);
         Assert.Contains("pdfaid", pdf, StringComparison.Ordinal);
 
-        // The XML itself is deflated inside the /EmbeddedFile stream, so its text is not searchable;
-        // M3scalinum.Text.Pdf.FactureX extracts and validates it, and the CI job runs the official validator.
+        // The XML itself is deflated inside the /EmbeddedFile stream, so its text is not searchable,
+        // which is the reason `M3scalinum.Text.Pdf` reads embedded files back out.
         Assert.Contains("/FlateDecode", pdf, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void The_xmp_carries_no_facturx_extension_schema()
+    public void The_xmp_carries_no_extension_schema_for_the_attachment()
     {
         var pdf = Encoding.Latin1.GetString(RenderPdfA3());
 
-        // Factur-X (and ZUGFeRD 2.x) require an XMP extension block naming the embedded file:
-        //   <fx:DocumentFileName>, <fx:DocumentType>, <fx:Version>, <fx:ConformanceLevel>
-        // registered through <pdfaExtension:schemas>. Typst writes its own XMP from krilla's fixed
-        // Metadata struct, so none of it is present.
+        // An extension schema would name the embedded file through <pdfaExtension:schemas>:
+        //   <fx:DocumentFileName>, <fx:DocumentType>, <fx:Version>, <fx:ConformanceLevel>.
+        // Typst writes its own XMP from krilla's fixed Metadata struct, so none of it is present;
+        // a caller who needs it patches the XMP after the fact.
         Assert.DoesNotContain("fx:DocumentFileName", pdf, StringComparison.Ordinal);
-        Assert.DoesNotContain("factur-x:pdfa:CrossIndustryDocument", pdf, StringComparison.Ordinal);
+        Assert.DoesNotContain("fx:DocumentType", pdf, StringComparison.Ordinal);
     }
 }

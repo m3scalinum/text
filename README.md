@@ -8,9 +8,13 @@
 [![.NET](https://img.shields.io/badge/.NET-8.0%20%7C%209.0%20%7C%2010.0%20%7C%2011.0-512BD4.svg)](https://dotnet.microsoft.com)
 
 Documents, in .NET, without leaving the process. The suite holds the [Typst](https://typst.app)
-compiler in memory and exposes it as a managed API; on top of it, it signs the PDF it produced and
-builds the e-invoice European platforms exchange. No browser, no Office, no process spawn, no
-binary on `PATH`.
+compiler in memory, exposes it as a managed API, and hands you the document model and the templates
+that make it usable; on top of it, it signs, merges, encrypts and reads back the PDF it produced. No
+browser, no Office, no process spawn, no binary on `PATH`.
+
+It produces and transforms documents, and nothing else: the
+[document test](docs/specifications/00-overview.md#23-the-document-test) states the three questions
+that decide what belongs here, in three lines.
 
 ```csharp
 using M3scalinum.Text.Typst.Compilation;
@@ -28,7 +32,6 @@ byte[] pdf = TypstCompiler.CompileToPdf("""
 - [M3scalinum.Text.Typst](#m3scalinumtexttypst)
 - [M3scalinum.Text.Documents](#m3scalinumtextdocuments)
 - [M3scalinum.Text.Pdf](#m3scalinumtextpdf)
-- [M3scalinum.Text.Pdf.FactureX](#m3scalinumtextpdffacturex)
 - [M3scalinum.Text.Templates](#m3scalinumtexttemplates)
 - [M3scalinum.Text.Mcp](#m3scalinumtextmcp)
 - [The other formats](#the-other-formats)
@@ -49,14 +52,11 @@ byte[] pdf = TypstCompiler.CompileToPdf("""
 | `M3scalinum.Text.Typst.DependencyInjection` | `AddTypst` for `Microsoft.Extensions.DependencyInjection` | Typst |
 | `M3scalinum.Text.Templates.Generator` | Roslyn generator: a `template.toml` becomes a typed options record | — |
 | `M3scalinum.Text.Pdf` | PAdES-B signatures, written as incremental updates | — |
-| `M3scalinum.Text.Pdf.FactureX` | Factur-X / ZUGFeRD invoices: read, validate, render, read back | Documents, Typst |
 | `M3scalinum.Text.Templates` | Seven business-document layouts — invoice, quotation, account statement, attestation, contract, payslip, purchase order — with typed options and English or French labels | Typst |
-| `M3scalinum.Text.Mcp` | A Model Context Protocol server over stdio: render a document or a Factur-X invoice, list the layouts, sign, merge and read PDFs | Typst, Documents, Templates, FactureX, Pdf |
+| `M3scalinum.Text.Mcp` | A Model Context Protocol server over stdio: render a document, list the layouts, sign, merge and read PDFs | Typst, Documents, Templates, Pdf |
 | `M3scalinum.Text.Barcodes` | QR, DataMatrix, Aztec, PDF417, Code 128/39, EAN-13/8, ITF and Codabar: encode to SVG or PNG, decode back | — |
 | `M3scalinum.Text.Ocr` | Text, lines and boxes out of a page image, with the models supplied by the caller | — |
 | `M3scalinum.Text.Docx` | A Word document read into the document model, then renderable like any other | Documents, Typst |
-| `M3scalinum.Text.Charts` | Line, area, bar, stacked bar, scatter, pie, donut and sparkline charts, emitted as SVG | — |
-| `M3scalinum.Text.Epub` | An EPUB 3 container built from the HTML the compiler produces | — |
 
 Two trains carry them: a package that embeds the compiler takes its version from Typst itself, and the
 rest release on their own schedule — a signing fix must not read as a compiler release. See
@@ -214,38 +214,9 @@ byte[] signed = PdfSigner.Sign(pdf, certificate, new PdfSignatureOptions
 ```
 
 The signature is PAdES-B, written as an **incremental update**: the original bytes are untouched, so a
-PDF/A document stays PDF/A, an embedded Factur-X attachment stays readable, and an earlier signature
+PDF/A document stays PDF/A, an embedded file attachment stays readable, and an earlier signature
 stays valid. Verified with pyHanko (intact, trusted, covering the whole file) and, on a signed
-Factur-X invoice, with veraPDF in PDF/A-3B.
-
-## M3scalinum.Text.Pdf.FactureX
-
-The e-invoice: read a CII or UBL invoice, check it against the EN 16931 rules, render a PDF/A-3 whose
-XML is attached and whose XMP declares the profile.
-
-```bash
-dotnet add package M3scalinum.Text.Pdf.FactureX
-```
-
-```csharp
-using M3scalinum.Text.Pdf.FactureX;
-
-var invoice = FacturXReader.Read(File.ReadAllText("invoice.xml"));   // CII or UBL
-FacturXValidator.Validate(invoice).ThrowIfInvalid();
-
-File.WriteAllBytes("factur-x.pdf", FacturXRenderer.Render(invoice));
-
-// The receiving side: the bytes the sender attached, not a re-serialization of them.
-var received = FacturXReader.ReadPdf(File.ReadAllBytes("factur-x.pdf"));
-```
-
-The result embeds `factur-x.xml`, declares `fx:ConformanceLevel` in its XMP and is PDF/A-3b. A
-conforming invoice is never written from an invalid one: validation runs before the compiler does.
-CI validates the embedded XML against the official Factur-X schema with the FNFE-MPE reference
-library, and the rendered files against PDF/A-3B with veraPDF.
-
-French profiles are covered: `EXTENDED-CTC-FR`, the billing framework of `BT-23`, SIREN/SIRET, the
-three mandatory notes, the place of delivery and cascade invoicing.
+PDF/A-3 document with an attachment, with veraPDF in PDF/A-3B.
 
 ## M3scalinum.Text.Templates
 
@@ -300,8 +271,7 @@ English word in a French document.
 
 A [Model Context Protocol](https://modelcontextprotocol.io) server, so a model — in an editor, an
 agent, anywhere that speaks MCP — can ask for a document and get a PDF back. The compiler, the layout
-pack and the e-invoice renderer are all inside the process: nothing is spawned and nothing is
-downloaded.
+pack and the PDF tools are all inside the process: nothing is spawned and nothing is downloaded.
 
 ```bash
 dotnet add package M3scalinum.Text.Mcp
@@ -322,7 +292,6 @@ await McpServer.RunStdioAsync(options);
 | Tool | Does |
 | --- | --- |
 | `render_document` | Renders Typst source, or a layout from `M3scalinum.Text.Templates` with its parameters |
-| `render_invoice` | Renders a Factur-X PDF/A-3 from an invoice payload, validated against the EN 16931 rules |
 | `list_templates` | Lists the layouts this server serves: ids, versions, languages, parameters |
 | `sign_document` | Signs a PDF with a PKCS#12 certificate, as a PAdES signature, with an optional reason and location |
 | `merge_documents` | Merges two or more PDFs into one, in the order given |
@@ -340,7 +309,7 @@ compilation are each capped. The PDF tools take their documents as base64 and re
 
 ## The other formats
 
-Five packages, one format each, each usable on its own. None embeds a second engine: what needs a
+Three packages, one format each, each usable on its own. None embeds a second engine: what needs a
 page goes through `M3scalinum.Text.Typst`, and the rest emits bytes.
 
 ### M3scalinum.Text.Docx — read a Word document
@@ -354,29 +323,6 @@ using M3scalinum.Text.Docx;
 
 DocxDocument document = DocxReader.Read(File.ReadAllBytes("received.docx"));
 byte[] pdf = TypstCompiler.CompileToPdf(document.ToTypstDocument());
-```
-
-### M3scalinum.Text.Epub — an EPUB 3 container
-
-```csharp
-using M3scalinum.Text.Epub;
-
-var book = new EpubBook(new EpubMetadata { Title = "A Field Guide", Language = "en" });
-book.AddChapter("First Steps", "<h1>First Steps</h1><p>Hello &amp; welcome.</p>");
-
-File.WriteAllBytes("guide.epub", EpubWriter.Write(book));
-```
-
-### M3scalinum.Text.Charts — SVG a report can embed
-
-```csharp
-using M3scalinum.Text.Charts;
-
-var spec = ChartSpec.Bar()
-    .WithTitle("Revenue by quarter")
-    .AddSeries("2026", [new ChartPoint(0, 50, "Q1"), new ChartPoint(0, 70, "Q2")]);
-
-string svg = Chart.RenderSvg(spec, new ChartSize(640, 360));
 ```
 
 ### M3scalinum.Text.Barcodes — QR to Codabar, in-process
@@ -410,7 +356,7 @@ Two trains, two numbers, because they answer different questions.
 | Train | Packages | Version |
 | --- | --- | --- |
 | **Typst** | the four compiler packages | `0.15.1.<revision>` — the version *is* the embedded Typst, plus a build count |
-| **Suite** | `M3scalinum.Text.Pdf`, `.Pdf.FactureX`, `.Templates`, `.Mcp`, `.Barcodes`, `.Charts`, `.Docx`, `.Epub`, `.Ocr` | whatever the tag names: `v0.51.2` publishes `0.51.2` |
+| **Suite** | `M3scalinum.Text.Pdf`, `.Templates`, `.Mcp`, `.Barcodes`, `.Docx`, `.Ocr` | whatever the tag names: `v0.51.2` publishes `0.51.2` |
 
 A signing fix published as `0.15.1.43` would read as a compiler release, and would jump to `0.16.0`
 the day Typst does, for code that contains no compiler at all. So the two trains tag and release
@@ -435,8 +381,7 @@ page for each, then one page per topic.
 | **[Typst](https://github.com/m3scalinum/text/wiki/Typst-Getting-Started)** | [Getting started](https://github.com/m3scalinum/text/wiki/Typst-Getting-Started), [Compiling](https://github.com/m3scalinum/text/wiki/Typst-Compiling), [Templates](https://github.com/m3scalinum/text/wiki/Typst-Templates), [Diagnostics](https://github.com/m3scalinum/text/wiki/Typst-Diagnostics), [Packages and fonts](https://github.com/m3scalinum/text/wiki/Typst-Packages-and-Fonts), [Dependency injection](https://github.com/m3scalinum/text/wiki/Typst-Dependency-Injection), [Performance](https://github.com/m3scalinum/text/wiki/Typst-Performance), [Troubleshooting](https://github.com/m3scalinum/text/wiki/Typst-Troubleshooting) |
 | **[Documents](https://github.com/m3scalinum/text/wiki/Documents-Model)** | [The document model](https://github.com/m3scalinum/text/wiki/Documents-Model), [Importing HTML](https://github.com/m3scalinum/text/wiki/Documents-Html-Import), [Importing Markdown](https://github.com/m3scalinum/text/wiki/Documents-Markdown-Import) |
 | **[Pdf](https://github.com/m3scalinum/text/wiki/Pdf-Getting-Started)** | [Getting started](https://github.com/m3scalinum/text/wiki/Pdf-Getting-Started), [Signing](https://github.com/m3scalinum/text/wiki/Pdf-Signing), [Conformance](https://github.com/m3scalinum/text/wiki/Pdf-Conformance), [Pages and forms](https://github.com/m3scalinum/text/wiki/Pdf-Pages-and-Forms), [Reading text](https://github.com/m3scalinum/text/wiki/Pdf-Text), [Encryption](https://github.com/m3scalinum/text/wiki/Pdf-Encryption), [Converting to PDF/A](https://github.com/m3scalinum/text/wiki/Pdf-Conversion) |
-| **[FactureX](https://github.com/m3scalinum/text/wiki/FactureX-Getting-Started)** | [Getting started](https://github.com/m3scalinum/text/wiki/FactureX-Getting-Started), [The invoice model](https://github.com/m3scalinum/text/wiki/FactureX-Model), [Rendering](https://github.com/m3scalinum/text/wiki/FactureX-Rendering), [Reading](https://github.com/m3scalinum/text/wiki/FactureX-Reading), [Validation](https://github.com/m3scalinum/text/wiki/FactureX-Validation), [Peppol](https://github.com/m3scalinum/text/wiki/FactureX-Peppol), [XRechnung](https://github.com/m3scalinum/text/wiki/FactureX-XRechnung), [The French profile](https://github.com/m3scalinum/text/wiki/FactureX-French-Profile) |
-| **Formats** | [Barcodes](https://github.com/m3scalinum/text/wiki/Barcodes), [Charts](https://github.com/m3scalinum/text/wiki/Charts), [Reading DOCX](https://github.com/m3scalinum/text/wiki/Docx), [EPUB](https://github.com/m3scalinum/text/wiki/Epub), [OCR](https://github.com/m3scalinum/text/wiki/Ocr) |
+| **Formats** | [Barcodes](https://github.com/m3scalinum/text/wiki/Barcodes), [Reading DOCX](https://github.com/m3scalinum/text/wiki/Docx), [OCR](https://github.com/m3scalinum/text/wiki/Ocr) |
 | **[MCP](https://github.com/m3scalinum/text/wiki/Mcp-Server)** | [The MCP server](https://github.com/m3scalinum/text/wiki/Mcp-Server), [Building from source](https://github.com/m3scalinum/text/wiki/Typst-Building-from-Source) |
 
 The [specifications](docs/specifications/README.md) are the contract the implementation is held to:
@@ -458,7 +403,7 @@ for the full sequence, the coverage commands and the packaging checks.
 
 ## Project status
 
-Not yet on nuget.org. **2 101 tests** run across thirteen suites on the current tree; the per-suite
+Not yet on nuget.org. **1 522 tests** run across ten suites on the current tree; the per-suite
 counts, and which suites need a native artifact, are in
 [09-testing.md](docs/specifications/09-testing.md#1-the-suites).
 

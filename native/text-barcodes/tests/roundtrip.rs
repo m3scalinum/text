@@ -171,7 +171,7 @@ fn the_svg_names_every_module_exactly_once() {
 
 #[test]
 fn a_factur_x_style_header_round_trips_through_a_qr_code() {
-    // A Factur-X header is what a QR code on an invoice carries: key=value lines, one per
+    // An invoice header is what a QR code on an invoice carries: key=value lines, one per
     // business term, ASCII only and dense enough to need more than a version 1 symbol.
     let payload = [
         "BT-1=FA-2026-000123",
@@ -187,7 +187,7 @@ fn a_factur_x_style_header_round_trips_through_a_qr_code() {
     .join("\n");
 
     let encoded = encode::encode(Symbology::QrCode, &payload, &EncodeOptions::default())
-        .expect("a Factur-X header fits a QR code");
+        .expect("an invoice header fits a QR code");
     assert!(encoded.width() > 29, "the symbol grew past version 1");
 
     let png = encode::to_png(&encoded, 4).expect("png");

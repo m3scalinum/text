@@ -5,7 +5,6 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using M3scalinum.Text.Mcp;
 using M3scalinum.Text.Mcp.Internal;
-using M3scalinum.Text.Pdf.FactureX;
 using M3scalinum.Text.Templates;
 using Xunit;
 
@@ -151,59 +150,6 @@ public sealed class ArgumentTests
     }
 
     [Fact]
-    public async Task Render_invoice_without_a_payload_is_refused()
-    {
-        var responses = await McpTestClient.ExchangeAsync(McpTestClient.Frames(
-            McpTestClient.ToolCall(1, McpToolNames.RenderInvoice, "{}")));
-
-        var error = Error(responses);
-
-        Assert.Equal(-32602, error.GetProperty("code").GetInt32());
-        Assert.Contains("'invoice'", error.GetProperty("message").GetString(), StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task Render_invoice_with_a_payload_that_is_not_an_object_is_refused()
-    {
-        var responses = await McpTestClient.ExchangeAsync(McpTestClient.Frames(
-            McpTestClient.ToolCall(1, McpToolNames.RenderInvoice, """{"invoice":"FA-1"}""")));
-
-        var error = Error(responses);
-
-        Assert.Equal(-32602, error.GetProperty("code").GetInt32());
-    }
-
-    [Fact]
-    public async Task Render_invoice_with_an_unreadable_date_is_refused()
-    {
-        var responses = await McpTestClient.ExchangeAsync(McpTestClient.Frames(
-            McpTestClient.ToolCall(
-                1,
-                McpToolNames.RenderInvoice,
-                """{"invoice":{"number":"FA-1","issueDate":"2026-13-45"}}""")));
-
-        var error = Error(responses);
-
-        Assert.Equal(-32602, error.GetProperty("code").GetInt32());
-        Assert.Contains("invoice.issueDate", error.GetProperty("message").GetString(), StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task Render_invoice_with_an_unknown_profile_is_refused()
-    {
-        var responses = await McpTestClient.ExchangeAsync(McpTestClient.Frames(
-            McpTestClient.ToolCall(
-                1,
-                McpToolNames.RenderInvoice,
-                """{"invoice":{"number":"FA-1","profile":"ultra","issueDate":"2026-02-01"}}""")));
-
-        var error = Error(responses);
-
-        Assert.Equal(-32602, error.GetProperty("code").GetInt32());
-        Assert.Contains("ultra", error.GetProperty("message").GetString(), StringComparison.Ordinal);
-    }
-
-    [Fact]
     public async Task A_jsonrpc_message_that_is_not_an_object_is_refused()
     {
         var responses = await McpTestClient.ExchangeAsync(McpTestClient.Frames("42"));
@@ -212,125 +158,5 @@ public sealed class ArgumentTests
 
         Assert.Equal(-32600, error.GetProperty("code").GetInt32());
         Assert.Equal(JsonValueKind.Null, responses[0].GetProperty("id").ValueKind);
-    }
-
-    [Theory]
-    [InlineData("minimum", FacturXProfile.Minimum)]
-    [InlineData("MINIMUM", FacturXProfile.Minimum)]
-    [InlineData("basicwl", FacturXProfile.BasicWithoutLines)]
-    [InlineData("basic-without-lines", FacturXProfile.BasicWithoutLines)]
-    [InlineData("basic", FacturXProfile.Basic)]
-    [InlineData("en16931", FacturXProfile.En16931)]
-    [InlineData("comfort", FacturXProfile.En16931)]
-    [InlineData("extended", FacturXProfile.Extended)]
-    [InlineData("extended-ctc-fr", FacturXProfile.ExtendedCtcFr)]
-    public void Every_profile_spelling_maps_to_its_conformance_level(
-        string spelling,
-        FacturXProfile expected)
-    {
-        var invoice = Map($$"""{"number":"FA-1","issueDate":"2026-02-01","profile":"{{spelling}}"}""");
-
-        Assert.Equal(expected, invoice.Profile);
-    }
-
-    [Fact]
-    public void An_absent_profile_type_and_currency_take_the_documented_defaults()
-    {
-        var invoice = Map("""{"number":"FA-1","issueDate":"2026-02-01"}""");
-
-        Assert.Equal(FacturXProfile.En16931, invoice.Profile);
-        Assert.Equal("EUR", invoice.Currency);
-        Assert.Equal("380", invoice.TypeCode);
-    }
-
-    [Fact]
-    public void Every_optional_term_of_the_payload_reaches_the_model()
-    {
-        var invoice = Map(
-            """
-            {
-              "number": "FA-2026-0042",
-              "typeCode": "384",
-              "profile": "extended",
-              "currency": "CHF",
-              "taxCurrency": "EUR",
-              "issueDate": "2026-03-01",
-              "dueDate": "2026-03-31",
-              "period": { "start": "2026-02-01", "end": "2026-02-28" },
-              "buyerReference": "SE-42",
-              "businessProcess": "A1",
-              "orderReference": "PO-1",
-              "contractReference": "CT-1",
-              "projectReference": "PR-1",
-              "note": "Livraison en une fois.",
-              "notes": [{ "content": "Pénalités de retard.", "subjectCode": "PMD" }],
-              "paymentTerms": "Net 30",
-              "paymentMeansCode": "30",
-              "paymentReference": "RF18",
-              "iban": "FR7630006000011234567890189",
-              "bic": "AGRIFRPP",
-              "seller": { "name": "ACME SAS", "vatId": "FR12345678901", "country": "FR", "email": "a@b.example" },
-              "buyer": { "name": "Client SARL", "country": "FR" },
-              "deliveryAddress": { "name": "Dépôt", "line2": "Quai 4", "country": "FR" },
-              "lines": [
-                {
-                  "id": "1",
-                  "name": "Audit",
-                  "sellerAssignedId": "AUD-1",
-                  "quantity": 2,
-                  "baseQuantity": 1,
-                  "unitCode": "C62",
-                  "unitPrice": 50.5,
-                  "lineNetAmount": 101,
-                  "taxCategory": "S",
-                  "taxRate": 20
-                }
-              ],
-              "allowancesCharges": [
-                { "isCharge": true, "amount": 10, "reason": "Port", "vatCategory": "S", "vatRate": 20 }
-              ],
-              "taxBreakdown": [
-                { "category": "S", "rate": 20, "basis": 101, "amount": 20.2 }
-              ],
-              "totals": {
-                "lineTotal": 101,
-                "chargeTotal": 10,
-                "taxBasisTotal": 111,
-                "taxTotal": 20.2,
-                "grandTotal": 131.2,
-                "prepaid": 0,
-                "due": 131.2
-              }
-            }
-            """);
-
-        Assert.Equal("FA-2026-0042", invoice.Number);
-        Assert.Equal("384", invoice.TypeCode);
-        Assert.Equal("CHF", invoice.Currency);
-        Assert.Equal("EUR", invoice.TaxCurrency);
-        Assert.Equal(new DateOnly(2026, 2, 1), invoice.Period!.Start);
-        Assert.Equal("SE-42", invoice.BuyerReference);
-        Assert.Equal("PO-1", invoice.OrderReference);
-        Assert.Equal("CT-1", invoice.ContractReference);
-        Assert.Equal("PR-1", invoice.ProjectReference);
-        Assert.Single(invoice.Notes);
-        Assert.Equal("PMD", invoice.Notes[0].SubjectCode);
-        Assert.Equal("RF18", invoice.PaymentReference);
-        Assert.Equal("AGRIFRPP", invoice.Bic);
-        Assert.Equal("a@b.example", invoice.Seller.Email);
-        Assert.Equal("Dépôt", invoice.DeliveryAddress!.Name);
-        Assert.Equal(1m, invoice.Lines[0].BaseQuantity);
-        Assert.Single(invoice.AllowancesCharges);
-        Assert.True(invoice.AllowancesCharges[0].IsCharge);
-        Assert.Equal(20.2m, invoice.Totals.TaxTotal);
-        Assert.Equal(131.2m, invoice.Totals.Due);
-    }
-
-    /// <summary>Maps a payload exactly as the tool does, without rendering.</summary>
-    private static FacturXInvoice Map(string json)
-    {
-        using var document = JsonDocument.Parse(json);
-
-        return InvoicePayload.Read(document.RootElement);
     }
 }

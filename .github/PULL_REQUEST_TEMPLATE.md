@@ -12,7 +12,6 @@
 
 - [ ] `M3scalinum.Text.Typst` (and `.DependencyInjection`, `.Templates.Generator`)
 - [ ] `M3scalinum.Text.Pdf`
-- [ ] `M3scalinum.Text.Pdf.FactureX`
 - [ ] Build, CI, packaging or documentation only
 
 ## Related issue
@@ -32,9 +31,9 @@
 - [ ] `cargo fmt --check` and `cargo clippy -- -D warnings` pass (if `native/` changed)
 - [ ] `dotnet build -c Release` passes with no new warnings
 - [ ] The unit suites of the packages touched pass:
-      `tests/Text.Typst.Tests`, `tests/Text.Pdf.Tests`, `tests/Text.Pdf.FactureX.Tests`,
+      `tests/Text.Typst.Tests`, `tests/Text.Pdf.Tests`, `tests/Text.Mcp.Tests`,
       `tests/Text.Templates.Generator.Tests`
-- [ ] Integration tests added or updated (if the native ABI, an exporter or the Factur-X render changed)
+- [ ] Integration tests added or updated (if the native ABI or an exporter changed)
 - [ ] `CHANGELOG.md` has an entry under `[Unreleased]`, and `CHANGELOG-Typst.md` or
       `CHANGELOG-Text.md` when a package's own surface changes
 - [ ] Documentation updated: `wiki/<Package>-*.md` for user-facing behaviour, `docs/specifications/`

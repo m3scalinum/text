@@ -52,8 +52,8 @@
     <!--
       The packages that do not wrap the compiler have nothing to do with Typst 0.15.1: a signing fix
       published as 0.15.1.43 would read as a compiler release, and would jump to 0.16.0 the day the
-      compiler does. M3scalinum.Text.Pdf and M3scalinum.Text.Pdf.FactureX override the four properties
-      above with SuiteVersion, which their release sets from the tag — the tag is the version.
+      compiler does. The suite packages override the four properties above with SuiteVersion, which
+      their release sets from the tag — the tag is the version.
       This value is only what an untagged build claims: a local pack, or the pack job of ci-text.yml.
       Bump it to the last released version so a local build never looks older than what shipped.
     -->

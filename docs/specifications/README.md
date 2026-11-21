@@ -40,12 +40,6 @@ file names, to find what you want.
 | 19 | [19-pdf-encryption.md](19-pdf-encryption.md) | `PdfEncryption`: AES-encrypted documents, and what encryption does to a signature |
 | 26 | [26-pdfa-conversion.md](26-pdfa-conversion.md) | `PdfAConverter`: turning an existing PDF into PDF/A, and refusing when it cannot |
 
-## E-invoicing
-
-| # | Document | Answers |
-| --- | --- | --- |
-| 13 | [13-facturx.md](13-facturx.md) | The `M3scalinum.Text.Pdf.FactureX` package: profiles, the invoice model, the rules, cascade invoicing |
-
 ## Other formats and engines
 
 | # | Document | Answers |
@@ -53,8 +47,6 @@ file names, to find what you want.
 | 20 | [20-barcodes.md](20-barcodes.md) | `M3scalinum.Text.Barcodes`: encoding and decoding symbologies in-process, over `rxing` |
 | 21 | [21-ocr.md](21-ocr.md) | `M3scalinum.Text.Ocr`: text from page images, with caller-supplied models and no download |
 | 22 | [22-docx.md](22-docx.md) | `M3scalinum.Text.Docx`: reading a Word document into the document model |
-| 23 | [23-charts.md](23-charts.md) | `M3scalinum.Text.Charts`: a typed chart model that emits SVG, with no dependency |
-| 25 | [25-epub.md](25-epub.md) | `M3scalinum.Text.Epub`: a valid EPUB 3 container, built by hand |
 
 ## The protocol server
 
@@ -82,14 +74,11 @@ file names, to find what you want.
 | `src/Text.Templates.Generator` | Roslyn generator: `template.toml` → typed options record |
 | `src/Text.Templates` | The layout pack: invoice, quotation, statement and attestation, typed, bilingual labels, catalog and DI |
 | `src/Text.Pdf` | PAdES-B signatures as an incremental update, page merge/extract/split/rotate/remove, AcroForm fill and flatten, AES-256 and AES-128 encryption, structural PDF/A and PDF/UA conformance checks, text extraction from a received PDF; no dependency on the compiler |
-| `src/Text.Pdf.FactureX` | CII/UBL reader, EN 16931 checks, CII writer, Factur-X renderer and XMP patch |
 | `src/Text.Mcp` | JSON-RPC 2.0 over stdio: `render_document`, `render_invoice`, `list_templates`, with limits and no ambient file access |
 | `src/Text.Barcodes` | Ten symbologies encoded to SVG or PNG and decoded back, over a Rust `rxing` library of its own |
 | `src/Text.Ocr` | Text, lines and boxes from a page image or a PDF, with caller-supplied models and no download |
 | `src/Text.Docx` | Word documents read into the document model over `zip` 9 and `roxmltree` |
-| `src/Text.Charts` | Seven chart kinds from a typed model, emitted as SVG, with no dependency |
-| `src/Text.Epub` | A valid EPUB 3 container built from the compiler's HTML |
-| Tests | 2 101 across thirteen suites — see [09](09-testing.md#1-the-suites) |
+| Tests | 1 522 across ten suites — see [09](09-testing.md#1-the-suites) |
 | Benchmarks | `benchmarks/Text.Typst.Benchmarks`, baseline stored, `--check` gate in CI |
 | Build & packaging | Build files in place; native packaging wired in CI |
 

@@ -72,7 +72,7 @@ public sealed class ProtocolTests
     }
 
     [Fact]
-    public async Task Tools_list_exposes_the_six_tools_with_their_schemas()
+    public async Task Tools_list_exposes_the_five_tools_with_their_schemas()
     {
         var responses = await McpTestClient.ExchangeAsync(
             McpTestClient.Frames(Initialize, """{"jsonrpc":"2.0","id":2,"method":"tools/list"}"""));
@@ -83,7 +83,6 @@ public sealed class ProtocolTests
             new[]
             {
                 McpToolNames.RenderDocument,
-                McpToolNames.RenderInvoice,
                 McpToolNames.ListTemplates,
                 McpToolNames.SignDocument,
                 McpToolNames.MergeDocuments,

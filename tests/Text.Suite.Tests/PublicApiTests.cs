@@ -17,13 +17,10 @@ public sealed class PublicApiTests
         yield return typeof(M3scalinum.Text.Documents.TypstDocument).Assembly;
         yield return typeof(TypstOptions).Assembly;
         yield return typeof(M3scalinum.Text.Pdf.PdfSigner).Assembly;
-        yield return typeof(M3scalinum.Text.Pdf.FactureX.FacturXInvoice).Assembly;
         yield return typeof(M3scalinum.Text.Templates.TemplateCatalog).Assembly;
         yield return typeof(M3scalinum.Text.Mcp.McpServer).Assembly;
         yield return typeof(M3scalinum.Text.Barcodes.Barcode).Assembly;
-        yield return typeof(M3scalinum.Text.Charts.Chart).Assembly;
         yield return typeof(M3scalinum.Text.Ocr.OcrEngine).Assembly;
-        yield return typeof(M3scalinum.Text.Epub.EpubWriter).Assembly;
         yield return typeof(M3scalinum.Text.Docx.DocxReader).Assembly;
     }
 

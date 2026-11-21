@@ -104,17 +104,6 @@ A `date` parameter is written `yyyy-MM-dd` — the one type JSON has no counterp
 is checked against the layout's manifest before anything compiles, so a missing or misspelled one
 comes back as an error naming it.
 
-### `render_invoice`
-
-Renders a Factur-X PDF/A-3 from an invoice payload shaped like `FacturXInvoice` in camelCase:
-`number`, `issueDate`, `currency`, `profile`, `seller`, `buyer`, `lines`, `taxBreakdown`, `totals`,
-plus the optional references, notes, allowances and payment terms. Money is a JSON number read as
-`decimal`; dates are `yyyy-MM-dd`. Omitting `profile`, `typeCode` or `currency` gives `en16931`, `380`
-and `EUR`.
-
-The invoice is validated against the EN 16931 rules first: an invoice that does not add up is a tool
-error, not a PDF.
-
 ### `list_templates`
 
 Returns the ids, versions, languages and declared parameters of the layouts this server serves.

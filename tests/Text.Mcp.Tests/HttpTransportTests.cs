@@ -123,7 +123,7 @@ public sealed class HttpTransportTests
         var body = await server.ExchangeAsync(ToolsList, sessionId);
         var tools = body.GetProperty("result").GetProperty("tools").EnumerateArray().ToArray();
 
-        Assert.Equal(6, tools.Length);
+        Assert.Equal(5, tools.Length);
         Assert.Equal(McpToolNames.RenderDocument, tools[0].GetProperty("name").GetString());
     }
 

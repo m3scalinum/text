@@ -12,9 +12,6 @@ public static class McpToolNames
     /// <summary>Renders Typst source, or one layout of the template pack, to PDF.</summary>
     public const string RenderDocument = "render_document";
 
-    /// <summary>Renders a Factur-X invoice payload to a PDF/A-3 with its XML attached.</summary>
-    public const string RenderInvoice = "render_invoice";
-
     /// <summary>Lists the layouts of the template pack this server serves.</summary>
     public const string ListTemplates = "list_templates";
 

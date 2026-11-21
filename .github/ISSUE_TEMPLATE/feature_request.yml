@@ -56,7 +56,6 @@ body:
         - Dependency injection
         - Diagnostics
         - PDF signature
-        - Factur-X and e-invoicing
         - Native ABI and packaging
         - Performance
         - Documentation

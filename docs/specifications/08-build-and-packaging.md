@@ -297,10 +297,9 @@ A consumer can therefore tell which compiler a package carries from its version 
 `0.15.1.*` → `0.15.2.*` bump is unambiguously a Typst upgrade.
 
 **The packages that do not embed it** — `M3scalinum.Text.Pdf` (PAdES signing,
-[14](14-pdf-signature.md)), `.Pdf.FactureX` ([13](13-facturx.md)), `.Templates` (the layout pack,
-[05](05-templates.md)), `.Mcp` (the protocol server, [17](17-mcp.md)), and the five that arrived with
-their own engine or none: `.Barcodes` ([20](20-barcodes.md)), `.Ocr` ([21](21-ocr.md)), `.Docx`
-([22](22-docx.md)), `.Charts` ([23](23-charts.md)) and `.Epub` ([25](25-epub.md)) — carry whatever
+[14](14-pdf-signature.md)), `.Templates` (the layout pack, [05](05-templates.md)), `.Mcp` (the
+protocol server, [17](17-mcp.md)), and the three that arrived with their own engine: `.Barcodes`
+([20](20-barcodes.md)), `.Ocr` ([21](21-ocr.md)) and `.Docx` ([22](22-docx.md)) — carry whatever
 version their tag names. `v0.51.2` publishes `0.51.2`, `v1.0.0` publishes `1.0.0`:
 
 ```
@@ -334,21 +333,18 @@ is not the range but the build: the three compiler packages are packed in one jo
 and `tests/verify-package.py` fails the release when a satellite's `M3scalinum.Text.Typst`
 dependency is not the version being packed.
 
-**Decision — the Pdf train packs against a published core.** `M3scalinum.Text.Pdf.FactureX` renders
-through `M3scalinum.Text.Typst`, but it releases on its own schedule. A project reference would
-stamp it with whatever version this checkout happens to build, which on a Pdf release is a core
-version nobody published. Its project file therefore switches on `CoreVersion`: empty, it uses the
-project reference and a change to the wrapper flows in immediately; set, it uses a package reference
-to that exact published version. `release-text.yml` resolves the newest stable
-`M3scalinum.Text.Typst` from NuGet's flat-container index and sets it, so a Pdf release always
-names a core a consumer can actually restore.
+**Decision — the suite train packs against a published core.** `M3scalinum.Text.Templates`,
+`.Mcp` and `.Docx` call into `M3scalinum.Text.Typst`, but they release on their own schedule. A
+project reference would stamp them with whatever version this checkout happens to build, which on a
+suite release is a core version nobody published. Their project files therefore switch on
+`CoreVersion`: empty, they use the project reference and a change to the wrapper flows in
+immediately; set, they use a package reference to that exact published version. `release-text.yml`
+resolves the newest stable `M3scalinum.Text.Typst` from NuGet's flat-container index and sets it, so
+a suite release always names a core a consumer can actually restore.
 
 A third package, `M3scalinum.Text.Templates.Generator`, is an analyzer: it ships no `lib/` output, only
 `analyzers/dotnet/cs/` and a `build/` props file that adds every `template.toml` to
 `AdditionalFiles`. It shares the same version and has no runtime dependency on `M3scalinum.Text.Typst`.
-
-`M3scalinum.Text.Pdf.FactureX` is the e-invoicing layer ([13](13-facturx.md)): it carries no native
-asset, and depends on `M3scalinum.Text.Typst` for rendering only.
 
 `VersioningTests` enforces the link: the assembly version must start with the version the native
 library reports, so bumping the Rust crate without bumping `TypstVersion` fails the build.
@@ -396,8 +392,7 @@ drop the threshold to mean anything.
 | Job | Runner | Steps |
 | --- | --- | --- |
 | `native` | `ubuntu-latest` | one `cargo build --release` for `linux-x64`, uploaded as `native-linux-x64`. No six-RID matrix: nothing here ships a native asset |
-| `facturx` | `ubuntu-latest` | builds, runs the Factur-X unit tests and the samples, then extracts the attachment from each PDF and validates it against the **official schema** with the FNFE-MPE reference library, plus PDF/A-3B with veraPDF. That validator, not the string assertions, is what the conformance claim rests on |
-| `text` | `ubuntu-latest` | restore, build, both unit suites (neither needs a native library), `dotnet pack` for `M3scalinum.Text.Pdf` and `M3scalinum.Text.Pdf.FactureX` |
+| `text` | `ubuntu-latest` | restore, build, the `Pdf` and `Mcp` unit suites (neither needs a native library), `dotnet pack` for `M3scalinum.Text.Pdf` |
 
 The render validation needs the compiler, which is why `facturx` builds one here: keeping the pair
 self-contained costs twelve minutes of Rust in one job instead of coupling the two workflows.
@@ -422,7 +417,7 @@ Two release workflows, one per tag namespace:
 | Workflow | Tag | Packs |
 | --- | --- | --- |
 | `release-sharptypst.yml` | `sharptypst-v0.15.1.42` | the three compiler packages, revision taken from the tag's fourth component |
-| `release-text.yml` | `v0.51.2` | `M3scalinum.Text.Pdf` and `M3scalinum.Text.Pdf.FactureX`, revision from the fourth component, core pinned to the newest published `M3scalinum.Text.Typst` |
+| `release-text.yml` | `v0.51.2` | `M3scalinum.Text.Pdf`, `.Templates`, `.Mcp`, `.Barcodes`, `.Ocr` and `.Docx`; the tag is the version, and the core is pinned to the newest published `M3scalinum.Text.Typst` |
 
 Each validates its tag against its own version property and refuses a tag that does not start with
 it, so `sharptypst-v0.16.0.1` cannot silently publish a suite package, and a bare `v0.16.0.1`

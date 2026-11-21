@@ -2,8 +2,8 @@
 
 ## 1. What M3scalinum.Text.Typst is
 
-A .NET library (single public package, `M3scalinum.Text.Typst`) that hosts the Typst compiler in-process and
-offers three ways to produce a document:
+A .NET library that hosts the Typst compiler in-process and offers three ways to produce a document.
+It is the compiler package of the suite, `M3scalinum.Text.Typst`:
 
 1. **Source** — hand-written or generated `.typ` text, compiled as-is.
 2. **Document model** — a fluent C# builder that emits Typst source.
@@ -29,50 +29,30 @@ All three converge on the same compiler entry point and the same export pipeline
 
 ### 2.2 Out of scope (v1)
 
-- Parsing Typst into the object model (one-way generation only).
-- Incremental/watch compilation and a live-preview server.
-- Multi-file bundle export (`typst-bundle`).
-- PDF post-processing (merging, signing, form filling, encryption).
-- Font subsetting control, PDF/A and PDF/UA conformance switches beyond what Typst exposes.
-- `osx-x64`, `linux-arm64`, `win-arm64` — accepted as future RIDs, not shipped in v1.
+- Parsing Typst into the object model: generation is one-way.
+- Incremental compilation and a live-preview server.
+- Font subsetting control, and PDF/A or PDF/UA switches beyond what Typst exposes.
 - Any network access at compile time unless the caller opts into the Universe package resolver.
 
 ### 2.3 The document test
 
-The suite produces and manipulates **documents**: bytes that a reader opens and a person reads. It
-does not run services, and it does not own a jurisdiction's rules. Every proposed capability answers
-one question:
+The suite produces and transforms **documents**: bytes a reader opens and a person reads. Three
+questions decide whether a capability belongs in it.
 
-> **Does it produce or transform bytes that are a document?**
+1. **Does it produce or transform bytes that are a document?** A page, a file, an image — something
+   that exists to be read.
+2. **Does it run one way?** The suite reads a document format and writes the PDF family: PDF, and
+   its siblings SVG, PNG, HTML, Markdown and plain text. A received PDF is not an editing surface;
+   signing, attaching and structure are the only things written into one.
+3. **Is the calendar ours?** The suite keeps the standards whose schedule it controls — the Typst
+   language and the PDF format — and never depends on a rule set, an identifier or a fetch that
+   somebody else publishes. The operational test: *when someone else publishes a new version of
+   their rules, does the suite have to ship a release?* Where the answer would be yes, the caller
+   supplies the bytes, the certificate or the integration, and the library stays a library.
 
-A capability that fails the test is `Hors scope`. The exclusion is recorded with its reason and with
-its counterpart: an extension point the caller plugs, so that the capability leaves the library
-without leaving the product.
-
-**Decision — the package owns the standard, not the national rules.** For e-invoicing the suite owns
-EN 16931, the syntaxes that express it (CII, UBL, FatturaPA, Facturae, Factur-X/ZUGFeRD) and the
-profile mechanism; it owns neither a jurisdiction's rule set, nor the channel a document is deposited
-into, nor the identifier a platform assigns. The operational test that follows: *when a country
-publishes a new version of its rules, does the suite have to ship a release?* If it does, the line has
-been crossed. The national syntaxes already implemented are frozen: no extension, no new syntax.
-
-| Excluded | Why it is not this suite's job | Counterpart the caller plugs |
-| --- | --- | --- |
-| Peppol addressing and delivery (SMP/SML, AS4) | The access point resolves the address and delivers: a lookup and a transport | `IInvoiceTransport` |
-| Platform clearance and identifiers (ZATCA Fatoora, KSeF, MyInvois, CFDI timbrado, GST IRN, NF-e) | The document only exists once the platform has stamped it | `IInvoiceTransport` |
-| Public-sector deposit (Chorus Pro, TED/eForms) | A deposit protocol with its own lifecycle and status | `IInvoiceTransport` |
-| Country reporting APIs (SII, VeriFactu, myDATA, NAV, e-Factura) | A report per administration, published by that administration | `IInvoiceTransport` |
-| National rule sets and CIUS (XRechnung, Peppol BIS, UBL-TR, Peppol PINT) | N rule sets, versioned outside our calendar | `IEInvoiceProfile` |
-| Trust lists and revocation (LOTL, OCSP, CRL) | A fetch; the library signs and verifies with what it is given — see [14](14-pdf-signature.md) | `IRevocationSource`, and the trust list supplied as bytes |
-| Qualified signatures and seals (eIDAS, EUDI wallet) | A qualified signature is delivered by an accredited provider | the caller's certificate and provider |
-| Health documents (FHIR server, CDA ecosystem) | A server stands behind them; the suite renders the document it is given | the caller's own API |
-| Vertical declarations (DSN, SAF-T, payroll) | National obligations with a legal calendar, not a document format | the caller's reader, fed with the bytes |
-| Print workflow (imposition, PDF/X, ZPL/EPL) | A production chain for a press, not a document | none — out of the product |
-| PDF editing (conversion to DOCX, XFA forms) | A different product built on a renderer | none — out of the product |
-| A preview server | A socket and a session state | none — out of the product |
-
-The list is the backlog's; the project board carries the ticket-level exclusions, and a ticket that
-fails the test is closed by pointing at this section rather than argued case by case.
+The same three questions bound what OCR is here: recognition is in, and document analysis — layout,
+tables, field capture — is a different engine. A capability that fails one of the three stays
+outside, and the caller plugs its own implementation.
 
 ## 3. Use cases
 

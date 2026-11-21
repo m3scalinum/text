@@ -11,7 +11,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using M3scalinum.Text.Mcp.Internal;
 using M3scalinum.Text.Pdf;
-using M3scalinum.Text.Pdf.FactureX;
 using M3scalinum.Text.Typst.Compilation;
 using M3scalinum.Text.Templates;
 using M3scalinum.Text.Typst.Templates;
@@ -19,7 +18,7 @@ using M3scalinum.Text.Typst.Templates;
 namespace M3scalinum.Text.Mcp;
 
 /// <summary>
-/// A Model Context Protocol server that renders documents and invoices, and post-processes PDFs,
+/// A Model Context Protocol server that renders documents, and post-processes PDFs,
 /// speaking JSON-RPC 2.0 over a transport the host chooses.
 /// </summary>
 /// <remarks>
@@ -28,8 +27,8 @@ namespace M3scalinum.Text.Mcp;
 /// answer, and it never sees a stream, a header or a socket. <see cref="IMcpTransport"/> is the
 /// framing — <see cref="StdioTransport"/> (one message per line, bound to the process's pipes by
 /// <see cref="RunStdioAsync"/>) or <see cref="McpHttpServer"/> (the streamable-HTTP shape). It serves
-/// six tools — <c>render_document</c>, <c>render_invoice</c>, <c>list_templates</c>,
-/// <c>sign_document</c>, <c>merge_documents</c> and <c>extract_text</c> — and it holds no state between
+/// five tools — <c>render_document</c>, <c>list_templates</c>, <c>sign_document</c>,
+/// <c>merge_documents</c> and <c>extract_text</c> — and it holds no state between
 /// messages.
 /// </para>
 /// <para>
@@ -378,15 +377,14 @@ public sealed class McpServer : IMcpMessageHandler
         CancellationToken cancellationToken) => name switch
         {
             McpToolNames.RenderDocument => await RenderDocumentAsync(arguments, cancellationToken).ConfigureAwait(false),
-            McpToolNames.RenderInvoice => await RenderInvoiceAsync(arguments, cancellationToken).ConfigureAwait(false),
             McpToolNames.ListTemplates => ListTemplates(),
             McpToolNames.SignDocument => await SignDocumentAsync(arguments, cancellationToken).ConfigureAwait(false),
             McpToolNames.MergeDocuments => await MergeDocumentsAsync(arguments, cancellationToken).ConfigureAwait(false),
             McpToolNames.ExtractText => ExtractText(arguments),
             _ => throw new McpToolArgumentsException(
                 $"unknown tool '{name}'; this server serves {McpToolNames.RenderDocument}, "
-                + $"{McpToolNames.RenderInvoice}, {McpToolNames.ListTemplates}, "
-                + $"{McpToolNames.SignDocument}, {McpToolNames.MergeDocuments} and {McpToolNames.ExtractText}"),
+                + $"{McpToolNames.ListTemplates}, {McpToolNames.SignDocument}, "
+                + $"{McpToolNames.MergeDocuments} and {McpToolNames.ExtractText}"),
         };
 
     /// <summary>Renders Typst source, or one layout of the pack with its parameters.</summary>
@@ -425,27 +423,6 @@ public sealed class McpServer : IMcpMessageHandler
         }
 
         return await DeliverAsync(pdf, pageCount, outputPath, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>Renders a Factur-X PDF from the invoice payload.</summary>
-    private async Task<ToolCallResultDto> RenderInvoiceAsync(
-        JsonElement arguments,
-        CancellationToken cancellationToken)
-    {
-        var outputPath = ConfirmedOutputPath(arguments);
-        var payload = OptionalElement(arguments, "invoice");
-
-        if (payload is not { ValueKind: JsonValueKind.Object } invoiceElement)
-        {
-            throw new McpToolArgumentsException("'invoice' is required and must be an object");
-        }
-
-        EnsureDocumentSize(invoiceElement.GetRawText(), "'invoice'");
-
-        var invoice = InvoicePayload.Read(invoiceElement);
-        var pdf = FacturXRenderer.Render(invoice, new FacturXRenderOptions());
-
-        return await DeliverAsync(pdf, null, outputPath, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Renders one layout, resolving it against the ids the host allowed.</summary>
@@ -798,15 +775,6 @@ public sealed class McpServer : IMcpMessageHandler
                     + "with the parameters list_templates declares. Returns the PDF as a base64 "
                     + "embedded resource, or writes it to 'outputPath' when the host allows file output.",
                 InputSchema = McpToolSchemas.RenderDocument,
-            },
-            new ToolDefinitionDto
-            {
-                Name = McpToolNames.RenderInvoice,
-                Description =
-                    "Render a Factur-X PDF/A-3 from an invoice payload shaped like the e-invoicing "
-                    + "model: the invoice is validated against the EN 16931 rules and its CII XML is "
-                    + "attached to the PDF.",
-                InputSchema = McpToolSchemas.RenderInvoice,
             },
             new ToolDefinitionDto
             {
