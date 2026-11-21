@@ -19,6 +19,7 @@
     <ProjectReference Include="..\..\src\Text.Pdf\Text.Pdf.csproj" />
     <ProjectReference Include="..\..\src\Text.Pdf.FactureX\Text.Pdf.FactureX.csproj" />
     <ProjectReference Include="..\..\src\Text.Mcp\Text.Mcp.csproj" />
+    <ProjectReference Include="..\..\src\Text.Charts\Text.Charts.csproj" />
   </ItemGroup>
 
   <ItemGroup>
