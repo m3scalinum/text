@@ -426,12 +426,15 @@ jobs:
           dotnet-coverage collect -f cobertura -o artifacts/coverage/ocr.xml "dotnet test tests/Text.Ocr.Tests -c Release --no-build"
           dotnet-coverage merge -f cobertura -o artifacts/coverage/extras.xml artifacts/coverage/barcodes.xml artifacts/coverage/docx.xml artifacts/coverage/epub.xml artifacts/coverage/charts.xml artifacts/coverage/ocr.xml
       - name: Gate
-        # One merge, five required assemblies: a package that ships with no test collected would
-        # otherwise read as uncovered rather than unmeasured.
-        run: >
-          python3 tests/coverage-gate.py artifacts/coverage/extras.xml 90
-          --require M3scalinum.Text.Barcodes M3scalinum.Text.Charts M3scalinum.Text.Docx
-          M3scalinum.Text.Epub M3scalinum.Text.Ocr
+        # One gate per package, not one over the merge: a merged figure lets a package at 62 % hide
+        # behind another at 96 %, and it names no culprit when the build goes red. Each package is
+        # measured on its own assembly, which is also what `--require` scopes the count to.
+        run: |
+          python3 tests/coverage-gate.py artifacts/coverage/barcodes.xml 90 --require M3scalinum.Text.Barcodes
+          python3 tests/coverage-gate.py artifacts/coverage/charts.xml 90 --require M3scalinum.Text.Charts
+          python3 tests/coverage-gate.py artifacts/coverage/docx.xml 90 --require M3scalinum.Text.Docx
+          python3 tests/coverage-gate.py artifacts/coverage/epub.xml 90 --require M3scalinum.Text.Epub
+          python3 tests/coverage-gate.py artifacts/coverage/ocr.xml 90 --require M3scalinum.Text.Ocr
       - uses: actions/upload-artifact@v7
         with:
           name: coverage-extras
