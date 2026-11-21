@@ -347,12 +347,17 @@ jobs:
       fail-fast: false
       matrix:
         crate: [text-barcodes, text-ocr, text-docx]
+        rid: [win-x64, win-arm64, linux-x64, linux-arm64, osx]
+        # `rid` is an axis, not an `include` entry: an include that adds a key absent from every
+        # combination is merged into each of them in turn, so the last one wins and the matrix
+        # collapses to the crates on macOS alone. Crossing on both axes and letting these entries
+        # supply the runner per rid gives the 15 combinations the packages actually need.
         include:
-          - { os: windows-latest, rid: win-x64 }
-          - { os: windows-11-arm, rid: win-arm64 }
-          - { os: ubuntu-latest, rid: linux-x64 }
-          - { os: ubuntu-24.04-arm, rid: linux-arm64 }
-          - { os: macos-15-intel, rid: osx }
+          - { rid: win-x64, os: windows-latest }
+          - { rid: win-arm64, os: windows-11-arm }
+          - { rid: linux-x64, os: ubuntu-latest }
+          - { rid: linux-arm64, os: ubuntu-24.04-arm }
+          - { rid: osx, os: macos-15-intel }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
