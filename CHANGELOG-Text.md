@@ -31,6 +31,23 @@ Not yet published.
   an MCP embedded `application/pdf` resource, base64-encoded. Tests drive the server over an
   in-memory stream pair with real frames; the render tests read `SHARPTYPST_NATIVE_PATH` and skip
   when it is absent.
+- `M3scalinum.Text.Pdf` and `PdfPages`: `Merge`, `Extract`, `Split`, `Rotate` and `Remove` rebuild a
+  document — objects renumbered, page tree rewritten, a fresh cross-reference table — so a page
+  keeps its content, resources, embedded fonts, images and annotations, and a font two pages share
+  is copied once. A page selection uses the compiler's `PageRanges` semantics (`1-3,5`, `2-`, `-3`).
+  `Rotate` adds to `/Rotate` and keeps the catalog, so tagging, outlines and form fields survive;
+  the other operations drop the document-level structures a page tree cannot carry. Verified on
+  real Typst output: page order, rotation and page count read back from the rewritten dictionaries,
+  the text read back through the fonts' `/ToUnicode` maps, and the merged file checked for
+  cross-reference, page-tree, object and font issues.
+- `M3scalinum.Text.Pdf` and `PdfForm`: `Fill` sets `/V` on the fields a caller names and redraws the
+  appearance a widget already carries with the field's `/DA` font; checkboxes and radio buttons take
+  an appearance state. `Flatten` draws each widget's appearance into the page as a Form XObject at
+  its `/Rect`, removes the widget and its field, and removes `/AcroForm` when every field was
+  flattened. A field it cannot draw — no appearance stream, an empty rectangle, an unusable `/BBox`,
+  a signature field — is left interactive and reported in `PdfFormFlattenResult.Skipped`, because a
+  flattened form that lost its values is worse than one that is still editable. Encrypted documents
+  are refused, and page operations, filling and flattening invalidate existing signatures.
 - `M3scalinum.Text.Pdf.FactureX` and `PeppolBisValidator`: the Peppol BIS Billing 3.0 CIUS rules that
   can be decided from the document — the business process (`BT-23`) and the specification identifier
   (`BT-24`), the seller and buyer electronic addresses (`BT-34` / `BT-49`) and their EAS scheme codes,
