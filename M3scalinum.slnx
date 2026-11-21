@@ -6,6 +6,7 @@
     <Project Path="src/Text.SharpTypst.DependencyInjection/Text.SharpTypst.DependencyInjection.csproj" />
     <Project Path="src/Text.SharpTypst.Native/Text.SharpTypst.Native.csproj" />
     <Project Path="src/Text.SharpTypst.Templates.Generator/Text.SharpTypst.Templates.Generator.csproj" />
+    <Project Path="src/Text.SharpTypst.Templates/Text.SharpTypst.Templates.csproj" />
     <Project Path="src/Text.SharpTypst/Text.SharpTypst.csproj" />
   </Folder>
 
@@ -16,6 +17,7 @@
     <Project Path="tests/Text.SharpTypst.Templates.Generator.Tests/Text.SharpTypst.Templates.Generator.Tests.csproj" />
     <Project Path="tests/Text.SharpTypst.Tests/Text.SharpTypst.Tests.csproj" />
     <Project Path="tests/Text.Suite.Tests/Text.Suite.Tests.csproj" />
+    <Project Path="tests/Text.Templates.Tests/Text.Templates.Tests.csproj" />
   </Folder>
 
   <Folder Name="/samples/">

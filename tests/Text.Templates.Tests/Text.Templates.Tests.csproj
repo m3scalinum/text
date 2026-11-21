@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <PackageId>M3scalinum.Text.Templates.Tests</PackageId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Text.SharpTypst.Templates\Text.SharpTypst.Templates.csproj" />
+    <ProjectReference Include="..\..\src\Text.SharpTypst.Native\Text.SharpTypst.Native.csproj" />
+  </ItemGroup>
+
+  <!--
+    The layouts are embedded in the package, and the tests also load them from a directory: these
+    are the same files, copied beside the test binary, so the two loading paths can be compared.
+  -->
+  <ItemGroup>
+    <Content Include="..\..\src\Text.SharpTypst.Templates\layouts\**\*"
+             Link="templates\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+    <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" PrivateAssets="all" />
+  </ItemGroup>
+
+</Project>

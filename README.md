@@ -28,6 +28,7 @@ byte[] pdf = TypstCompiler.CompileToPdf("""
 - [M3scalinum.Text.SharpTypst](#m3scalinumtextsharptypst)
 - [M3scalinum.Text.Pdf](#m3scalinumtextpdf)
 - [M3scalinum.Text.Pdf.FactureX](#m3scalinumtextpdffacturex)
+- [M3scalinum.Text.Templates](#m3scalinumtexttemplates)
 - [Versioning](#versioning)
 - [Supported platforms](#supported-platforms)
 - [Documentation](#documentation)
@@ -45,6 +46,7 @@ byte[] pdf = TypstCompiler.CompileToPdf("""
 | `M3scalinum.Text.SharpTypst.Templates.Generator` | Roslyn generator: a `template.toml` becomes a typed options record | — |
 | `M3scalinum.Text.Pdf` | PAdES-B signatures, written as incremental updates | — |
 | `M3scalinum.Text.Pdf.FactureX` | Factur-X / ZUGFeRD invoices: read, validate, render, read back | SharpTypst |
+| `M3scalinum.Text.Templates` | Four business-document layouts — invoice, quotation, account statement, attestation — with typed options and English or French labels | SharpTypst |
 
 The third and fourth answer a question the first does not: a document that has to be signed, and an
 invoice that has to be booked. They are separate packages rather than features of the compiler
@@ -193,6 +195,52 @@ library, and the rendered files against PDF/A-3B with veraPDF.
 French profiles are covered: `EXTENDED-CTC-FR`, the billing framework of `BT-23`, SIREN/SIRET, the
 three mandatory notes, the place of delivery and cascade invoicing.
 
+## M3scalinum.Text.Templates
+
+Four business-document layouts, each a Typst source and a `template.toml` manifest embedded in the
+package, so a document renders without shipping a template directory:
+
+| Id | Document |
+| --- | --- |
+| `invoice` | Invoice (facture): seller and customer blocks, line items, tax, amount paid and balance due |
+| `quotation` | Quotation (devis): what is offered, until when, with the acceptance block |
+| `statement` | Account statement (relevé de compte): dated movements with the balance after each |
+| `attestation` | Attestation: an employer certifying a fact about an employee |
+
+```bash
+dotnet add package M3scalinum.Text.Templates
+```
+
+Every word a layout prints is a label the caller passes, so one file renders in English or in
+French — column headings, legal phrases and the date pattern included:
+
+```csharp
+using M3scalinum.Text.SharpTypst.Compilation;
+using M3scalinum.Text.SharpTypst.Templates;
+
+var catalog = TemplateCatalog.Default;
+var invoice = catalog.Get("invoice");                // or catalog.Get("invoice", "1.0.0")
+
+var template = invoice.LoadTyped<InvoiceOptions>();  // the record generated from that manifest
+byte[] pdf = template.Render(new TypstCompiler(), new InvoiceOptions
+{
+    Title    = "Facture 2026-0042",
+    Number   = "FA-2026-0042",
+    Issued   = new DateOnly(2026, 3, 1),
+    Due      = new DateOnly(2026, 3, 31),
+    Seller   = new Dictionary<string, object?> { ["name"] = "Atelier Dupont SAS" },
+    Customer = new Dictionary<string, object?> { ["name"] = "Clinique des Tilleuls" },
+    Items    = [ /* … */ ],
+    Labels   = TemplateLabels.For("invoice", TemplateLanguage.French),
+});
+```
+
+The same layout also loads from a directory — `TypstTemplate.Load("templates/invoice")` — when it is
+edited locally rather than taken from the package, and `AddTextTemplates()` registers
+`TemplateCatalog.Default` in a `Microsoft.Extensions.DependencyInjection` container. A label the
+layout reads but the set does not declare fails the render naming the missing key, never a silent
+English word in a French document.
+
 ## Versioning
 
 Two trains, two numbers, because they answer different questions.
@@ -279,6 +327,7 @@ Not yet on nuget.org. Everything below passes on the current tree:
 | `Text.Pdf.Tests` | 8 |
 | `Text.Pdf.FactureX.Tests` | 125 |
 | `Text.SharpTypst.Templates.Generator.Tests` | 14 |
+| `Text.Templates.Tests` | 80 |
 | `Text.Suite.Tests` (public surface and documentation) | 7 |
 | `Text.SharpTypst.Integration.Tests` (real compiler) | 229 |
 

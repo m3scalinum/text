@@ -45,4 +45,14 @@ public sealed class TypstTemplate<TOptions>
         ArgumentNullException.ThrowIfNull(options);
         return _template.RenderDocument(compiler, options.ToParameters());
     }
+
+    /// <summary>
+    /// Renders the template with a chosen layout pass, so the result can be exported to HTML,
+    /// Markdown or plain text as well as to PDF.
+    /// </summary>
+    public CompilationResult RenderDocument(TypstCompiler compiler, TOptions options, TypstDocumentKind kind)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        return _template.RenderDocument(compiler, options.ToParameters(), kind);
+    }
 }

@@ -293,3 +293,24 @@ misconfigured deployment is diagnosable from the log line alone.
 - Not a sandbox: a template is Typst code and can read any asset registered in the world. Templates
   are trusted input, like a Razor view.
 - Not a data source: it never fetches anything. Everything it reads is registered by the caller.
+
+## 10. The shipped layouts
+
+`M3scalinum.Text.Templates` ships four layouts as embedded resources, each with its manifest:
+`invoice` (facture), `quotation` (devis), `statement` (relevé de compte) and `attestation`. Their
+typed records are `InvoiceOptions`, `QuotationOptions`, `StatementOptions` and
+`AttestationOptions`, and `TemplateCatalog` resolves a layout by id and version:
+
+```csharp
+var catalog = TemplateCatalog.Default;
+var descriptor = catalog.Get("statement");
+
+var embedded = descriptor.Template;                     // resources of the package
+var onDisk = TypstTemplate.Load("templates/statement");  // the same files, from a directory
+```
+
+Labels are data, not layout text: `TemplateLabels.For("invoice", TemplateLanguage.English)` returns
+the dictionary the `labels` parameter expects, and a layout reads every word, date pattern and
+number separator from it. A test compares the keys a layout reads with the keys both languages
+declare, so a label cannot be forgotten on one side, and the render tests compile each layout in
+both languages.

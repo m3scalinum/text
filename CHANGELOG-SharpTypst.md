@@ -37,6 +37,9 @@ Not yet published. Embeds Typst 0.15.1.
   math, shapes, paints, decorations and layout, with a markup writer that escapes every value.
 - Template system: a `.typ` layout with declared, typed parameters, bound from C# and rendered
   through `TypstTemplate` / `TypstTemplate<TOptions>`.
+- `TypstTemplate.RenderDocument(compiler, parameters, TypstDocumentKind)` and the same overload on
+  `TypstTemplate<TOptions>`: one layout, either layout pass, so a template renders to PDF and to
+  HTML, Markdown or plain text from the same call site.
 - `M3scalinum.Text.SharpTypst.DependencyInjection`: `AddSharpTypst`, `TypstOptions`,
   `ITypstWorldFactory` and options validation.
 - `M3scalinum.Text.SharpTypst.Templates.Generator`: a Roslyn incremental generator that turns a

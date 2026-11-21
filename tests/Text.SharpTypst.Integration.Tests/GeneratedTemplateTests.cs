@@ -116,6 +116,29 @@ public sealed class GeneratedTemplateTests
     }
 
     [Fact]
+    public void The_template_renders_an_html_pass_for_text_export()
+    {
+        var template = TypstTemplate<InvoiceOptions>.Load(TemplateDirectory);
+        var options = Options() with
+        {
+            Items =
+            [
+                new Dictionary<string, object?>
+                {
+                    ["description"] = "Edge gateway",
+                    ["quantity"] = 2,
+                    ["unit_price"] = 1249.00m,
+                },
+            ],
+        };
+
+        using var html = template.RenderDocument(new TypstCompiler(), options, TypstDocumentKind.Html);
+
+        Assert.Equal(TypstDocumentKind.Html, html.Kind);
+        Assert.Contains("Edge gateway", html.ExportText(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void The_manifest_and_the_record_agree_on_every_parameter()
     {
         var manifest = TypstTemplate.Load(TemplateDirectory).Manifest;
