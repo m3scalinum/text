@@ -45,3 +45,14 @@ Not yet published on nuget.org.
   block quotes and definition lists.
 - A template pack of typed business layouts — invoice, quotation, account statement and attestation —
   bilingual, embedded, resolvable by id and version, with dependency-injection registration.
+- The Peppol BIS Billing 3.0 CIUS rule set, with an `IInvoiceValidator` extension point for a caller's
+  own validator — the official Schematron — merged into the built-in issues. The UBL writer emits the
+  business process and specification identifiers, and both syntaxes carry the preceding invoice
+  reference a credit note needs.
+- Page operations on a PDF — merge, extract, split, rotate, remove — and AcroForm filling and
+  flattening. A field the flattener cannot draw stays interactive and is reported, never silently
+  dropped.
+- Per-page text extraction from the paged layout, so a produced document can be indexed without
+  re-deriving its pages from the Markdown export.
+- A Model Context Protocol server over stdio: `render_document`, `render_invoice` and
+  `list_templates`, with size limits and no ambient file access.
