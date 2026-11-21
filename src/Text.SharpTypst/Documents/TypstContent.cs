@@ -131,5 +131,16 @@ public sealed partial class TypstContent
         }
     }
 
+    /// <summary>Appends this run's nodes to another run, without wrapping them.</summary>
+    internal void AppendTo(TypstContent target)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+
+        foreach (var node in _nodes)
+        {
+            target._nodes.Add(node);
+        }
+    }
+
     private static TypstContent From(string text) => new TypstContent().Text(text);
 }

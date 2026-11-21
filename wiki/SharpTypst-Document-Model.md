@@ -1,7 +1,8 @@
 # Document Model
 
-`TypstDocument` builds a document in C# and emits Typst markup. It is **write-only**: there is no
-parser, so a document you build is always valid Typst — the escaping is done for you.
+`TypstDocument` builds a document in C# and emits Typst markup. It does not parse Typst: a document
+you build is always valid Typst, because the escaping is done for you. It can also be built from
+HTML — see [Importing HTML](SharpTypst-Html-Import).
 
 ```csharp
 using M3scalinum.Text.SharpTypst.Documents;

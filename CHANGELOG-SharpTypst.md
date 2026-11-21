@@ -115,6 +115,16 @@ Not yet published. Embeds Typst 0.15.1.
   caller sees a result or `ObjectDisposedException`; the process never crashes.
 - `NativeLibraryResolverTests`: the native search order is pinned, including the `runtimes/osx/`
   fallback for the universal macOS dylib.
+- `TypstDocument.FromHtml(html, options)` and `TypstHtmlImporter`: a hand-written HTML tokenizer and
+  tree repair that imports `p`, `h1`–`h6`, nested `ul`/`ol`/`li`, tables with `colspan`/`rowspan`,
+  `strong`/`b`, `em`/`i`, `code`, `pre`, `a href`, `img`, `blockquote`, `br`, `hr`, `dl`/`dt`/`dd`,
+  `sup` and `sub` into the existing node graph, and counts — or throws on — everything else.
+  `TypstHtmlImportOptions` carries the asset resolver for `img`, the unknown-element policy and the
+  opt-in for the three inline declarations honoured. No new dependency, no network fetch.
+- `TypstTableCell` and `TypstTable.Row(TypstTableCell…)` / `HeaderRow(TypstTableCell…)`: cells that
+  carry a column or row span, emitted as `table.cell(colspan: …, rowspan: …)`.
+- `TypstContent.Underline`, `Strikethrough`, `Subscript` and `Superscript` accept content, not only
+  a string, so a nested run can be decorated without flattening it.
 
 ### Changed
 

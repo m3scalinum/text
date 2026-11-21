@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 
 namespace M3scalinum.Text.SharpTypst.Documents;
@@ -38,7 +39,7 @@ internal sealed class TableNode(TypstTable table) : TypstNode
         writer.NewLine();
     }
 
-    private static void WriteCells(TypstMarkupWriter writer, IReadOnlyList<TypstContent> cells)
+    private static void WriteCells(TypstMarkupWriter writer, IReadOnlyList<TypstTableCell> cells)
     {
         for (var index = 0; index < cells.Count; index++)
         {
@@ -47,10 +48,35 @@ internal sealed class TableNode(TypstTable table) : TypstNode
                 writer.WriteVerbatim(", ");
             }
 
+            var cell = cells[index];
+
+            if (cell.Colspan > 1 || cell.Rowspan > 1)
+            {
+                writer.WriteVerbatim("table.cell(");
+                WriteSpan(writer, "colspan", cell.Colspan, first: true);
+                WriteSpan(writer, "rowspan", cell.Rowspan, first: cell.Colspan == 1);
+                writer.WriteVerbatim(")");
+            }
+
             using (writer.ContentBlock())
             {
-                cells[index].Write(writer);
+                cell.Content.Write(writer);
             }
         }
+    }
+
+    private static void WriteSpan(TypstMarkupWriter writer, string name, int value, bool first)
+    {
+        if (value == 1)
+        {
+            return;
+        }
+
+        if (!first)
+        {
+            writer.WriteVerbatim(", ");
+        }
+
+        writer.WriteVerbatim(name + ": " + value.ToString(CultureInfo.InvariantCulture));
     }
 }
