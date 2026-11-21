@@ -29,4 +29,12 @@ public enum PdfSignatureLevel
     /// certificate of the chain and carries revocation evidence for each of them.
     /// </summary>
     BaselineLT = 3,
+
+    /// <summary>
+    /// PAdES-B-LTA: <see cref="BaselineLT"/>, plus a document timestamp that covers the whole file —
+    /// the store included — whose own certificate chain the store embeds. The timestamp says the
+    /// store existed when the authority issued it, so the evidence survives the moment the
+    /// revocation data stops being current.
+    /// </summary>
+    BaselineLTA = 4,
 }
