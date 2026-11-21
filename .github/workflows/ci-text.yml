@@ -338,12 +338,22 @@ jobs:
     # The three libraries that are not the compiler: barcodes, OCR and the DOCX reader. Each is its own
     # crate with its own Cargo.lock, and before this job existed nothing compiled them — a Dependabot
     # bump of `zip` in native/text-docx reached main with every check green and a broken build.
-    name: native (${{ matrix.crate }})
+    name: native (${{ matrix.crate }}, ${{ matrix.rid }})
+    # Five RIDs per crate, the same set the package ships, because `verify-package.py` demands every
+    # one of them: a linux-only job packs a package with one native and the check then fails, or worse,
+    # passes for a package missing four architectures. The compiler workflow pays the same price for
+    # the compiler's six.
     strategy:
       fail-fast: false
       matrix:
         crate: [text-barcodes, text-ocr, text-docx]
-    runs-on: ubuntu-latest
+        include:
+          - { os: windows-latest, rid: win-x64 }
+          - { os: windows-11-arm, rid: win-arm64 }
+          - { os: ubuntu-latest, rid: linux-x64 }
+          - { os: ubuntu-24.04-arm, rid: linux-arm64 }
+          - { os: macos-15-intel, rid: osx }
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -362,10 +372,18 @@ jobs:
       - name: Build
         working-directory: native/${{ matrix.crate }}
         run: cargo build --release
+      - name: Stage the library
+        shell: bash
+        run: |
+          mkdir -p "native/artifacts/${{ matrix.rid }}"
+          cp native/${{ matrix.crate }}/target/release/*sharp_text*.* "native/artifacts/${{ matrix.rid }}/"
+          ls -l "native/artifacts/${{ matrix.rid }}/"
       - uses: actions/upload-artifact@v7
+        # The artifact root is `native/artifacts`, so a merged download reassembles `<rid>/<library>`,
+        # the layout the csproj files pack from.
         with:
-          name: ${{ matrix.crate }}-linux-x64
-          path: native/${{ matrix.crate }}/target/release/libsharp_*.so
+          name: ${{ matrix.crate }}-${{ matrix.rid }}
+          path: native/artifacts
           if-no-files-found: error
 
   extras:
@@ -386,24 +404,17 @@ jobs:
           path: native/artifacts/linux-x64
       - uses: actions/download-artifact@v8
         with:
-          name: text-barcodes-linux-x64
-          path: native/artifacts/barcodes
-      - uses: actions/download-artifact@v8
-        with:
-          name: text-ocr-linux-x64
-          path: native/artifacts/ocr
-      - uses: actions/download-artifact@v8
-        with:
-          name: text-docx-linux-x64
-          path: native/artifacts/docx
+          pattern: text-*-*
+          merge-multiple: true
+          path: native/artifacts
       - run: dotnet restore
       - run: dotnet build -c Release --no-restore
       - name: Tests
         env:
           SHARPTYPST_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/linux-x64/libsharp_typst.so
-          BARCODES_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/barcodes/libsharp_text_barcodes.so
-          M3SCALINUM_OCR_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/ocr/libsharp_text_ocr.so
-          SHARPTEXTDOCX_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/docx/libsharp_text_docx.so
+          BARCODES_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/linux-x64/libsharp_text_barcodes.so
+          M3SCALINUM_OCR_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/linux-x64/libsharp_text_ocr.so
+          SHARPTEXTDOCX_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/linux-x64/libsharp_text_docx.so
         run: |
           dotnet test tests/Text.Barcodes.Tests -c Release --no-build
           dotnet test tests/Text.Docx.Tests -c Release --no-build
@@ -415,9 +426,9 @@ jobs:
       - name: Collect
         env:
           SHARPTYPST_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/linux-x64/libsharp_typst.so
-          BARCODES_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/barcodes/libsharp_text_barcodes.so
-          M3SCALINUM_OCR_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/ocr/libsharp_text_ocr.so
-          SHARPTEXTDOCX_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/docx/libsharp_text_docx.so
+          BARCODES_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/linux-x64/libsharp_text_barcodes.so
+          M3SCALINUM_OCR_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/linux-x64/libsharp_text_ocr.so
+          SHARPTEXTDOCX_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/linux-x64/libsharp_text_docx.so
         run: |
           dotnet-coverage collect -f cobertura -o artifacts/coverage/barcodes.xml "dotnet test tests/Text.Barcodes.Tests -c Release --no-build"
           dotnet-coverage collect -f cobertura -o artifacts/coverage/docx.xml "dotnet test tests/Text.Docx.Tests -c Release --no-build"
