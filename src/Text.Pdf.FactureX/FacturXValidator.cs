@@ -17,10 +17,12 @@ public static class FacturXValidator
 
     /// <summary>Validates an invoice against the built-in rules.</summary>
     /// <remarks>
-    /// A document that declares the Peppol CIUS is also held to <see cref="PeppolBisValidator"/>;
-    /// one that declares a French framework is held to the French rules. The two overlays are
-    /// mutually exclusive: they gate on the same term, <c>BT-23</c>, and a document states one
-    /// business process.
+    /// A document that declares XRechnung is also held to <see cref="XRechnungValidator"/>; one that
+    /// declares the Peppol CIUS to <see cref="PeppolBisValidator"/>; one that declares a French
+    /// framework to the French rules. The three overlays are mutually exclusive and read in that
+    /// order: a document states one conformance claim, and XRechnung is read before Peppol because a
+    /// German document carries the Peppol billing process in <c>BT-23</c> while declaring the German
+    /// CIUS in <c>BT-24</c>.
     /// </remarks>
     public static FacturXValidationResult Validate(FacturXInvoice invoice)
     {
@@ -39,8 +41,9 @@ public static class FacturXValidator
     /// <param name="invoice">The invoice to check.</param>
     /// <param name="validator">
     /// The rule set to add — the official Schematron wrapped in an <see cref="IInvoiceValidator"/>,
-    /// a partner's rules, or <see cref="PeppolBisValidator.Default"/> to require the CIUS even from
-    /// a document that does not declare it.
+    /// a partner's rules, or <see cref="PeppolBisValidator.Default"/> or
+    /// <see cref="XRechnungValidator.Default"/> to require a CIUS even from a document that does not
+    /// declare it.
     /// </param>
     /// <returns>Every issue, in the order the built-in rules found them, then the supplied ones.</returns>
     /// <remarks>
@@ -244,7 +247,11 @@ public static class FacturXValidator
 
         CheckAllowances(issues, invoice);
 
-        if (PeppolBisValidator.IsPeppol(invoice))
+        if (XRechnungValidator.IsXRechnung(invoice))
+        {
+            issues.AddRange(XRechnungValidator.Default.Validate(invoice));
+        }
+        else if (PeppolBisValidator.IsPeppol(invoice))
         {
             issues.AddRange(PeppolBisValidator.Default.Validate(invoice));
         }
