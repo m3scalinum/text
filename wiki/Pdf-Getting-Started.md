@@ -24,10 +24,10 @@ certificate, which key store, when the signature is applied — belongs to your 
 
 ## What it is for
 
-The document it was written for is a [Factur-X](FactureX-Getting-Started) invoice: a PDF/A-3 with an
-XML attachment, which a receiver may want signed. Signing it with a library that rewrites the whole
-file destroys either the PDF/A conformance or the attachment, so
-[`PdfSigner.Sign`](Pdf-Signing) appends an incremental update instead.
+The document it was written for is an invoice: PDF/A-3, an XML attachment a customer asked for, and a
+receiver who wants it signed. Signing it with a library that rewrites the whole file destroys either
+the conformance or the attachment, so [`PdfSigner.Sign`](Pdf-Signing) appends an incremental update
+instead.
 
 ## Where to go
 

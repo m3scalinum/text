@@ -10,7 +10,7 @@ answer different questions:
 | Train | Packages | Version | Why its own number |
 | --- | --- | --- | --- |
 | **Typst** | `M3scalinum.Text.Typst`, `.Documents`, `.DependencyInjection`, `.Templates.Generator` | `0.15.1.<revision>`, the embedded Typst version plus a build count | the number *is* the compiler it carries |
-| **Suite** | `M3scalinum.Text.Pdf`, `.Pdf.FactureX`, `.Templates`, `.Mcp`, `.Barcodes`, `.Charts`, `.Docx`, `.Epub`, `.Ocr` | whatever the tag names (`v0.51.2` → `0.51.2`) | code with no compiler in it must not jump when Typst does |
+| **Suite** | `M3scalinum.Text.Pdf`, `.Templates`, `.Mcp`, `.Barcodes`, `.Docx`, `.Ocr` | whatever the tag names (`v0.51.2` → `0.51.2`) | code with no compiler in it must not jump when Typst does |
 
 ## Start here
 
@@ -43,17 +43,6 @@ using M3scalinum.Text.Pdf;
 var signed = PdfSigner.Sign(pdf, certificate, new PdfSignatureOptions { Reason = "Invoice" });
 ```
 
-**[M3scalinum.Text.Pdf.FactureX](FactureX-Getting-Started)** — the e-invoice. Build it in C#, validate
-it against the EN 16931 rules, render a PDF/A-3 whose XML is attached and whose XMP declares the
-profile; or take one apart, XML and all.
-
-```csharp
-using M3scalinum.Text.Pdf.FactureX;
-
-var invoice = FacturXReader.Read(File.ReadAllText("invoice.xml"));
-byte[] document = FacturXRenderer.Render(invoice);
-```
-
 ## The rest of the suite
 
 - **`M3scalinum.Text.Documents`** — the document model every other package builds: typed content,
@@ -64,10 +53,6 @@ byte[] document = FacturXRenderer.Render(invoice);
   → [Templates](Typst-Templates)
 - **`M3scalinum.Text.Docx`** — read a Word document into the document model, then render it like any
   other. → [Reading Word documents](Docx)
-- **`M3scalinum.Text.Epub`** — package a document as an EPUB 3 book, built with
-  `System.IO.Compression`. → [Writing an EPUB](Epub)
-- **`M3scalinum.Text.Charts`** — a typed chart model that emits SVG a report can embed. No
-  dependency. → [Charts](Charts)
 - **`M3scalinum.Text.Barcodes`** — QR, DataMatrix, Aztec, PDF417, Code 128/39, EAN-13/8, ITF and
   Codabar, encoded to SVG or PNG and decoded back. → [Barcodes](Barcodes)
 - **`M3scalinum.Text.Ocr`** — text, lines and boxes out of a page image or a scanned PDF, with the
@@ -96,14 +81,7 @@ byte[] document = FacturXRenderer.Render(invoice);
 [Pages and forms](Pdf-Pages-and-Forms) · [Reading text](Pdf-Text) · [Encryption](Pdf-Encryption) · 
 [Converting to PDF/A](Pdf-Conversion)
 
-**[FactureX](FactureX-Getting-Started)** — build and read an e-invoice
-[Getting Started](FactureX-Getting-Started) · [The invoice model](FactureX-Model) · 
-[Rendering](FactureX-Rendering) · [Reading](FactureX-Reading) · [Validation](FactureX-Validation) · 
-[The Peppol CIUS](FactureX-Peppol) · [The XRechnung CIUS](FactureX-XRechnung) · 
-[The French profile](FactureX-French-Profile)
-
-**Formats and engines** — one page each
-[Barcodes](Barcodes) · [Charts](Charts) · [Reading DOCX](Docx) · [EPUB](Epub) · [OCR](Ocr)
+[Barcodes](Barcodes) · [Reading DOCX](Docx) · [OCR](Ocr)
 
 **[MCP](Mcp-Server)** — serve it over the Model Context Protocol
 [The MCP server](Mcp-Server)

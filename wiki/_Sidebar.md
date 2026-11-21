@@ -30,23 +30,10 @@
 - [Encryption](Pdf-Encryption)
 - [Converting to PDF/A](Pdf-Conversion)
 
-**FactureX** — build and read an e-invoice
-
-- [Getting Started](FactureX-Getting-Started)
-- [The invoice model](FactureX-Model)
-- [Rendering](FactureX-Rendering)
-- [Reading](FactureX-Reading)
-- [Validation](FactureX-Validation)
-- [The Peppol CIUS](FactureX-Peppol)
-- [The XRechnung CIUS](FactureX-XRechnung)
-- [The French profile](FactureX-French-Profile)
-
 **Formats and engines** — one page each
 
 - [Barcodes](Barcodes)
-- [Charts](Charts)
 - [Reading DOCX](Docx)
-- [EPUB](Epub)
 - [OCR](Ocr)
 
 **MCP** — serve it over the protocol

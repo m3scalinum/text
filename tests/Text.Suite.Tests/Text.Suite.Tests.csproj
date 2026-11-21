@@ -18,12 +18,9 @@
     <ProjectReference Include="..\..\src\Text.Typst.DependencyInjection\Text.Typst.DependencyInjection.csproj" />
     <ProjectReference Include="..\..\src\Text.Templates\Text.Templates.csproj" />
     <ProjectReference Include="..\..\src\Text.Pdf\Text.Pdf.csproj" />
-    <ProjectReference Include="..\..\src\Text.Pdf.FactureX\Text.Pdf.FactureX.csproj" />
     <ProjectReference Include="..\..\src\Text.Mcp\Text.Mcp.csproj" />
     <ProjectReference Include="..\..\src\Text.Barcodes\Text.Barcodes.csproj" />
-    <ProjectReference Include="..\..\src\Text.Charts\Text.Charts.csproj" />
     <ProjectReference Include="..\..\src\Text.Ocr\Text.Ocr.csproj" />
-    <ProjectReference Include="..\..\src\Text.Epub\Text.Epub.csproj" />
     <ProjectReference Include="..\..\src\Text.Docx\Text.Docx.csproj" />
   </ItemGroup>
 

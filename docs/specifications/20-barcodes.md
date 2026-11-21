@@ -213,7 +213,7 @@ real engine: every assertion below is a real encode and a real decode, no mock.
 | --- | --- |
 | Round trip, all ten symbologies, `Scale` 4 | The payload comes back, and so does the symbology. |
 | Round trip, all ten symbologies, `Scale` 2 | The raster is still exact at a smaller factor. |
-| QR Code of a Factur-X header (nine `BT-n=value` terms) | The payload this package exists for round-trips, line by line. |
+| QR Code of an invoice header (nine `key=value` terms, one per line) | The payload this package exists for round-trips, line by line. |
 | EAN-13 with twelve digits, EAN-8 with seven | `BarcodeFormatException`, with the expected length in the message. |
 | A blank PNG | `Success == false`, no exception. |
 | SVG shape | Starts with `<svg`, one `<path>`, the `viewBox` is the module matrix, every run inside it, runs fewer than dark modules where a wide bar merges them. |

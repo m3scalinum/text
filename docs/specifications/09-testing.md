@@ -6,21 +6,18 @@
 | --- | --- | --- | --- | --- |
 | Unit (compiler) | `tests/Text.Typst.Tests` | No — fake native | 459 | ~2 s |
 | Unit (signing, conformance, pages, forms, text, encryption) | `tests/Text.Pdf.Tests` | No | 345 | ~10 s |
-| Unit (e-invoicing) | `tests/Text.Pdf.FactureX.Tests` | No | 364 | ~10 s |
-| Unit (mcp) | `tests/Text.Mcp.Tests` | No | 112 | ~3 s |
+| Unit (mcp) | `tests/Text.Mcp.Tests` | No | 95 | ~3 s |
 | Unit (barcodes) | `tests/Text.Barcodes.Tests` | **Yes** — `sharp_text_barcodes` | 105 | ~5 s |
 | Unit (docx) | `tests/Text.Docx.Tests` | **Yes** — `sharp_text_docx` | 46 | ~5 s |
 | Unit (ocr) | `tests/Text.Ocr.Tests` | No — fake native | 99 | ~5 s |
-| Unit (charts) | `tests/Text.Charts.Tests` | No | 82 | ~2 s |
-| Unit (epub) | `tests/Text.Epub.Tests` | No | 106 | ~2 s |
 | Unit (generator) | `tests/Text.Templates.Generator.Tests` | No | 14 | < 5 s |
 | Layouts | `tests/Text.Templates.Tests` | Yes, for the render tests | 111 | ~15 s |
 | Suite (surface and docs) | `tests/Text.Suite.Tests` | No | 7 | < 2 s |
-| Integration | `tests/Text.Typst.Integration.Tests` | **Yes** — `SHARPTYPST_NATIVE_PATH` | 251 | < 3 min |
+| Integration | `tests/Text.Typst.Integration.Tests` | **Yes** — `SHARPTYPST_NATIVE_PATH` | 241 | < 3 min |
 | ABI | `native/sharp-typst` (`cargo test`) | — | 9 | < 30 s |
 | Benchmark | `benchmarks/Text.Typst.Benchmarks` | Yes | 8 scenarios | manual / nightly |
 
-That is 2 101 managed tests in thirteen suites, plus the nine Rust ABI tests and the benchmark
+That is 1 522 managed tests in ten suites, plus the nine Rust ABI tests and the benchmark
 scenarios.
 
 A suite marked *fake native* exercises the layer above the ABI through an `internal` seam, which is
@@ -181,13 +178,11 @@ The project uses Microsoft.Testing.Platform, so `--collect:"XPlat Code Coverage"
 ```bash
 dotnet-coverage collect -f cobertura -o unit.xml \
   "dotnet test tests/Text.Typst.Tests -c Release --no-build"
-dotnet-coverage collect -f cobertura -o facturx.xml \
-  "dotnet test tests/Text.Pdf.FactureX.Tests -c Release --no-build"
 dotnet-coverage collect -f cobertura -o pdf.xml \
   "dotnet test tests/Text.Pdf.Tests -c Release --no-build"
 dotnet-coverage collect -f cobertura -o int.xml \
   "dotnet test tests/Text.Typst.Integration.Tests -c Release --no-build --filter FullyQualifiedName!~LeakTests"
-dotnet-coverage merge -f cobertura -o all.xml unit.xml facturx.xml pdf.xml int.xml
+dotnet-coverage merge -f cobertura -o all.xml unit.xml pdf.xml int.xml
 ```
 
 Two gates, one per train, because a change to one train does not start the other's workflow:
@@ -195,7 +190,7 @@ Two gates, one per train, because a change to one train does not start the other
 | Gate | Workflow | Collects | `--require` |
 | --- | --- | --- | --- |
 | compiler | `ci-sharptypst.yml` | the four suites above | the five assemblies |
-| suite | `ci-text.yml` | `facturx.xml`, `pdf.xml` | `M3scalinum.Text.Pdf`, `M3scalinum.Text.Pdf.FactureX` |
+| suite | `ci-text.yml` | `pdf.xml` | `M3scalinum.Text.Pdf` |
 
 Each fails the build when production line coverage drops below **90 %**, and the merged report is
 uploaded as an artifact. The compiler gate still measures the suite packages when it runs — they are
@@ -205,17 +200,15 @@ never starts that workflow, so the gate that would catch it is the one in `ci-te
 **`--require` scopes the measurement, it does not only assert presence.** The suite workflow collects
 two suites, and `M3scalinum.Text.Typst` is linked into the output as a dependency — measured at
 4.8 %, because nothing in those suites compiles a document. Counting it gave 25.9 % and a gate that
-failed on every run. Restricted to the two assemblies the train owns, the same report reads 91.0 %
-(`M3scalinum.Text.Pdf` 92.6 %, `M3scalinum.Text.Pdf.FactureX` 91.2 %).
+failed on every run. Restricted to the assembly the train owns, the same report reads 92.6 %.
 
-The render path — `FacturXRenderer`, which drives the compiler — is exercised by
-`Text.Typst.Integration.Tests`, which needs the native library and therefore runs in the
-compiler workflow. The suite gate measures the managed half of those two packages.
+The paths that drive the compiler are exercised by `Text.Typst.Integration.Tests`, which needs the
+native library and therefore runs in the compiler workflow. The suite gate measures the managed half.
 
 **Every suite must be in the merge, and the gate enforces it.** `coverage-gate.py` takes
 `--require <assembly>…` and fails when one of them has no lines in the report: a suite that is not
 collected makes its package look uncovered, which is a 0.8-point drop with no visible cause. That is
-exactly what happened when `M3scalinum.Text.Pdf.FactureX` was added and the job still merged two files.
+exactly what happens when a suite is added and the job still merges the files it knew about.
 
 All five production assemblies merged: **92.2 % of production lines**. The classes below 80 % are the ones that cannot
 be reached from a test — `NativeLibraryResolver` (the RID fallback paths), the source-generated

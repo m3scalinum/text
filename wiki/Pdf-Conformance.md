@@ -29,7 +29,8 @@ if (!report.IsConformant)
 `PdfConformanceException`; its `Report` carries every issue.
 
 The checker takes bytes and returns a report. It has no reference on the compiler, so it works on a
-PDF that came from anywhere: an email attachment, a Factur-X invoice, a file another tool produced.
+PDF that came from anywhere: an email attachment, an invoice a third party rendered, a file another
+tool produced.
 
 ## What it does not do
 

@@ -4,10 +4,10 @@ using Xunit;
 namespace M3scalinum.Text.Barcodes.Tests;
 
 /// <summary>
-/// A Factur-X header is what a QR code on an invoice carries: ASCII <c>BT-n=value</c> lines. It is
+/// An invoice header is what a QR code on an invoice carries: ASCII <c>key=value</c> lines. It is
 /// the payload this package was built for, so it gets its own round trip rather than a stand-in.
 /// </summary>
-public sealed class FacturXTests
+public sealed class InvoiceQrHeaderTests
 {
     private static readonly string[] Header =
     [
@@ -79,7 +79,7 @@ public sealed class FacturXTests
     [Fact]
     public void The_same_header_also_fits_a_data_matrix()
     {
-        // The French Factur-X profile puts the header in a QR code, but a DataMatrix is what a
+        // An invoice header belongs in a QR code, but a DataMatrix is what a
         // supplier label carries; both are in the supported set and both must hold the header.
         var image = Barcode.Encode(BarcodeSymbology.DataMatrix, Payload);
 

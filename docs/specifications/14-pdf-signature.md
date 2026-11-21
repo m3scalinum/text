@@ -56,9 +56,9 @@ xref …  trailer <</Size 8/Root 1 0 R/Prev …>>
 5. Overwrite the `/Contents` placeholder with the signature, padded with zeros.
 
 **Decision — an incremental update, not a rewrite.** Everything before the appended block is
-untouched, so a document that was PDF/A stays PDF/A, an embedded Factur-X attachment stays readable,
-and a document that already carries a signature keeps that signature valid. This is the same
-mechanism the Factur-X XMP patch uses, and it is the reason signing a Factur-X invoice works at all.
+untouched, so a document that was PDF/A stays PDF/A, an embedded file attachment stays readable, and
+a document that already carries a signature keeps that signature valid. A rewrite breaks at least one
+of the three, which is why nothing here rewrites.
 
 Object numbers are allocated above every number in the file, and the cross-reference section is
 written in ascending order, one subsection per run of consecutive numbers: an update that rewrites

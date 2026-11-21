@@ -33,58 +33,6 @@ public sealed class RenderTests
     private const string Customer =
         """{"name":"Client SARL","address":["5 avenue du Test"],"postcode":"69003","city":"Lyon","email":"compta@client.example"}""";
 
-    /// <summary>A minimal Factur-X invoice that passes the EN 16931 rules.</summary>
-    private const string Invoice =
-        """
-        {
-          "number": "FA-2026-0042",
-          "typeCode": "380",
-          "profile": "en16931",
-          "currency": "EUR",
-          "issueDate": "2026-03-01",
-          "dueDate": "2026-03-31",
-          "seller": {
-            "name": "ACME SAS",
-            "legalId": "123456789",
-            "legalIdScheme": "0002",
-            "vatId": "FR12345678901",
-            "line1": "12 rue des Glyphes",
-            "postcode": "75011",
-            "city": "Paris",
-            "country": "FR"
-          },
-          "buyer": {
-            "name": "Client SARL",
-            "line1": "5 avenue du Test",
-            "postcode": "69003",
-            "city": "Lyon",
-            "country": "FR"
-          },
-          "lines": [
-            {
-              "id": "1",
-              "name": "Audit technique",
-              "quantity": 1,
-              "unitCode": "C62",
-              "unitPrice": 1000.00,
-              "lineNetAmount": 1000.00,
-              "taxCategory": "S",
-              "taxRate": 20
-            }
-          ],
-          "taxBreakdown": [
-            { "category": "S", "rate": 20, "basis": 1000.00, "amount": 200.00 }
-          ],
-          "totals": {
-            "lineTotal": 1000.00,
-            "taxBasisTotal": 1000.00,
-            "taxTotal": 200.00,
-            "grandTotal": 1200.00,
-            "due": 1200.00
-          }
-        }
-        """;
-
     private static bool NativeAvailable
         => Environment.GetEnvironmentVariable("SHARPTYPST_NATIVE_PATH") is { Length: > 0 } path
             && File.Exists(path);
@@ -124,43 +72,6 @@ public sealed class RenderTests
         var pdf = McpTestClient.RenderedPdf(Assert.Single(responses), out _);
 
         Assert.Equal("%PDF"u8.ToArray(), pdf[..4]);
-    }
-
-    [Fact]
-    public async Task Render_invoice_returns_a_factur_x_pdf()
-    {
-        Assert.SkipUnless(NativeAvailable, SkipReason);
-
-        var responses = await McpTestClient.ExchangeAsync(McpTestClient.Frames(McpTestClient.ToolCall(
-            3, McpToolNames.RenderInvoice, $$"""{"invoice":{{Compact(Invoice)}}}""")));
-
-        var response = Assert.Single(responses);
-
-        Assert.False(response.GetProperty("result").TryGetProperty("isError", out _));
-
-        var pdf = McpTestClient.RenderedPdf(response, out _);
-        var text = Encoding.Latin1.GetString(pdf);
-
-        Assert.Equal("%PDF"u8.ToArray(), pdf[..4]);
-        Assert.Contains("factur-x.xml", text, StringComparison.Ordinal);
-        Assert.Contains("pdfaid:part", text, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task An_invoice_that_breaks_a_rule_is_a_tool_error_not_a_pdf()
-    {
-        Assert.SkipUnless(NativeAvailable, SkipReason);
-
-        var broken = Invoice.Replace(
-            "\"grandTotal\": 1200.00", "\"grandTotal\": 9999.00", StringComparison.Ordinal);
-
-        var responses = await McpTestClient.ExchangeAsync(McpTestClient.Frames(McpTestClient.ToolCall(
-            4, McpToolNames.RenderInvoice, $$"""{"invoice":{{Compact(broken)}}}""")));
-
-        var result = Assert.Single(responses).GetProperty("result");
-
-        Assert.True(result.GetProperty("isError").GetBoolean());
-        Assert.Contains("BR-CO-15", result.GetProperty("content")[0].GetProperty("text").GetString(), StringComparison.Ordinal);
     }
 
     [Fact]

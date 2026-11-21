@@ -1,7 +1,6 @@
 <Solution>
 
   <Folder Name="/src/">
-    <Project Path="src/Text.Pdf.FactureX/Text.Pdf.FactureX.csproj" />
     <Project Path="src/Text.Pdf/Text.Pdf.csproj" />
     <Project Path="src/Text.Mcp/Text.Mcp.csproj" />
     <Project Path="src/Text.Typst.DependencyInjection/Text.Typst.DependencyInjection.csproj" />
@@ -10,16 +9,13 @@
     <Project Path="src/Text.Templates/Text.Templates.csproj" />
     <Project Path="src/Text.Typst/Text.Typst.csproj" />
     <Project Path="src/Text.Barcodes/Text.Barcodes.csproj" />
-    <Project Path="src/Text.Charts/Text.Charts.csproj" />
     <Project Path="src/Text.Documents/Text.Documents.csproj" />
     <Project Path="src/Text.Docx/Text.Docx.csproj" />
-    <Project Path="src/Text.Epub/Text.Epub.csproj" />
     <Project Path="src/Text.Ocr/Text.Ocr.csproj" />
   </Folder>
 
   <Folder Name="/tests/">
     <Project Path="tests/Text.Mcp.Tests/Text.Mcp.Tests.csproj" />
-    <Project Path="tests/Text.Pdf.FactureX.Tests/Text.Pdf.FactureX.Tests.csproj" />
     <Project Path="tests/Text.Pdf.Tests/Text.Pdf.Tests.csproj" />
     <Project Path="tests/Text.Typst.Integration.Tests/Text.Typst.Integration.Tests.csproj" />
     <Project Path="tests/Text.Templates.Generator.Tests/Text.Templates.Generator.Tests.csproj" />
@@ -27,14 +23,11 @@
     <Project Path="tests/Text.Suite.Tests/Text.Suite.Tests.csproj" />
     <Project Path="tests/Text.Templates.Tests/Text.Templates.Tests.csproj" />
     <Project Path="tests/Text.Barcodes.Tests/Text.Barcodes.Tests.csproj" />
-    <Project Path="tests/Text.Charts.Tests/Text.Charts.Tests.csproj" />
     <Project Path="tests/Text.Docx.Tests/Text.Docx.Tests.csproj" />
-    <Project Path="tests/Text.Epub.Tests/Text.Epub.Tests.csproj" />
     <Project Path="tests/Text.Ocr.Tests/Text.Ocr.Tests.csproj" />
   </Folder>
 
   <Folder Name="/samples/">
-    <Project Path="samples/Text.Pdf.FactureX.Samples/Text.Pdf.FactureX.Samples.csproj" />
     <Project Path="samples/Text.Pdf.Samples/Text.Pdf.Samples.csproj" />
     <Project Path="samples/Text.Typst.Samples/Text.Typst.Samples.csproj" />
   </Folder>

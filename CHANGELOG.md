@@ -6,11 +6,10 @@ its own version number, its own tag namespace and its own changelog:
 | Train | Packages | Version | Detail |
 | --- | --- | --- | --- |
 | Compiler | `M3scalinum.Text.Typst`, `.Documents`, `.DependencyInjection`, `.Templates.Generator` | follows the embedded Typst, `0.15.1.N` | [CHANGELOG-Typst.md](CHANGELOG-Typst.md) |
-| Suite | `M3scalinum.Text.Pdf`, `M3scalinum.Text.Pdf.FactureX` | follows `TextVersion`, `0.1.N` | [CHANGELOG-Text.md](CHANGELOG-Text.md) |
+| Suite | `M3scalinum.Text.Pdf`, `.Templates`, `.Mcp`, `.Barcodes`, `.Ocr`, `.Docx` | follows `TextVersion`, `0.1.N` | [CHANGELOG-Text.md](CHANGELOG-Text.md) |
 
-This file records what the project gains as a whole. The per-package detail — every type, every rule
-the validator enforces, every defect the official validators caught — lives in the two train files
-and is not repeated here.
+This file records what the project gains as a whole. The per-package detail lives in the two train
+files and is not repeated here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
@@ -26,46 +25,30 @@ Not yet published on nuget.org.
   `template.toml` manifest at compile time.
 - PAdES-B signatures written as incremental updates, so signing a PDF/A document leaves it PDF/A and
   an earlier signature stays valid.
-- Factur-X invoices end to end: build the invoice in C#, write the CII syntax the standard mandates,
-  render a PDF/A-3 with the XML attached and the `fx:` XMP extension, then read the invoice back out
-  of the PDF for the receiver to verify. The validator covers the EN 16931 arithmetic and business
-  rules, and the French profile with its SIREN/SIRET, billing-framework and mandatory-note rules.
-- Conformance verified outside the test suite: the embedded XML against the official EN 16931 schema
-  with the FNFE-MPE reference library, and the rendered files against PDF/A-3B with veraPDF.
 - Signature verification, PAdES B-T and B-LT (RFC 3161 timestamps and a DSS carrying the chain and
   revocation data), a document timestamp over the whole file, and a visible signature appearance.
 - A structural conformance check for PDF/UA-1 and PDF/A read straight from the bytes: tagged
   structure, language and title, alternative text on figures, font embedding and `ToUnicode`, the
   cross-reference chain and the XMP identifier. veraPDF remains the reference validator.
-- UBL writing alongside the CII writer, and the EN 16931 terms the model was missing — allowances and
-  charges, invoice and line periods, contacts, supporting documents, payment reference, SEPA mandate,
-  tax currency, gross price and price discount — round-tripped between both syntaxes.
 - HTML import into the document model, with a published fidelity contract: prose, headings, nested
   lists, tables with spanning cells, inline emphasis, code, links, images from registered assets,
   block quotes and definition lists.
-- A template pack of typed business layouts — invoice, quotation, account statement and attestation —
-  bilingual, embedded, resolvable by id and version, with dependency-injection registration.
-- The Peppol BIS Billing 3.0 CIUS rule set, with an `IInvoiceValidator` extension point for a caller's
-  own validator — the official Schematron — merged into the built-in issues. The UBL writer emits the
-  business process and specification identifiers, and both syntaxes carry the preceding invoice
-  reference a credit note needs.
+- A template pack of typed business layouts — invoice, quotation, account statement, attestation,
+  contract, payslip and purchase order — bilingual, embedded, resolvable by id and version, with
+  dependency-injection registration.
 - Page operations on a PDF — merge, extract, split, rotate, remove — and AcroForm filling and
   flattening. A field the flattener cannot draw stays interactive and is reported, never silently
   dropped.
 - Per-page text extraction from the paged layout, so a produced document can be indexed without
   re-deriving its pages from the Markdown export.
-- A Model Context Protocol server over stdio: `render_document`, `render_invoice` and
-  `list_templates`, with size limits and no ambient file access.
-- The XRechnung CIUS, selected by what the document declares, alongside Peppol and the French
-  profile — the Leitweg-ID, the contact block, the payment rules and the German terms that can be
-  decided from the document.
-- FatturaPA 1.2.2 and Facturae 3.2.2 as syntaxes: readers and writers onto the same invoice model,
-  reached by sniffing the root element, so an Italian or a Spanish document arrives as an invoice
-  rather than as an unknown format.
 - Text extraction from a PDF the library did not produce — glyphs through each font's `ToUnicode`
   map, one string per page, with the fallbacks a page had to make reported instead of guessed.
 - Reading and writing AES-encrypted documents (AES-256 and AES-128), with the permission flags
   returned to the caller and every other operation refusing an encrypted file rather than rewriting
   it half-way.
-- Three more business layouts (contract, payslip, purchase order) and three more MCP tools
-  (`sign_document`, `merge_documents`, `extract_text`).
+- A Model Context Protocol server over stdio: `render_document`, `list_templates`, `sign_document`,
+  `merge_documents` and `extract_text`, with size limits and no ambient file access.
+- Barcodes in both directions (QR Code, DataMatrix, Aztec, PDF417, Code 128/39, EAN-13/8, ITF,
+  Codabar) over the `rxing` crate, and OCR over `ocrs` with the models the caller supplies.
+- A Word document read into the document model over `zip` and `roxmltree`, then renderable by the
+  compiler like any other document.

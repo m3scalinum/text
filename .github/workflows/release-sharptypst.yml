@@ -206,55 +206,12 @@ jobs:
       - run: dotnet build -c Release --no-restore
       - name: Unit tests
         run: dotnet test tests/Text.Typst.Tests -c Release --no-build
-      - name: Factur-X tests
-        run: dotnet test tests/Text.Pdf.FactureX.Tests -c Release --no-build
       - name: Generator tests
         run: dotnet test tests/Text.Templates.Generator.Tests -c Release --no-build
       - name: Integration tests
         env:
           SHARPTYPST_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/linux-x64/libsharp_typst.so
         run: dotnet test tests/Text.Typst.Integration.Tests -c Release --no-build
-      - name: Factur-X conformance
-        # A release is where a claim becomes a promise: the embedded XML is validated against the
-        # official schema with the FNFE-MPE reference library before anything is pushed.
-        env:
-          SHARPTYPST_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/linux-x64/libsharp_typst.so
-        run: |
-          dotnet run --project samples/Text.Pdf.FactureX.Samples -c Release --no-build
-          python3 -m venv .venv-facturx
-          .venv-facturx/bin/pip install --quiet factur-x lxml
-          .venv-facturx/bin/python - <<'PY'
-          import glob
-          import io
-
-          from facturx import get_facturx_level, get_xml_from_pdf, xml_check_xsd
-          from lxml import etree
-
-          failures = []
-
-          for path in sorted(glob.glob("artifacts/samples/factur-x-*.pdf")):
-              result = get_xml_from_pdf(io.BytesIO(open(path, "rb").read()), check_xsd=False)
-
-              if not (isinstance(result, tuple) and isinstance(result[1], (bytes, bytearray))):
-                  failures.append(f"{path}: no Factur-X attachment found")
-                  continue
-
-              name, xml = result
-              level = get_facturx_level(etree.fromstring(xml))
-
-              try:
-                  xml_check_xsd(xml, level)
-              except Exception as error:
-                  failures.append(f"{path}: {error}")
-                  continue
-
-              print(f"{path}: {name}, {len(xml)} bytes, {level}, XSD ok")
-
-          if failures:
-              print("\n".join(failures))
-              raise SystemExit(1)
-          PY
-
   publish:
     name: publish
     needs: [pack, test]

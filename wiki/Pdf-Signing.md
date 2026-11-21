@@ -26,8 +26,8 @@ re-run can compare.
 a new cross-reference section that chains to the previous one — an incremental update. The original
 bytes are untouched.
 
-That matters because a Factur-X invoice is three fragile things at once: PDF/A-3 conformance, an
-embedded XML attachment, and possibly an earlier signature. A linearising rewrite breaks at least one
+That matters because an archive-ready invoice is three fragile things at once: PDF/A-3 conformance, an
+embedded attachment, and possibly an earlier signature. A linearising rewrite breaks at least one
 of them. An incremental update breaks none: the earlier revision is still there, byte for byte, and
 the reader sees the signed revision on top.
 

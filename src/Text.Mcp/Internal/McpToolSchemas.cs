@@ -48,28 +48,6 @@ internal static class McpToolSchemas
         }
         """);
 
-    /// <summary>Arguments of <c>render_invoice</c>: one Factur-X invoice, as JSON.</summary>
-    internal static readonly JsonElement RenderInvoice = Parse(
-        """
-        {
-          "$schema": "https://json-schema.org/draft/2020-12/schema",
-          "type": "object",
-          "properties": {
-            "invoice": {
-              "type": "object",
-              "description": "The invoice: number, issueDate, currency, profile, seller, buyer, lines, taxBreakdown and totals, camelCase, dates as yyyy-MM-dd, money as JSON numbers.",
-              "additionalProperties": true
-            },
-            "outputPath": {
-              "type": "string",
-              "description": "Absolute path to write the PDF to instead of returning it. Refused unless the host enabled file output."
-            }
-          },
-          "required": ["invoice"],
-          "additionalProperties": false
-        }
-        """);
-
     /// <summary>Arguments of <c>list_templates</c>: none.</summary>
     internal static readonly JsonElement ListTemplates = Parse(
         """

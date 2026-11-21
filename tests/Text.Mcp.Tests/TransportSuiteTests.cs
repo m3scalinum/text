@@ -74,7 +74,6 @@ public abstract class TransportSuiteTests
             new[]
             {
                 McpToolNames.RenderDocument,
-                McpToolNames.RenderInvoice,
                 McpToolNames.ListTemplates,
                 McpToolNames.SignDocument,
                 McpToolNames.MergeDocuments,

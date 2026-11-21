@@ -35,7 +35,7 @@ Ten symbologies, each covered by an encode→PNG→decode round trip in the test
 
 | Symbology | Good for | Payload it accepts |
 | --- | --- | --- |
-| `QrCode` | anything, from a URL to a Factur-X header | any text; UTF-8 supported |
+| `QrCode` | anything, from a URL to an invoice header | any text; UTF-8 supported |
 | `DataMatrix` | labels, GS1, small parts | any text |
 | `Aztec` | dense payloads on small labels | any text |
 | `Pdf417` | identity documents, boarding passes | any text |

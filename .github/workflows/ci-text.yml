@@ -56,7 +56,7 @@ jobs:
     name: native (linux-x64, suite)
     runs-on: ubuntu-latest
     steps:
-      # Only one RID: the Factur-X samples render once, on the runner, to be validated. The six
+      # Only one RID: the suite builds and runs once, on the runner. The six
       # shipped runtimes, their tests and the leak soak belong to the compiler workflow.
       #
       - uses: actions/checkout@v7
@@ -90,106 +90,6 @@ jobs:
           path: native/artifacts/linux-x64/libsharp_typst.so
           if-no-files-found: error
 
-  facturx:
-    name: facturx
-    needs: [native]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: 11.0.x
-      - uses: actions/download-artifact@v8
-        with:
-          name: native-linux-x64
-          path: native/artifacts/linux-x64
-      - run: dotnet restore
-      - run: dotnet build -c Release --no-restore
-      - name: Unit tests
-        # No native library needed: reading, validating and writing are pure managed code.
-        run: dotnet test tests/Text.Pdf.FactureX.Tests -c Release --no-build
-      - name: Render the samples
-        env:
-          SHARPTYPST_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/linux-x64/libsharp_typst.so
-        run: dotnet run --project samples/Text.Pdf.FactureX.Samples -c Release --no-build
-      - name: Validate against the official Factur-X schema
-        # The FNFE-MPE library is the reference implementation: it extracts the attachment from the
-        # PDF, reads the conformance level back and validates the XML against the official XSD.
-        # It caught four real defects the string assertions could not see.
-        run: |
-          # A virtualenv, not a bare pip: the runner's Python is externally managed (PEP 668).
-          python3 -m venv .venv-facturx
-          .venv-facturx/bin/pip install --quiet factur-x lxml
-          .venv-facturx/bin/python - <<'PY'
-          import glob
-          import io
-
-          from facturx import get_facturx_level, get_xml_from_pdf, xml_check_xsd
-          from lxml import etree
-
-          failures = []
-
-          for path in sorted(glob.glob("artifacts/samples/factur-x-*.pdf")):
-              result = get_xml_from_pdf(io.BytesIO(open(path, "rb").read()), check_xsd=False)
-
-              if not (isinstance(result, tuple) and isinstance(result[1], (bytes, bytearray))):
-                  failures.append(f"{path}: no Factur-X attachment found")
-                  continue
-
-              name, xml = result
-              level = get_facturx_level(etree.fromstring(xml))
-
-              try:
-                  xml_check_xsd(xml, level)
-              except Exception as error:
-                  failures.append(f"{path}: {error}")
-                  continue
-
-              print(f"{path}: {name}, {len(xml)} bytes, {level}, XSD ok")
-
-          if failures:
-              print("\n".join(failures))
-              raise SystemExit(1)
-          PY
-      - uses: actions/setup-java@v6
-        with:
-          distribution: temurin
-          java-version: '21'
-      - name: Install veraPDF
-        # The only distribution is an IzPack installer, which takes its answers from a file. The
-        # GUI, the corpus and the documentation are of no use here: only the command line is kept.
-        # The heredoc is unquoted on purpose: IzPack does not expand variables, so a quoted one
-        # installs into a directory literally named `${GITHUB_WORKSPACE}`.
-        run: |
-          curl -sSL -o verapdf-installer.zip https://software.verapdf.org/rel/verapdf-installer.zip
-          unzip -q -o verapdf-installer.zip
-          cat > verapdf-auto-install.xml <<EOF
-          <?xml version="1.0" encoding="UTF-8" standalone="no"?>
-          <AutomatedInstallation langpack="eng">
-          <com.izforge.izpack.panels.htmlhello.HTMLHelloPanel id="welcome"/>
-          <com.izforge.izpack.panels.target.TargetPanel id="install_dir">
-          <installpath>${GITHUB_WORKSPACE}/verapdf</installpath>
-          </com.izforge.izpack.panels.target.TargetPanel>
-          <com.izforge.izpack.panels.packs.PacksPanel id="sdk_pack_select">
-          <pack index="0" name="veraPDF GUI" selected="true"/>
-          <pack index="1" name="veraPDF Mac and *nix Scripts" selected="true"/>
-          <pack index="3" name="veraPDF Validation model" selected="true"/>
-          </com.izforge.izpack.panels.packs.PacksPanel>
-          <com.izforge.izpack.panels.install.InstallPanel id="install"/>
-          <com.izforge.izpack.panels.finish.FinishPanel id="finish"/>
-          </AutomatedInstallation>
-          EOF
-          java -jar verapdf-greenfield-*/verapdf-izpack-installer-*.jar verapdf-auto-install.xml
-          ./verapdf/verapdf --version
-      - name: Validate PDF/A-3B
-        # The flavour is passed explicitly: left to itself, veraPDF believes the file's own claim
-        # and validates against PDF/A-1b. Exit 0 is compliant, 1 is not, 7 is an unparseable file.
-        run: ./verapdf/verapdf --flavour 3b --format text artifacts/samples/factur-x-*.pdf
-      - uses: actions/upload-artifact@v7
-        with:
-          name: facturx-samples
-          path: artifacts/samples/factur-x-*.pdf
-
   suite:
     name: suite
     runs-on: ubuntu-latest
@@ -206,10 +106,6 @@ jobs:
         run: dotnet test tests/Text.Suite.Tests -c Release --no-build
       - name: Install dotnet-coverage
         run: dotnet tool install --global dotnet-coverage
-      - name: Collect (facturx)
-        run: >
-          dotnet-coverage collect -f cobertura -o artifacts/coverage/facturx.xml
-          "dotnet test tests/Text.Pdf.FactureX.Tests -c Release --no-build"
       - name: Collect (pdf)
         run: >
           dotnet-coverage collect -f cobertura -o artifacts/coverage/pdf.xml
@@ -217,13 +113,13 @@ jobs:
       - name: Merge
         run: >
           dotnet-coverage merge -f cobertura -o artifacts/coverage/coverage.xml
-          artifacts/coverage/facturx.xml artifacts/coverage/pdf.xml
+          artifacts/coverage/pdf.xml
       - name: Gate
         # The coverage gate for this train lives here, not in the compiler workflow: a change to
         # these packages no longer starts that workflow, so its gate would never see it.
         run: >
           python3 tests/coverage-gate.py artifacts/coverage/coverage.xml 90
-          --require M3scalinum.Text.Pdf M3scalinum.Text.Pdf.FactureX
+          --require M3scalinum.Text.Pdf
       - uses: actions/upload-artifact@v7
         with:
           name: coverage-text
@@ -343,17 +239,15 @@ jobs:
       - run: dotnet restore
       - run: dotnet build -c Release --no-restore
       - name: Tests
-        # Neither package touches the compiler: signing takes bytes and returns bytes, and the
-        # Factur-X reader, writer and validator are pure managed code. The MCP server's protocol
-        # tests need nothing either; its render tests skip themselves without the native library.
+        # Neither package touches the compiler: signing takes bytes and returns bytes, and the MCP
+        # server's protocol tests need nothing either; its render tests skip themselves without the
+        # native library.
         run: |
           dotnet test tests/Text.Pdf.Tests -c Release --no-build
-          dotnet test tests/Text.Pdf.FactureX.Tests -c Release --no-build
           dotnet test tests/Text.Mcp.Tests -c Release --no-build
       - name: Pack
         run: |
           dotnet pack src/Text.Pdf -c Release -o artifacts/packages
-          dotnet pack src/Text.Pdf.FactureX -c Release -o artifacts/packages
       - uses: actions/upload-artifact@v7
         with:
           name: packages-text
@@ -434,9 +328,9 @@ jobs:
 
   extras:
     name: extras
-    # Five packages in one job: two are pure managed (charts, epub) and three carry their own native
-    # library. One job keeps the coverage measurement per assembly explicit rather than spreading five
-    # near-identical jobs across the workflow.
+    # Three packages in one job, each carrying its own native library. One job keeps the coverage
+    # measurement per assembly explicit rather than spreading three near-identical jobs across the
+    # workflow.
     needs: [native, native-extras]
     runs-on: ubuntu-latest
     steps:
@@ -464,8 +358,6 @@ jobs:
         run: |
           dotnet test tests/Text.Barcodes.Tests -c Release --no-build
           dotnet test tests/Text.Docx.Tests -c Release --no-build
-          dotnet test tests/Text.Epub.Tests -c Release --no-build
-          dotnet test tests/Text.Charts.Tests -c Release --no-build
           dotnet test tests/Text.Ocr.Tests -c Release --no-build
       - name: Install dotnet-coverage
         run: dotnet tool install --global dotnet-coverage
@@ -478,19 +370,15 @@ jobs:
         run: |
           dotnet-coverage collect -f cobertura -o artifacts/coverage/barcodes.xml "dotnet test tests/Text.Barcodes.Tests -c Release --no-build"
           dotnet-coverage collect -f cobertura -o artifacts/coverage/docx.xml "dotnet test tests/Text.Docx.Tests -c Release --no-build"
-          dotnet-coverage collect -f cobertura -o artifacts/coverage/epub.xml "dotnet test tests/Text.Epub.Tests -c Release --no-build"
-          dotnet-coverage collect -f cobertura -o artifacts/coverage/charts.xml "dotnet test tests/Text.Charts.Tests -c Release --no-build"
           dotnet-coverage collect -f cobertura -o artifacts/coverage/ocr.xml "dotnet test tests/Text.Ocr.Tests -c Release --no-build"
-          dotnet-coverage merge -f cobertura -o artifacts/coverage/extras.xml artifacts/coverage/barcodes.xml artifacts/coverage/docx.xml artifacts/coverage/epub.xml artifacts/coverage/charts.xml artifacts/coverage/ocr.xml
+          dotnet-coverage merge -f cobertura -o artifacts/coverage/extras.xml artifacts/coverage/barcodes.xml artifacts/coverage/docx.xml artifacts/coverage/ocr.xml
       - name: Gate
         # One gate per package, not one over the merge: a merged figure lets a package at 62 % hide
         # behind another at 96 %, and it names no culprit when the build goes red. Each package is
         # measured on its own assembly, which is also what `--require` scopes the count to.
         run: |
           python3 tests/coverage-gate.py artifacts/coverage/barcodes.xml 90 --require M3scalinum.Text.Barcodes
-          python3 tests/coverage-gate.py artifacts/coverage/charts.xml 90 --require M3scalinum.Text.Charts
           python3 tests/coverage-gate.py artifacts/coverage/docx.xml 90 --require M3scalinum.Text.Docx
-          python3 tests/coverage-gate.py artifacts/coverage/epub.xml 90 --require M3scalinum.Text.Epub
           python3 tests/coverage-gate.py artifacts/coverage/ocr.xml 90 --require M3scalinum.Text.Ocr
       - uses: actions/upload-artifact@v7
         with:
@@ -499,18 +387,14 @@ jobs:
       - name: Pack
         run: |
           dotnet pack src/Text.Barcodes -c Release --no-build -o artifacts/packages
-          dotnet pack src/Text.Charts -c Release --no-build -o artifacts/packages
           dotnet pack src/Text.Docx -c Release --no-build -o artifacts/packages
-          dotnet pack src/Text.Epub -c Release --no-build -o artifacts/packages
           dotnet pack src/Text.Ocr -c Release --no-build -o artifacts/packages
       - name: Verify the packages
         # Three of them carry a native library each: a missing RID fails here rather than as a
         # DllNotFoundException in a consumer's application.
         run: |
           python3 tests/verify-package.py artifacts/packages/M3scalinum.Text.Barcodes.*.nupkg
-          python3 tests/verify-package.py artifacts/packages/M3scalinum.Text.Charts.*.nupkg
           python3 tests/verify-package.py artifacts/packages/M3scalinum.Text.Docx.*.nupkg
-          python3 tests/verify-package.py artifacts/packages/M3scalinum.Text.Epub.*.nupkg
           python3 tests/verify-package.py artifacts/packages/M3scalinum.Text.Ocr.*.nupkg
       - uses: actions/upload-artifact@v7
         with:

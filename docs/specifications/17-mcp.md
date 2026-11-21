@@ -3,10 +3,9 @@
 `M3scalinum.Text.Mcp` serves the suite over the Model Context Protocol: a client — an editor, an
 agent, anything that speaks MCP — asks for a document and gets the PDF back over stdio, or over the
 streamable-HTTP shape a document service exposes to more than one client. It depends on
-the compiler wrapper, the layout pack, the e-invoicing package and the PDF post-processing package, so
-it follows the suite train (`TextVersion`), like `M3scalinum.Text.Pdf` and
-`M3scalinum.Text.Pdf.FactureX`: a package that follows the Typst version cannot depend on one that
-does not.
+the compiler wrapper, the layout pack and the PDF post-processing package, so it follows the suite
+train (`TextVersion`), like `M3scalinum.Text.Pdf`: a package that follows the Typst version cannot
+depend on one that does not.
 
 ## 1. Scope
 
@@ -15,7 +14,7 @@ does not.
 | Transport | stdio: one UTF-8 JSON-RPC 2.0 message per line, no headers, no length prefix. HTTP/1.1: the MCP streamable-HTTP shape, authenticated, on loopback by default |
 | Lifecycle | `initialize`, notifications, `ping`, end of input as shutdown; HTTP sessions issued, required and deleted |
 | Discovery | `tools/list` with a JSON Schema per tool |
-| Tools | `render_document`, `render_invoice`, `list_templates`, `sign_document`, `merge_documents`, `extract_text` |
+| Tools | `render_document`, `list_templates`, `sign_document`, `merge_documents`, `extract_text` |
 | Limits | document size, message size, allowed template ids, wall clock, file output, concurrent sessions |
 
 | Out of scope | Why |
@@ -171,8 +170,8 @@ client should be able to tell the two apart.
 | `-32601` | no such method |
 | `-32602` | no such tool, or the arguments are missing or of the wrong shape |
 
-A call that was well formed and whose *work* failed — Typst rejected the source, the invoice breaks an
-EN 16931 rule, the path could not be written — is a result with `"isError": true` and one text block
+A call that was well formed and whose *work* failed — Typst rejected the source, the document is not a
+PDF, the path could not be written — is a result with `"isError": true` and one text block
 carrying the reason. The client can fix the call; the protocol did nothing wrong.
 
 ## 5. The tools
@@ -192,23 +191,6 @@ call that carries both or neither. A parameter is checked against the layout's m
 anything compiles: a missing required one, an unknown name, a string where a date was declared — each
 is `-32602` with the parameter and the expected shape in the message. A `date` parameter is the one
 type with no JSON counterpart; it is written `yyyy-MM-dd`.
-
-### `render_invoice`
-
-| Argument | Type | Meaning |
-| --- | --- | --- |
-| `invoice` | object | The invoice, shaped like `FacturXInvoice` in camelCase |
-| `outputPath` | string | As above |
-
-The payload carries the terms the model documents: `number`, `typeCode`, `profile`, `currency`,
-`issueDate`, `dueDate`, `seller`, `buyer`, lines, VAT breakdown and totals, plus the optional
-references, notes, payment terms and allowances. Money is a JSON number read as `decimal`; a date is
-`yyyy-MM-dd`; `profile` is a name — `minimum`, `basic-wl`, `basic`, `en16931`, `extended`,
-`extended-ctc-fr`. Omitted terms take the renderer's defaults: `380`, `EUR`, EN 16931.
-
-The invoice is validated against the EN 16931 rules before it is rendered, so a document that does not
-add up never becomes an authoritative-looking PDF. The result is a PDF/A-3 with the CII XML attached
-and the `fx:` XMP metadata, exactly as `FacturXRenderer.Render` produces it.
 
 ### `list_templates`
 

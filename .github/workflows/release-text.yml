@@ -18,9 +18,8 @@ env:
 permissions:
   contents: read
 
-# Everything in the suite that does not embed the compiler: M3scalinum.Text.Pdf, .Pdf.FactureX,
-# .Templates, .Mcp, .Charts, .Epub, and the three that carry a Rust library of their own — .Barcodes,
-# .Ocr and .Docx. These packages do not version themselves after Typst, they follow TextVersion, so
+# Everything in the suite that does not embed the compiler: M3scalinum.Text.Pdf, .Templates, .Mcp,
+# and the three that carry a Rust library of their own — .Barcodes, .Ocr and .Docx. These packages do not version themselves after Typst, they follow TextVersion, so
 # they need their own tag namespace and their own workflow. The three native ones are the reason the
 # `native` job below exists: they ship five RIDs each, built here and packed by `pack`.
 jobs:
@@ -102,13 +101,10 @@ jobs:
         run: |
           dotnet build -c Release --no-restore
           dotnet test tests/Text.Pdf.Tests -c Release --no-build
-          dotnet test tests/Text.Pdf.FactureX.Tests -c Release --no-build
           dotnet test tests/Text.Mcp.Tests -c Release --no-build
           dotnet test tests/Text.Barcodes.Tests -c Release --no-build
           dotnet test tests/Text.Docx.Tests -c Release --no-build
           dotnet test tests/Text.Ocr.Tests -c Release --no-build
-          dotnet test tests/Text.Charts.Tests -c Release --no-build
-          dotnet test tests/Text.Epub.Tests -c Release --no-build
       - name: Check the release notes
         # A tag without its changelog section would reach nuget.org and only then fail to describe
         # what it published. Checked before anything is packed, so the run stops here instead.
@@ -155,25 +151,19 @@ jobs:
           fi
           echo "packing against M3scalinum.Text.Typst $core"
 
-          dotnet restore src/Text.Pdf.FactureX -p:CoreVersion="$core"
           dotnet restore src/Text.Templates -p:CoreVersion="$core"
           dotnet restore src/Text.Mcp -p:CoreVersion="$core"
           dotnet restore src/Text.Docx -p:CoreVersion="$core"
           dotnet pack src/Text.Pdf -c Release -o artifacts/packages "${version_args[@]}"
-          dotnet pack src/Text.Pdf.FactureX -c Release --no-restore \
-            -o artifacts/packages -p:CoreVersion="$core" "${version_args[@]}"
           dotnet pack src/Text.Templates -c Release --no-restore \
             -o artifacts/packages -p:CoreVersion="$core" "${version_args[@]}"
-          # The MCP server sits on both the e-invoicing package and the layout pack, so it is packed
-          # after them: all three are this train's, and the tag is their version.
+          # The MCP server sits on the layout pack and on the PDF package, so it is packed after
+          # them: all three are this train's, and the tag is their version.
           dotnet pack src/Text.Mcp -c Release --no-restore \
             -o artifacts/packages -p:CoreVersion="$core" "${version_args[@]}"
-          # The three native carriers, and the two managed-only packages beside them. Charts and
-          # EPUB depend on nothing, so they take the tag's version alone; Docx sits on the compiler
-          # wrapper and needs the same published core the others do.
+          # The three native carriers. They depend on nothing, so they take the tag's version alone;
+          # Docx sits on the compiler wrapper and needs the same published core the others do.
           dotnet pack src/Text.Barcodes -c Release --no-build -o artifacts/packages "${version_args[@]}"
-          dotnet pack src/Text.Charts -c Release --no-build -o artifacts/packages "${version_args[@]}"
-          dotnet pack src/Text.Epub -c Release --no-build -o artifacts/packages "${version_args[@]}"
           dotnet pack src/Text.Ocr -c Release --no-build -o artifacts/packages "${version_args[@]}"
           dotnet pack src/Text.Docx -c Release --no-restore \
             -o artifacts/packages -p:CoreVersion="$core" "${version_args[@]}"

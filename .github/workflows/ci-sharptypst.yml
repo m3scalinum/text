@@ -380,12 +380,6 @@ jobs:
         run: >
           dotnet-coverage collect -f cobertura -o artifacts/coverage/unit.xml
           "dotnet test tests/Text.Typst.Tests -c Release --no-build"
-      - name: Collect (facturx)
-        # The e-invoicing suite is pure managed code and carries most of the FacturX package's
-        # lines; leaving it out of the merge is what dropped the gate below its floor.
-        run: >
-          dotnet-coverage collect -f cobertura -o artifacts/coverage/facturx.xml
-          "dotnet test tests/Text.Pdf.FactureX.Tests -c Release --no-build"
       - name: Collect (pdf)
         run: >
           dotnet-coverage collect -f cobertura -o artifacts/coverage/pdf.xml
@@ -400,7 +394,7 @@ jobs:
       - name: Merge
         run: >
           dotnet-coverage merge -f cobertura -o artifacts/coverage/coverage.xml
-          artifacts/coverage/unit.xml artifacts/coverage/facturx.xml artifacts/coverage/pdf.xml
+          artifacts/coverage/unit.xml artifacts/coverage/pdf.xml
           artifacts/coverage/integration.xml
       - name: Gate
         # `--require` is the guard against the failure this job already had: a new test project was
@@ -408,7 +402,7 @@ jobs:
         # uncovered instead of uncollected.
         run: >
           python3 tests/coverage-gate.py artifacts/coverage/coverage.xml 90
-          --require M3scalinum.Text.Typst M3scalinum.Text.Documents M3scalinum.Text.Typst.Native M3scalinum.Text.Typst.DependencyInjection M3scalinum.Text.Pdf.FactureX M3scalinum.Text.Pdf
+          --require M3scalinum.Text.Typst M3scalinum.Text.Documents M3scalinum.Text.Typst.Native M3scalinum.Text.Typst.DependencyInjection M3scalinum.Text.Pdf
       - uses: actions/upload-artifact@v7
         with:
           name: coverage
@@ -441,7 +435,6 @@ jobs:
       - run: dotnet pack src/Text.Typst -c Release -o artifacts/packages -p:BuildRevision=${{ github.run_number }}
       - run: dotnet pack src/Text.Typst.DependencyInjection -c Release -o artifacts/packages -p:BuildRevision=${{ github.run_number }}
       - run: dotnet pack src/Text.Templates.Generator -c Release -o artifacts/packages -p:BuildRevision=${{ github.run_number }}
-      - run: dotnet pack src/Text.Pdf.FactureX -c Release -o artifacts/packages -p:BuildRevision=${{ github.run_number }}
       - run: dotnet pack src/Text.Pdf -c Release -o artifacts/packages -p:BuildRevision=${{ github.run_number }}
       - name: Verify the packages
         # A package with no runtimes/ entry, or one depending on the unpublished M3scalinum.Text.Typst.Native,
