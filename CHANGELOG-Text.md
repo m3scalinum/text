@@ -105,6 +105,26 @@ Not yet published.
   a signature field — is left interactive and reported in `PdfFormFlattenResult.Skipped`, because a
   flattened form that lost its values is worse than one that is still editable. Encrypted documents
   are refused, and page operations, filling and flattening invalidate existing signatures.
+- `M3scalinum.Text.Pdf` and `PdfEncryption`: `Open(pdf, password)` returns a `PdfDecryptionResult` —
+  the decrypted document as whole bytes, the `PdfPermissions` the password grants, the handler
+  revision and whether the owner password matched — and `Encrypt(pdf, userPassword, permissions,
+  ownerPassword)` writes AES-256. Both are the standard security handler in the two revisions real
+  documents carry: AES-256 with `V=5/R=6`, whose file key comes from the hardened SHA-256 algorithm
+  of ISO 32000-2, and AES-128 with `V=4/R=4` and an `/AESV2` crypt filter, whose key comes from the
+  legacy MD5 derivation over `/O`, `/P` and `/ID`. Passwords are validated against `/U` and `/O`,
+  strings and streams are decrypted per object (with the per-object key revision 4 requires), the
+  metadata exemption is honoured, and the `/Encrypt` dictionary and `/ID` are left in the clear. A
+  wrong password is a `PdfEncryptionException`, not a damaged document; RC4, revision 5 and
+  public-key encryption are refused with the `V`/`R` or crypt filter they declare. `Encrypt` writes
+  a fresh key, `/ID` and salts per call, sets `/P` from the permission bits and `/Perms` from them,
+  and defaults the owner password to the user one. `PdfPages`, `PdfForm`, `PdfSigner`,
+  `PdfDocumentTimestamp` and `PdfSignatureVerifier` now refuse an encrypted document with a message
+  naming `PdfEncryption.Open` instead of failing on ciphertext, and `PdfConformance` keeps reporting
+  `PDF.ENCRYPTED`. Verified by a round trip on real Typst output (page count and text read back
+  through `/ToUnicode`), a wrong and an empty password, the permission bits read back through both
+  the user and the owner password, an AES-128 document built in the test project from the
+  specification's own algorithms, and a 256-bit AES document qpdf wrote, so neither direction is
+  only checked against itself.
 - `M3scalinum.Text.Pdf.FactureX` and `PeppolBisValidator`: the Peppol BIS Billing 3.0 CIUS rules that
   can be decided from the document — the business process (`BT-23`) and the specification identifier
   (`BT-24`), the seller and buyer electronic addresses (`BT-34` / `BT-49`) and their EAS scheme codes,

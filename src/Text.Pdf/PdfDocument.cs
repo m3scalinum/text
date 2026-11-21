@@ -76,6 +76,15 @@ internal sealed class PdfDocument
 
         var trailer = pdf.Substring(trailerPos, startxref - trailerPos);
 
+        // An encrypted file's strings and streams are ciphertext, so an incremental update would
+        // append plaintext that no reader could decrypt, and a signature over those bytes could not
+        // verify. Refusing here covers signing, timestamping and verification alike.
+        if (trailer.Contains("/Encrypt", StringComparison.Ordinal))
+        {
+            throw new PdfSignatureException(
+                "the PDF is encrypted, so it cannot be signed or verified; decrypt it with PdfEncryption.Open and use the bytes it returns");
+        }
+
         var root = Regex.Match(trailer, @"/Root\s+(\d+)\s+0\s+R", RegexOptions.CultureInvariant);
         if (!root.Success)
         {
@@ -251,24 +260,28 @@ internal sealed class PdfDocument
         foreach (Match match in ObjectHeader.Matches(Text))
         {
             var number = int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
-            var bodyStart = Text.IndexOf('<', match.Index + match.Length);
-            if (bodyStart < 0)
-            {
-                continue;
-            }
-
-            var bodyEnd = Text.IndexOf("endobj", bodyStart, StringComparison.Ordinal);
-            if (bodyEnd < 0)
+            var objectEnd = Text.IndexOf("endobj", match.Index + match.Length, StringComparison.Ordinal);
+            if (objectEnd < 0)
             {
                 throw new PdfSignatureException($"object {number} is not closed");
+            }
+
+            var bodyStart = Text.IndexOf('<', match.Index + match.Length);
+
+            // An object whose body holds no dictionary — the null object a rewriter leaves where a
+            // free entry was, a bare number, a name — is not a signature dictionary. Searching for
+            // '<' past the end of the object would find the next object's, or the trailer's.
+            if (bodyStart < 0 || bodyStart > objectEnd)
+            {
+                continue;
             }
 
             _objects[number] = new PdfObject(
                 number,
                 match.Index,
                 bodyStart,
-                bodyEnd,
-                Text.Substring(bodyStart, bodyEnd - bodyStart).TrimEnd());
+                objectEnd,
+                Text.Substring(bodyStart, objectEnd - bodyStart).TrimEnd());
         }
     }
 

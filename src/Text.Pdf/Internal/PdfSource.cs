@@ -23,7 +23,7 @@ internal static class PdfSource
         if (file.IsEncrypted)
         {
             throw new PdfOperationException(
-                $"the document is encrypted, and encrypted documents are out of scope; there is nothing to {operation}");
+                $"the document is encrypted, so there is nothing to {operation} until it is decrypted: open it with PdfEncryption.Open and use the bytes it returns");
         }
 
         if (file.Catalog is null)
