@@ -22,6 +22,10 @@
 - [Signing](Pdf-Signing)
 - [Checking conformance](Pdf-Conformance)
 
+**MCP** — render from a model
+
+- [The MCP server](Mcp-Server)
+
 **FactureX** — build and read an e-invoice
 
 - [Getting Started](FactureX-Getting-Started)

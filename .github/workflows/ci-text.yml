@@ -254,6 +254,58 @@ jobs:
           path: artifacts/packages/*.nupkg
           if-no-files-found: error
 
+  mcp:
+    name: mcp
+    # The protocol surface needs no compiler, but the render tools and the invoice payload do: the
+    # job downloads the same artifact the templates job uses, so the coverage it collects measures the
+    # tools a client actually calls rather than their argument checks alone.
+    needs: [native]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 11.0.x
+      - uses: actions/download-artifact@v8
+        with:
+          name: native-linux-x64
+          path: native/artifacts/linux-x64
+      - run: dotnet restore
+      - run: dotnet build -c Release --no-restore
+      - name: Tests
+        env:
+          SHARPTYPST_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/linux-x64/libsharp_typst.so
+        run: dotnet test tests/Text.Mcp.Tests -c Release --no-build
+      - name: Install dotnet-coverage
+        run: dotnet tool install --global dotnet-coverage
+      - name: Collect (mcp)
+        env:
+          SHARPTYPST_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/linux-x64/libsharp_typst.so
+        run: >
+          dotnet-coverage collect -f cobertura -o artifacts/coverage/mcp.xml
+          "dotnet test tests/Text.Mcp.Tests -c Release --no-build"
+      - name: Gate
+        # Only the server's own assembly: the compiler wrapper and the e-invoicing package are linked
+        # into the output as dependencies, and counting their lines would measure code these tests
+        # use rather than code they own.
+        run: >
+          python3 tests/coverage-gate.py artifacts/coverage/mcp.xml 90
+          --require M3scalinum.Text.Mcp
+      - uses: actions/upload-artifact@v7
+        with:
+          name: coverage-mcp
+          path: artifacts/coverage/mcp.xml
+      - name: Pack
+        run: dotnet pack src/Text.Mcp -c Release --no-build -o artifacts/packages
+      - name: Verify the package
+        # A satellite must pin the core version it was built against, and carry the licence files.
+        run: python3 tests/verify-package.py artifacts/packages/M3scalinum.Text.Mcp.*.nupkg
+      - uses: actions/upload-artifact@v7
+        with:
+          name: packages-mcp
+          path: artifacts/packages/*.nupkg
+          if-no-files-found: error
+
   text:
     name: text
     runs-on: ubuntu-latest
@@ -266,10 +318,12 @@ jobs:
       - run: dotnet build -c Release --no-restore
       - name: Tests
         # Neither package touches the compiler: signing takes bytes and returns bytes, and the
-        # Factur-X reader, writer and validator are pure managed code.
+        # Factur-X reader, writer and validator are pure managed code. The MCP server's protocol
+        # tests need nothing either; its render tests skip themselves without the native library.
         run: |
           dotnet test tests/Text.Pdf.Tests -c Release --no-build
           dotnet test tests/Text.Pdf.FactureX.Tests -c Release --no-build
+          dotnet test tests/Text.Mcp.Tests -c Release --no-build
       - name: Pack
         run: |
           dotnet pack src/Text.Pdf -c Release -o artifacts/packages

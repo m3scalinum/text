@@ -1,0 +1,55 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!--
+      This package follows the suite, not the compiler: it depends on both the compiler wrapper and
+      the e-invoicing package, and a package that follows the Typst version cannot depend on one
+      that does not. See Directory.Build.props.
+    -->
+    <SuiteVersion Condition="'$(SuiteVersion)' == ''">$(TextVersion)</SuiteVersion>
+    <Version>$(SuiteVersion)</Version>
+    <AssemblyVersion>$(SuiteVersion)</AssemblyVersion>
+    <FileVersion>$(SuiteVersion)</FileVersion>
+    <InformationalVersion>$(Version)</InformationalVersion>
+    <IsPackable>true</IsPackable>
+    <PackageId>M3scalinum.Text.Mcp</PackageId>
+    <Description>A Model Context Protocol server over stdio for M3scalinum.Text: render Typst documents and Factur-X invoices from a model, list the layout pack, and write nothing to disk unless the host says so.</Description>
+    <PackageTags>mcp;model-context-protocol;json-rpc;stdio;typst;pdf;facturx;invoice</PackageTags>
+    <TargetFrameworks>net8.0;net9.0;net10.0;net11.0</TargetFrameworks>
+    <TargetFramework />
+    <SuppressTfmSupportBuildWarnings>true</SuppressTfmSupportBuildWarnings>
+
+    <!--
+      The protocol surface is hand-written JSON-RPC on top of a source-generated serializer context:
+      a host must be publishable with PublishAot and trimmed, which a reflection-based serializer is
+      not. IsAotCompatible turns on the trim and AOT analyzers so a regression fails the build here
+      rather than in a consumer's publish.
+    -->
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      Two ways to reach the compiler wrapper, because the two package families release on separate
+      trains: a project reference inside the repository, and an exact package reference at release
+      time, so the packed dependency names a core version that exists on NuGet.
+    -->
+    <ProjectReference Include="..\Text.SharpTypst\Text.SharpTypst.csproj" Condition="'$(CoreVersion)' == ''" />
+    <PackageReference Include="M3scalinum.Text.SharpTypst" Condition="'$(CoreVersion)' != ''" />
+
+    <ProjectReference Include="..\Text.Pdf.FactureX\Text.Pdf.FactureX.csproj" />
+    <ProjectReference Include="..\Text.SharpTypst.Templates\Text.SharpTypst.Templates.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="M3scalinum.Text.Mcp.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="/" />
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="/" />
+    <None Include="..\..\NOTICE" Pack="true" PackagePath="/" />
+    <None Include="..\..\THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="/" Condition="Exists('..\..\THIRD-PARTY-NOTICES.md')" />
+  </ItemGroup>
+
+</Project>

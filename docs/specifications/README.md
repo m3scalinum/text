@@ -24,6 +24,7 @@ them is a bug.
 | 13 | [13-facturx.md](13-facturx.md) | The `M3scalinum.Text.Pdf.FactureX` package: reading, validating and rendering e-invoices |
 | 14 | [14-pdf-signature.md](14-pdf-signature.md) | The `M3scalinum.Text.Pdf` package: PAdES signatures as an incremental update |
 | 15 | [15-pdf-conformance.md](15-pdf-conformance.md) | The `PdfConformance` checker: which structural rules it establishes, and what veraPDF still validates |
+| 17 | [17-mcp.md](17-mcp.md) | The `M3scalinum.Text.Mcp` server: protocol surface, tools, limits and security posture |
 
 ## Status
 
@@ -38,6 +39,7 @@ them is a bug.
 | `src/Text.SharpTypst.Templates` | The layout pack: invoice, quotation, statement and attestation, typed, bilingual labels, catalog and DI |
 | `src/Text.Pdf` | PAdES-B signatures as an incremental update, structural PDF/A and PDF/UA conformance checks; no dependency on the compiler |
 | `src/Text.Pdf.FactureX` | CII/UBL reader, EN 16931 checks, CII writer, Factur-X renderer and XMP patch |
+| `src/Text.Mcp` | JSON-RPC 2.0 over stdio: `render_document`, `render_invoice`, `list_templates`, with limits and no ambient file access |
 | Tests | 384 unit (fake native) + 257 Pdf + 170 Factur-X + 14 generator + 80 templates + 7 suite + 235 integration (real compiler) |
 | Benchmarks | `benchmarks/Text.SharpTypst.Benchmarks`, baseline stored, `--check` gate in CI |
 | Build & packaging | Build files in place; native packaging wired in CI |

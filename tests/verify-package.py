@@ -46,6 +46,7 @@ SATELLITE_ASSEMBLIES = {
     "lib/net11.0/M3scalinum.Text.SharpTypst.DependencyInjection.dll",
     "lib/net11.0/M3scalinum.Text.SharpTypst.Templates.dll",
     "lib/net11.0/M3scalinum.Text.Pdf.FactureX.dll",
+    "lib/net11.0/M3scalinum.Text.Mcp.dll",
 }
 
 
