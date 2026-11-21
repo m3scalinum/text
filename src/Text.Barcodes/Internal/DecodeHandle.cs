@@ -6,11 +6,6 @@ namespace M3scalinum.Text.Barcodes.Internal;
 /// <summary>Owns a native decode result.</summary>
 internal sealed class DecodeHandle : SafeHandleZeroOrMinusOneIsInvalid
 {
-    public DecodeHandle()
-        : base(ownsHandle: true)
-    {
-    }
-
     public DecodeHandle(IntPtr handle)
         : base(ownsHandle: true)
     {
