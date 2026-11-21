@@ -571,6 +571,9 @@ internal sealed class PdfStandardSecurity
     {
         using var aes = Aes.Create();
         aes.Key = key;
+        // ISO 32000-2, Algorithm 10 mandates ECB here: /Perms is a single 16-byte block, so there is
+        // no block repetition for ECB to leak. The suppression is deliberate, not a workaround.
+        // codeql[cs/ecb-encryption]
         aes.Mode = CipherMode.ECB;
         aes.Padding = PaddingMode.None;
 
