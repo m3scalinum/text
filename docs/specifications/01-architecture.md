@@ -156,8 +156,9 @@ Rules:
 - **Concurrency comes from multiple worlds.** Two compilations never share a world. The font book
   and the standard library are immutable and shared at the Rust level (`Arc`), so N concurrent
   compilations cost N worlds, not N font scans.
-- **No global lock.** The only process-wide state is the loaded native library and the immutable
-  font cache; both are read-only after initialization.
+- **No global lock.** The process-wide state is the loaded native library, the shared standard
+  library and font set, and two atomic counters of live handles; all of it is read-only or atomic
+  after initialization.
 - **Cancellation.** Typst 0.15 has no cooperative interrupt inside `typst::compile`. A cancelled
   compilation therefore abandons the worker thread and marks the world handle poisoned; the
   handle is freed when the thread returns. `CompileAsync` honours `CancellationToken` at that

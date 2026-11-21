@@ -62,6 +62,12 @@ internal static partial class NativeMethods
     [LibraryImport(LibraryName, EntryPoint = "tn_world_source_count")]
     internal static partial uint WorldSourceCount(IntPtr world);
 
+    [LibraryImport(LibraryName, EntryPoint = "tn_world_live_count")]
+    internal static partial uint WorldLiveCount();
+
+    [LibraryImport(LibraryName, EntryPoint = "tn_document_live_count")]
+    internal static partial uint DocumentLiveCount();
+
     [LibraryImport(LibraryName, EntryPoint = "tn_compile", StringMarshalling = StringMarshalling.Utf8)]
     internal static partial IntPtr Compile(IntPtr world, string? optionsJson, out IntPtr error);
 

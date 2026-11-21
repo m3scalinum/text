@@ -35,6 +35,17 @@ internal sealed class TypstNative : ITypstNative
 
     public string TypstVersion => _typstVersion;
 
+    /// <summary>World handles the native library holds right now.</summary>
+    /// <remarks>
+    /// Diagnostic: a host that builds and disposes worlds can assert that the count returns to what
+    /// it was. The process working set cannot answer that question — it is process-wide, and each
+    /// platform retains freed native blocks differently.
+    /// </remarks>
+    public static int LiveWorldCount => (int)NativeMethods.WorldLiveCount();
+
+    /// <summary>Document handles the native library holds right now. See <see cref="LiveWorldCount"/>.</summary>
+    public static int LiveDocumentCount => (int)NativeMethods.DocumentLiveCount();
+
     public TypstWorldHandle CreateWorld(string? configJson)
     {
         var handle = NativeMethods.WorldCreate(configJson, out var error);

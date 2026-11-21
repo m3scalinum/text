@@ -25,6 +25,8 @@ Not yet published. Embeds Typst 0.15.1.
 - Export to PDF, SVG (single page or merged), PNG (single page or merged), HTML, Markdown, plain
   text, and the bundle target.
 - `TypstWorldBuilder`: sources, assets, fonts and package settings registered from memory.
+- One standard library and one parsed set of embedded fonts per process, shared by every world
+  through `Arc`: building a world costs microseconds, not a font scan.
 - `TypstCompiler`: paged and HTML compilation, `CompileBoth`, structured diagnostics with file,
   line and column.
 - Package resolution for `@namespace/name:version` through the data directory, the cache directory
@@ -40,6 +42,9 @@ Not yet published. Embeds Typst 0.15.1.
 - `M3scalinum.Text.SharpTypst.Templates.Generator`: a Roslyn incremental generator that turns a
   `template.toml` manifest into a typed options record, with five compile-time diagnostics.
 - Hard caps on source, asset and font sizes and counts, reported as `TypstErrorCode.LimitExceeded`.
+- `tn_world_live_count` and `tn_document_live_count` in the ABI: the native layer reports the handles
+  it is holding, so a host can assert that every handle it created was released instead of guessing
+  from the process working set.
 - Native AOT compatibility, verified by publishing the sample with `PublishAot`.
 - Benchmarks with a stored baseline and a 1.5× regression gate on the minimum.
 - `TypstCompilationOptions.WarningsAsErrors`: a warning fails the compilation with a

@@ -6,7 +6,7 @@
 use std::any::Any;
 use std::collections::HashMap;
 use std::io::Read;
-use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{Arc, OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use typst::diag::{FileError, FileResult};
 use typst::foundations::{Bytes, Datetime, Duration};
@@ -95,17 +95,29 @@ pub struct NetWorld {
     packages_config: PackagesConfig,
 }
 
-impl NetWorld {
-    pub fn new(config: WorldConfig) -> Result<Self, TnError> {
+/// The parts every world shares: the standard library and the fonts embedded in the binary.
+///
+/// Both are immutable and identical for every world, and building them is the expensive half of
+/// creating one — the library registers every standard definition, and the embedded fonts cost
+/// about a megabyte of parsing. `clone_world` already shares them; a fresh world does too, so
+/// building N worlds costs one library and one font scan, not N.
+struct Shared {
+    library: Arc<LazyHash<Library>>,
+    book: Arc<LazyHash<FontBook>>,
+    fonts: Arc<Vec<Font>>,
+}
+
+fn shared() -> &'static Shared {
+    static SHARED: OnceLock<Shared> = OnceLock::new();
+
+    SHARED.get_or_init(|| {
         // Every feature is enabled unconditionally: they only add definitions to the standard
         // library, and a world must be able to serve every export target without being rebuilt.
         // `Html` adds `html.*`, `A11yExtras` adds `pdf.data-cell`/`header-cell`/`table-summary`,
         // `Bundle` adds the bundle target.
-        let library = LazyHash::new(
-            Library::builder()
-                .with_features(Features::from_iter(Feature::all()))
-                .build(),
-        );
+        let library = Library::builder()
+            .with_features(Features::from_iter(Feature::all()))
+            .build();
 
         // Embedded fonts only: system fonts are an explicit opt-in in the spec and are
         // not wired into the ABI yet, so a build never depends on the host.
@@ -116,24 +128,53 @@ impl NetWorld {
             fonts.push(font);
         }
 
-        // Host fonts are opt-in: a compile never reads the file system unless the caller asks.
-        if config.fonts.system {
-            for (path, info) in typst_kit::fonts::system() {
-                if let Some(font) = path.load() {
-                    book.push(info);
-                    fonts.push(font);
-                }
-            }
+        Shared {
+            library: Arc::new(LazyHash::new(library)),
+            book: Arc::new(LazyHash::new(book)),
+            fonts: Arc::new(fonts),
         }
+    })
+}
 
-        for directory in &config.fonts.directories {
-            for (path, info) in typst_kit::fonts::scan(std::path::Path::new(directory)) {
-                if let Some(font) = path.load() {
-                    book.push(info);
-                    fonts.push(font);
-                }
+/// The font book and fonts of a world: the shared embedded set, plus whatever the host asked for.
+///
+/// Host fonts are opt-in: a compile never reads the file system unless the caller asks. Only such a
+/// world copies the embedded set; the common case shares it.
+fn fonts_for(config: &crate::config::FontsConfig) -> (Arc<LazyHash<FontBook>>, Arc<Vec<Font>>) {
+    let shared = shared();
+
+    if !config.system && config.directories.is_empty() {
+        return (Arc::clone(&shared.book), Arc::clone(&shared.fonts));
+    }
+
+    let mut book = (**shared.book).clone();
+    let mut fonts = (*shared.fonts).clone();
+
+    if config.system {
+        for (path, info) in typst_kit::fonts::system() {
+            if let Some(font) = path.load() {
+                book.push(info);
+                fonts.push(font);
             }
         }
+    }
+
+    for directory in &config.directories {
+        for (path, info) in typst_kit::fonts::scan(std::path::Path::new(directory)) {
+            if let Some(font) = path.load() {
+                book.push(info);
+                fonts.push(font);
+            }
+        }
+    }
+
+    (Arc::new(LazyHash::new(book)), Arc::new(fonts))
+}
+
+impl NetWorld {
+    pub fn new(config: WorldConfig) -> Result<Self, TnError> {
+        let shared = shared();
+        let (book, fonts) = fonts_for(&config.fonts);
 
         let main_path = VirtualPath::new("main.typ")
             .map_err(|e| TnError::invalid_argument(format!("invalid default root: {e}")))?;
@@ -152,9 +193,9 @@ impl NetWorld {
         };
 
         Ok(Self {
-            library: Arc::new(library),
-            book: Arc::new(LazyHash::new(book)),
-            fonts: Arc::new(fonts),
+            library: Arc::clone(&shared.library),
+            book,
+            fonts,
             sources: RwLock::new(HashMap::new()),
             files: RwLock::new(HashMap::new()),
             main,
@@ -467,6 +508,29 @@ mod tests {
     fn accepts_relative_paths() {
         assert!(make_id("main.typ").is_ok());
         assert!(make_id("partials/header.typ").is_ok());
+    }
+
+    #[test]
+    fn worlds_share_one_library_and_one_font_set() {
+        // Building the library and parsing the embedded fonts costs milliseconds per world; the
+        // spec says both are built once per process and shared through `Arc`. A world that builds
+        // its own copy is a leak of exactly that work per world, which the soak test catches as
+        // working-set growth on an allocator that retains the churn.
+        let first = NetWorld::new(WorldConfig::default()).expect("first world");
+        let second = NetWorld::new(WorldConfig::default()).expect("second world");
+
+        assert!(
+            Arc::ptr_eq(&first.library, &second.library),
+            "every world must share the process library"
+        );
+        assert!(
+            Arc::ptr_eq(&first.book, &second.book),
+            "every world must share the embedded font book"
+        );
+        assert!(
+            Arc::ptr_eq(&first.fonts, &second.fonts),
+            "every world must share the embedded fonts"
+        );
     }
 
     #[test]

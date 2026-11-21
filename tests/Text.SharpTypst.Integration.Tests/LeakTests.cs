@@ -1,22 +1,36 @@
 using System;
-using System.Diagnostics;
 using M3scalinum.Text.SharpTypst.Compilation;
+using M3scalinum.Text.SharpTypst.Native;
 using Xunit;
 
 namespace M3scalinum.Text.SharpTypst.Integration.Tests;
 
 /// <summary>
-/// A long run must not grow without bound. Every native allocation is owned by a handle that the
-/// managed side disposes, so a leak shows up as a monotonic rise in managed memory or in the
-/// process working set.
+/// Holds the leak soaks apart from the rest of the suite: they count native handles, so another
+/// class holding one would turn the assertion into noise.
 /// </summary>
+[CollectionDefinition(Name, DisableParallelization = true)]
+public sealed class LeakSoak
+{
+    public const string Name = "Leak soak";
+}
+
+/// <summary>
+/// A long run must not grow without bound. Every native allocation is owned by a handle that the
+/// managed side disposes, so a leak shows up either as a monotonic rise in managed memory or as a
+/// native handle that is never released.
+/// </summary>
+[Collection(LeakSoak.Name)]
 [Trait("Category", "Integration")]
 public sealed class LeakTests
 {
     private const int Cycles = 10_000;
 
-    /// <summary>Warm-up worlds excluded from the working-set measurement.</summary>
-    private const int WarmupCycles = 5_000;
+    /// <summary>
+    /// A compilation abandoned by a timeout keeps its world until its worker thread returns, so a
+    /// leak is thousands while a straggler is one. The tolerance absorbs the straggler, not a leak.
+    /// </summary>
+    private const int HandleTolerance = 8;
 
     private static long ManagedBytes()
     {
@@ -49,6 +63,7 @@ public sealed class LeakTests
         }
 
         var before = ManagedBytes();
+        var documentsBefore = TypstNative.LiveDocumentCount;
 
         for (var index = 0; index < Cycles; index++)
         {
@@ -66,40 +81,37 @@ public sealed class LeakTests
         Assert.True(
             growth < 8 * 1024 * 1024,
             $"managed memory grew by {growth / 1024} KiB over {Cycles} cycles");
+        Assert.InRange(
+            Math.Abs(TypstNative.LiveDocumentCount - documentsBefore),
+            0,
+            HandleTolerance);
     }
 
     [Fact]
-    public void Ten_thousand_worlds_reach_a_steady_working_set()
+    public void Ten_thousand_worlds_release_every_native_handle()
     {
-        // The first worlds grow the process to its steady state: the runtime reserves heap arenas,
-        // the CRT pools blocks, the GC commits segments. That ramp is not a leak, and its size is a
-        // property of the allocator, not of this library — on Windows ARM64 it alone exceeds the
-        // threshold the whole loop used to be held to. So the ramp is run first and excluded, and
-        // what is measured is the growth after it: a leak keeps growing here, a pool does not.
-        for (var index = 0; index < WarmupCycles; index++)
-        {
-            using var warm = new TypstWorldBuilder().AddSource("main.typ", "= Title").Build();
-        }
+        // Ask the native library how many worlds it holds, instead of reading the process working
+        // set. The working set is process-wide and every platform retains freed native blocks
+        // differently: this same loop was flat on x64 and grew by 492 MiB on a Windows runner and
+        // by 78 MiB on linux-arm64, which describes the allocator, not this library. The handle
+        // count is the property the library owns, and it is exact.
+        var before = TypstNative.LiveWorldCount;
 
-        var before = WorkingSet();
+        using (var one = new TypstWorldBuilder().AddSource("main.typ", "= Title").Build())
+        {
+            // Guard: a counter stuck at zero would make the assertion below pass for nothing.
+            Assert.Equal(before + 1, TypstNative.LiveWorldCount);
+        }
 
         for (var index = 0; index < Cycles; index++)
         {
             using var world = new TypstWorldBuilder().AddSource("main.typ", "= Title").Build();
         }
 
-        var growth = WorkingSet() - before;
-
-        Assert.True(
-            growth < 32 * 1024 * 1024,
-            $"working set grew by {growth / 1024 / 1024} MiB over {Cycles} worlds after a {WarmupCycles}-world warm-up");
-    }
-
-    private static long WorkingSet()
-    {
-        using var process = Process.GetCurrentProcess();
-        process.Refresh();
-        return process.WorkingSet64;
+        Assert.InRange(
+            Math.Abs(TypstNative.LiveWorldCount - before),
+            0,
+            HandleTolerance);
     }
 
     [Fact]
@@ -132,6 +144,7 @@ public sealed class LeakTests
         }
 
         var before = ManagedBytes();
+        var worldsBefore = TypstNative.LiveWorldCount;
 
         for (var index = 0; index < Cycles; index++)
         {
@@ -143,6 +156,10 @@ public sealed class LeakTests
         Assert.True(
             growth < 8 * 1024 * 1024,
             $"managed memory grew by {growth / 1024} KiB over {Cycles} clones");
+        Assert.InRange(
+            Math.Abs(TypstNative.LiveWorldCount - worldsBefore),
+            0,
+            HandleTolerance);
     }
 
     [Fact]
