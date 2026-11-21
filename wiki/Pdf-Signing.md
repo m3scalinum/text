@@ -131,6 +131,7 @@ The level is what the verifier could prove, not what the file claims:
 | `BaselineB` | the CMS verifies over its byte range, with the signer's certificate embedded |
 | `BaselineT` | plus a signature timestamp whose CMS verifies and whose imprint is this signature |
 | `BaselineLT` | plus a store carrying the whole chain and usable revocation data for every certificate on it |
+| `BaselineLTA` | plus a document timestamp over the whole file, covering the store, whose authority's chain the store carries |
 | `None` | neither: `Error` says why |
 
 `ProvenLevel` on the result is the weakest of them, because a document is only as strong as its
@@ -160,6 +161,59 @@ It covers every byte, so it goes last. A signature made before it still verifies
 `CoversWholeFile = false` — the file now has a revision the signature never saw, which is normal and
 is not a defect.
 
+## An archive: PAdES-B-LTA
+
+A store proves a signature only while the revocation data in it stays usable. The archival level adds
+a document timestamp over the file as it stands — the store included — issued by an authority whose
+own chain the store carries. That is what a ten-year invoice retention rests on: the evidence needed
+to re-check the signature is itself attested.
+
+```csharp
+byte[] archived = PdfArchiveTimestamp.Refresh(signedOrArchived, new PdfArchiveTimestampOptions
+{
+    TimestampAuthority = new Uri("https://tsa.example.com/"),
+    TimestampClient = httpClient,              // the caller owns and disposes it
+});
+
+bool ok = PdfArchiveTimestamp.IsArchived(archived);      // yes, or no
+```
+
+Refreshing is the same call on the result: each one appends a timestamp over the whole file, so a
+document refreshed twice carries two, both intact, and the second covers the first. Refresh a file
+before the digest it used is deprecated or the authority's certificate approaches its expiry — a TSA
+call and one incremental update, and nothing earlier changes. A document that carries no signature is
+refused: a timestamp over an unsigned file attests that a file existed, not that anything was signed.
+
+`IsArchived` is the yes or no; `Inspect` is the reason:
+
+```csharp
+var chain = PdfArchiveTimestamp.Inspect(archived);
+
+foreach (var entry in chain.Entries)          // signature and timestamp, in file order
+{
+    // entry.Kind, entry.Offset
+    // entry.CoveredStart, entry.CoveredEnd, entry.CoversItsRevision
+    // entry.IsIntact, entry.CoversWholeFile, entry.CoversDocumentSecurityStore
+    // entry.AttestedTime, entry.SignerSubject, entry.Error
+}
+
+foreach (var reason in chain.Breaks)          // empty when the document is archived
+{
+    Console.WriteLine(reason);
+}
+```
+
+The chain is verified, not assumed: every entry is re-checked over the bytes it covers, each one must
+still reach the end of the revision it was written into, the newest must be a timestamp over the whole
+file, and the store must prove the chain of every signature and of every authority that issued a
+timestamp. So a signature added after the last timestamp leaves the newest revision unattested and the
+document is not archived; a store missing the authority's certificate says so by name; and a byte
+changed after archiving drops the level at once.
+
+The archive is the file. Move the PDF without its store and its timestamps and only what the CMS
+carries survives — the OCSP answer was fetched years earlier from a responder that is gone. Store the
+bytes, refresh them, and let the level, not a database row, say what they prove.
+
 ## What it refuses
 
 `PdfSignatureException` is thrown, with a sentence saying which, when:
@@ -168,6 +222,7 @@ is not a defect.
 - the certificate carries no private key;
 - the document is empty;
 - a timestamp authority is named without a client, or a client without an authority;
+- an archive is asked for a document that carries no signature;
 - the TSA refuses, is unreachable, or answers a token whose imprint is not this signature;
 - an appearance has no area, names a page that does not exist, or carries both text and an image;
 - the appearance image is neither a PNG nor a JPEG, or is a PNG this reader does not handle.
@@ -187,3 +242,12 @@ Two external tools, on documents the suite produces:
 Both are run against signed samples, not against a hand-made PDF, because the interesting case is
 signing a document that already carries an attachment, a conformance declaration, or another
 signature.
+
+For the archival level, **no external AdES validator was run**: pyHanko is not installed in the
+environment this was built in, so no third-party tool has been asked whether it reads this package's
+B-LTA output as LTA. What was checked on an archived sample: openssl 3.5 answers
+`CMS Verification successful` for the signature's DER over the bytes its range names, and
+`openssl ts -reply -text` reads both document timestamps with an imprint equal to the SHA-256 of the
+bytes each one names. `openssl ts -verify` declines those tokens because the stand-in authority used
+in tests omits the ESS signing-certificate attribute RFC 3161 wants — a property of the test authority,
+not of the document. The level itself rests on `PdfSignatureVerifier` and the tests.

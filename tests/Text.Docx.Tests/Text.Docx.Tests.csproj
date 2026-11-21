@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <PackageId>M3scalinum.Text.Docx.Tests</PackageId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Text.Docx\Text.Docx.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      The fixture is committed as bytes and read from disk, but it is also built in the test project
+      from raw OOXML: see fixtures/README.md for how the two are kept in step.
+    -->
+    <None Update="fixtures\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" PrivateAssets="all" />
+  </ItemGroup>
+
+</Project>

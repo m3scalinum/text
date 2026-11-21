@@ -20,6 +20,7 @@ public sealed class PublicApiTests
         yield return typeof(M3scalinum.Text.SharpTypst.Templates.TemplateCatalog).Assembly;
         yield return typeof(M3scalinum.Text.Mcp.McpServer).Assembly;
         yield return typeof(M3scalinum.Text.Barcodes.Barcode).Assembly;
+        yield return typeof(M3scalinum.Text.Epub.EpubWriter).Assembly;
     }
 
     [Fact]

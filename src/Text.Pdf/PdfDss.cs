@@ -20,15 +20,17 @@ internal sealed class PdfDss
     private PdfDss(
         IReadOnlyList<X509Certificate2> certificates,
         IReadOnlyList<PdfCrl> crls,
-        IReadOnlyList<PdfOcspResponse> ocsp)
+        IReadOnlyList<PdfOcspResponse> ocsp,
+        int endOffset)
     {
         Certificates = certificates;
         Crls = crls;
         Ocsp = ocsp;
+        EndOffset = endOffset;
     }
 
     /// <summary>An empty store, for a document that carries none.</summary>
-    public static PdfDss Empty { get; } = new([], [], []);
+    public static PdfDss Empty { get; } = new([], [], [], 0);
 
     /// <summary>The certificates the store embeds.</summary>
     public IReadOnlyList<X509Certificate2> Certificates { get; }
@@ -39,15 +41,25 @@ internal sealed class PdfDss
     /// <summary>The OCSP answers the store embeds, parsed.</summary>
     public IReadOnlyList<PdfOcspResponse> Ocsp { get; }
 
+    /// <summary>
+    /// The offset just past the last byte of the store and of the streams it points at, or zero
+    /// when the document carries none. A document timestamp that covers the store must reach it.
+    /// </summary>
+    public int EndOffset { get; }
+
     /// <summary>Reads the store the catalog points at, or an empty store when there is none.</summary>
     public static PdfDss Read(PdfDocument document)
     {
         var catalog = document.Catalog;
 
         string? body = null;
+        var end = 0;
+
         if (PdfSyntax.TryReference(catalog, "DSS", out var number) && document.Objects.ContainsKey(number))
         {
-            body = document.Require(number).Body;
+            var store = document.Require(number);
+            body = store.Body;
+            end = Math.Max(end, EndOf(store));
         }
 
         if (body is null)
@@ -90,7 +102,35 @@ internal sealed class PdfDss
             }
         }
 
-        return new PdfDss(certificates, crls, ocsp);
+        foreach (var stream in StreamNumbers(body))
+        {
+            if (document.Objects.TryGetValue(stream, out var entry))
+            {
+                end = Math.Max(end, EndOf(entry));
+            }
+        }
+
+        return new PdfDss(certificates, crls, ocsp, end);
+    }
+
+    /// <summary>The offset just past the <c>endobj</c> that closes an object.</summary>
+    private static int EndOf(PdfObject entry) => entry.BodyEnd + "endobj".Length;
+
+    private static IEnumerable<int> StreamNumbers(string dss)
+    {
+        foreach (var key in (string[])["Certs", "OCSPs", "CRLs"])
+        {
+            if (PdfSyntax.ArrayBody(dss, key) is not { } array)
+            {
+                continue;
+            }
+
+            foreach (System.Text.RegularExpressions.Match match in
+                     System.Text.RegularExpressions.Regex.Matches(array, @"(\d+)\s+0\s+R"))
+            {
+                yield return int.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+            }
+        }
     }
 
     /// <summary>
