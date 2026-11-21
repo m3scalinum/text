@@ -8,14 +8,13 @@ on the compiler: it takes bytes and returns bytes, so it signs a document from a
 
 **In scope.** A PAdES signature over the whole file, with the certificate the caller supplies; a
 signature timestamp (PAdES-B-T); a document security store carrying the chain and caller-supplied
-revocation data (PAdES-B-LT); a visible signature appearance, text or image; a document timestamp;
-and a verifier that says what it can prove about what it read.
+revocation data (PAdES-B-LT); a visible signature appearance, text or image; a document timestamp,
+archiving the document at PAdES-B-LTA and refreshing that archive; and a verifier that says what it
+can prove about what it read.
 
-**Out of scope, for now.** PAdES-B-LTA as a claim (a document timestamp can be added, but the
-verifier does not report the LTA level), redaction, OCR, merging, extracting pages, form filling
-other than the signature field, and fetching revocation data. Each is a separate piece of work, and
-none of them is needed to make a document signed and readable. Encryption is no longer out of
-scope — [19-pdf-encryption.md](19-pdf-encryption.md) reads and writes it — but signing an encrypted
+**Out of scope, for now.** Redaction, OCR, merging, extracting pages, form filling other than the
+signature field, and fetching revocation data. Each is a separate piece of work, and none of them is
+needed to make a document signed and readable. Encryption is no longer out of scope — [19-pdf-encryption.md](19-pdf-encryption.md) reads and writes it — but signing an encrypted
 document is refused: an incremental update to ciphertext can never verify. Decrypt first, sign the
 bytes `PdfEncryption.Open` returned, and re-encrypt the result knowing the signature no longer
 covers it.
@@ -136,6 +135,62 @@ Because it covers the whole file, it must be added **after** the last signature.
 before a later update covers its own revision, not the file, which is normal: the verifier reports
 `CoversWholeFile` separately from `IsIntact` for exactly that reason.
 
+### PAdES-B-LTA: archiving, and refreshing
+
+B-LT proves a signature for as long as the revocation data its store carries stays usable. B-LTA adds
+a document timestamp over the file as it stands — the store included — signed by an authority whose
+own certificate chain the store also carries. That timestamp is the sentence "this store existed at
+this moment", and it is what a ten-year retention actually rests on.
+
+What each level proves, in the words of the verifier:
+
+| Level | What it establishes | What it still depends on |
+| --- | --- | --- |
+| `BaselineB` | the CMS verifies over its byte range | the signer's certificate being readable |
+| `BaselineT` | plus the signature existed when the authority says | the authority's certificate and its digest |
+| `BaselineLT` | plus the store carries the chain and revocation data | that revocation data staying current, and the digests staying sound |
+| `BaselineLTA` | plus a document timestamp over the whole file, whose authority's chain the store carries | nothing in the file: the evidence needed to re-check it is itself attested |
+
+`PdfArchiveTimestamp.Refresh(pdf, options)` appends one document timestamp over the whole current
+file, with the caller's TSA and `HttpClient`; calling it on the result extends the chain, and each
+refresh leaves the earlier timestamps intact and covering their own revision. `Refresh` refuses a
+document that carries no signature — a timestamp over an unsigned file attests that a file existed,
+which is not an archival level. `Refresh` does not judge what it stamps: it appends, and
+`Inspect` reports.
+
+`PdfArchiveTimestamp.IsArchived(pdf)` is the yes or no. `PdfArchiveTimestamp.Inspect(pdf)` is the
+report: one `PdfArchiveEntry` per signature and per document timestamp, in file order, carrying what
+it covers (`CoveredStart`, `CoveredEnd`), whether it is intact, whether it still reaches the end of
+the revision it was written into (`CoversItsRevision`), and whether it covers the store. `Breaks`
+lists, in sentences, every reason the chain does not hold.
+
+**The chain is verified, not assumed.** The analysis walks every entry and re-checks each one over
+the bytes it covers, then requires that:
+
+1. every entry verifies — the CMS, or the token's imprint;
+2. every entry still covers the whole revision it was written into, which is the `%%EOF` that follows
+   it: a timestamp whose coverage stops short reports the byte where it stops, and the document is
+   not archived;
+3. no entry covers fewer bytes than the entry before it;
+4. the newest entry is a document timestamp that reaches the last byte of the file — a signature
+   added after the last timestamp leaves the newest revision unattested, and the document is not
+   archived, however intact the other entries are;
+5. a document timestamp covers the store and the streams it points at; and
+6. the store proves the chain of every signature, and carries and proves the chain of the authority
+   that issued every document timestamp.
+
+**When to refresh.** Before any of the primitives a timestamp rests on ages out: when the digest it
+used is being deprecated, when the authority's certificate approaches its expiry, or when a stronger
+digest becomes the requirement. Refreshing does not change the earlier signatures or timestamps; it
+adds one more revision, so it costs a TSA call and one incremental update, and it can be scheduled
+years apart. Record the refresh in the retention policy, not in the document.
+
+**Why the store must travel with the file.** The level is a property of the bytes, not of a database
+on the signer's side. Move the PDF without its `/DSS` and its timestamps and only what the CMS itself
+carries survives: the OCSP answer that said `good` was fetched at signing time, from a responder that
+will not be there in ten years. The store is written inside the signed range of the revision that
+created it, and every later timestamp covers it again, which is what makes the whole thing movable.
+
 ## 8. Verification
 
 `PdfSignatureVerifier.Verify(bytes)` returns one entry per signature, and one per document timestamp,
@@ -162,6 +217,11 @@ with the facts it could establish — and `null` for the facts it could not:
   carries, and a usable revocation entry for every certificate on that path: a CRL that verifies
   with its issuer's key and does not list the certificate, or an OCSP answer that verifies and says
   `good` for that certificate's serial and issuer hash.
+- **`BaselineLTA`** — plus the document is archived: a document timestamp over the whole file covers
+  the store, its own CMS verifies, and the store carries and proves the chain of the authority that
+  issued it. `PdfArchiveTimestamp.Inspect` reports the chain entry by entry; the level is only
+  granted when that chain holds as a whole, since a signature cannot be more archived than the
+  document that carries it.
 - **`None`** — anything else; `Error` says why.
 
 `PdfSignatureVerification.ProvenLevel` is the **weakest** level across the signatures: a document is
@@ -197,6 +257,18 @@ The tests verify the signature the way a reader does: they read `/ByteRange`, sl
 decode the CMS and call `CheckSignature`, and they compare the byte-range arithmetic against the file
 length. A string assertion would pass on a signature that does not verify.
 
+The slices are taken from the object table, and the length of the structure in `/Contents` comes from
+its ASN.1 header: the hex string is zero-padded to a fixed width, so trimming trailing zeros — which
+an earlier helper did — cuts real bytes off a DER that happens to end in `0x00`, one run in a hundred
+and twenty-eight. That is the flake the extraction used to have; it is now deterministic, and a test
+asserts the declared length for two differently sized certificates.
+
+The archival level is asserted through `PdfSignatureVerifier` itself, never through a private helper:
+a B-LT document archived once proves `BaselineLTA`; a document archived twice carries two intact
+timestamps and the second covers the first; a byte changed after archiving drops the level; and a
+document whose store lacks the authority's certificate stays at `BaselineLT` while
+`PdfArchiveTimestamp.Inspect` says which certificate is missing.
+
 Beyond the tests, the samples are checked with two independent tools:
 
 - **openssl 3.5** — `openssl cms -verify -binary -inform DER -in sig.der -content content.bin
@@ -212,6 +284,17 @@ Those checks are what the claims rest on. A signature that breaks the archive co
 incremental update that corrupts the attachment, or a store a reader cannot parse would be worse than
 no signature at all.
 
+**No external AdES validator was run for the archival level.** pyHanko is not installed in the
+environment this work was done in, so nothing outside this package has been asked whether it reads
+the B-LTA output as LTA. What was checked, on a sample this package produced and archived twice:
+`openssl cms -verify -binary -inform DER -in sig.der -content content.bin -noverify` answers
+`CMS Verification successful` for the signature over the bytes its range names, and
+`openssl ts -reply -token_in -in token.der -text` reads both document timestamps and shows an imprint
+equal to the SHA-256 of the bytes each timestamp names. `openssl ts -verify` declines those tokens
+because the stand-in authority used in this environment does not add the ESS signing-certificate
+attribute RFC 3161 requires; that is a property of the authority, not of the archived document, and
+the tokens' own CMS verifies. The LTA claim itself rests on the verifier and the tests above.
+
 ## 10. What the caller must know
 
 - The certificate needs its private key; a certificate without one is refused before anything is
@@ -224,5 +307,11 @@ no signature at all.
   library does not clamp it to the page: the caller owns the geometry.
 - A security store is evidence only when it carries the whole chain and revocation data for it.
   Collecting that data is the caller's job; this library names no URL and fetches nothing.
+- Archiving is a second call, and refreshing is the same call again: `PdfArchiveTimestamp.Refresh`
+  needs the authority and the client, refuses a document that carries no signature, and appends one
+  timestamp rather than rewriting anything. `IsArchived` answers yes or no; `Inspect` answers why not.
+- The archive is the file: keep the PDF with its `/DSS` and its timestamps, and refresh it before the
+  digest or the authority's certificate ages out. A database row pointing at the signature is not
+  evidence of anything.
 - The signature covers the file as it is. Signing a document that is later modified invalidates it,
   which is the point.
