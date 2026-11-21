@@ -1,0 +1,44 @@
+[package]
+name = "sharp-text-ocr"
+version = "0.1.0"
+edition = "2024"
+# hayro 0.9 declares Rust 1.92, which is therefore the floor of this crate.
+rust-version = "1.92"
+publish = false
+description = "C ABI over ocrs, for M3scalinum.Text.Ocr"
+license = "Apache-2.0"
+
+[lib]
+name = "sharp_text_ocr"
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+# Text detection and line recognition. MIT OR Apache-2.0.
+ocrs = "0.14"
+# Inference runtime the models run on. MIT OR Apache-2.0.
+rten = "0.28"
+# The tensors that runtime hands back (the detection mask). MIT OR Apache-2.0.
+rten-tensor = "0.28"
+# Pure-Rust PDF rasteriser, so OCR of a scanned document needs no native PDF
+# engine and no second package. Apache-2.0 OR MIT.
+hayro = "0.9"
+# Decodes the PNG/JPEG/BMP/TIFF/GIF/WebP the caller hands in. MIT OR Apache-2.0.
+image = { version = "0.25", default-features = false, features = [
+    "bmp",
+    "gif",
+    "jpeg",
+    "png",
+    "tiff",
+    "webp",
+] }
+serde_json = "1"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+# catch_unwind at the FFI boundary requires unwinding: never set panic = "abort".
+panic = "unwind"
+strip = "debuginfo"
+
+[profile.dev]
+panic = "unwind"
