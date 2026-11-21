@@ -18,6 +18,7 @@
     <ProjectReference Include="..\..\src\Text.SharpTypst.Templates\Text.SharpTypst.Templates.csproj" />
     <ProjectReference Include="..\..\src\Text.Pdf\Text.Pdf.csproj" />
     <ProjectReference Include="..\..\src\Text.Pdf.FactureX\Text.Pdf.FactureX.csproj" />
+    <ProjectReference Include="..\..\src\Text.Mcp\Text.Mcp.csproj" />
   </ItemGroup>
 
   <ItemGroup>

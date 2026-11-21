@@ -1,7 +1,8 @@
 # Changelog — the suite train
 
 All notable changes to the packages that do not embed the Typst compiler are documented in this
-file: `M3scalinum.Text.Pdf` and `M3scalinum.Text.Pdf.FactureX`. They are released from `v*` tags
+file: `M3scalinum.Text.Pdf`, `M3scalinum.Text.Pdf.FactureX`, `M3scalinum.Text.Templates` and
+`M3scalinum.Text.Mcp`. They are released from `v*` tags
 by `.github/workflows/release-text.yml`, and that workflow takes its release page from here.
 
 The compiler packages have their own file, [CHANGELOG-SharpTypst.md](CHANGELOG-SharpTypst.md); what
@@ -18,6 +19,18 @@ Not yet published.
 
 ### Added
 
+- `M3scalinum.Text.Mcp`: a Model Context Protocol server over stdio, exposing `render_document`
+  (Typst source, or a layout of `M3scalinum.Text.Templates` with its parameters), `render_invoice`
+  (a `FacturXInvoice`-shaped JSON payload, validated and rendered as Factur-X PDF/A-3) and
+  `list_templates`. JSON-RPC 2.0 is implemented by hand on a source-generated serializer context —
+  no SDK dependency, no reflection-based JSON, `PublishAot`-clean — with `initialize`, `tools/list`,
+  `tools/call`, JSON-RPC error objects for an unknown method, an unknown tool and invalid arguments,
+  and end of input as a clean shutdown. `McpServerOptions` carries the limits and permissions: max
+  document size, max request size, allowed template ids, render timeout, and `AllowFileOutput`,
+  which defaults to `false` so no tool writes a file unless the host says so. A PDF is returned as
+  an MCP embedded `application/pdf` resource, base64-encoded. Tests drive the server over an
+  in-memory stream pair with real frames; the render tests read `SHARPTYPST_NATIVE_PATH` and skip
+  when it is absent.
 - `M3scalinum.Text.Pdf` and `PdfPages`: `Merge`, `Extract`, `Split`, `Rotate` and `Remove` rebuild a
   document — objects renumbered, page tree rewritten, a fresh cross-reference table — so a page
   keeps its content, resources, embedded fonts, images and annotations, and a font two pages share

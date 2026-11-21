@@ -23,6 +23,10 @@
 - [Checking conformance](Pdf-Conformance)
 - [Pages and forms](Pdf-Pages-and-Forms)
 
+**MCP** — render from a model
+
+- [The MCP server](Mcp-Server)
+
 **FactureX** — build and read an e-invoice
 
 - [Getting Started](FactureX-Getting-Started)

@@ -33,10 +33,14 @@ jobs:
           dotnet-version: 11.0.x
       - run: dotnet restore
       - name: Tests
+        # The MCP server's protocol tests need no compiler; its render tests skip themselves without
+        # SHARPTYPST_NATIVE_PATH, which this job does not download — the pack train ships no native
+        # asset and the render path is gated in ci-text.yml's mcp job.
         run: |
           dotnet build -c Release --no-restore
           dotnet test tests/Text.Pdf.Tests -c Release --no-build
           dotnet test tests/Text.Pdf.FactureX.Tests -c Release --no-build
+          dotnet test tests/Text.Mcp.Tests -c Release --no-build
       - name: Check the release notes
         # A tag without its changelog section would reach nuget.org and only then fail to describe
         # what it published. Checked before anything is packed, so the run stops here instead.
@@ -85,10 +89,15 @@ jobs:
 
           dotnet restore src/Text.Pdf.FactureX -p:CoreVersion="$core"
           dotnet restore src/Text.SharpTypst.Templates -p:CoreVersion="$core"
+          dotnet restore src/Text.Mcp -p:CoreVersion="$core"
           dotnet pack src/Text.Pdf -c Release -o artifacts/packages "${version_args[@]}"
           dotnet pack src/Text.Pdf.FactureX -c Release --no-restore \
             -o artifacts/packages -p:CoreVersion="$core" "${version_args[@]}"
           dotnet pack src/Text.SharpTypst.Templates -c Release --no-restore \
+            -o artifacts/packages -p:CoreVersion="$core" "${version_args[@]}"
+          # The MCP server sits on both the e-invoicing package and the layout pack, so it is packed
+          # after them: all three are this train's, and the tag is their version.
+          dotnet pack src/Text.Mcp -c Release --no-restore \
             -o artifacts/packages -p:CoreVersion="$core" "${version_args[@]}"
       - name: Verify the packages
         run: |

@@ -58,7 +58,7 @@ byte[] document = FacturXRenderer.Render(invoice);
 | [Getting Started](SharpTypst-Getting-Started) | [Getting Started](Pdf-Getting-Started) | [Getting Started](FactureX-Getting-Started) |
 | [Compiling](SharpTypst-Compiling) | [Signing](Pdf-Signing) | [The invoice model](FactureX-Model) |
 | [Document Model](SharpTypst-Document-Model) | [Checking conformance](Pdf-Conformance) | [Rendering](FactureX-Rendering) |
-| [Templates](SharpTypst-Templates) | | [Reading](FactureX-Reading) |
+| [Templates](SharpTypst-Templates) | [The MCP server](Mcp-Server) | [Reading](FactureX-Reading) |
 | [Diagnostics](SharpTypst-Diagnostics) | | [Validation](FactureX-Validation) |
 | [Packages and Fonts](SharpTypst-Packages-and-Fonts) | | [The French profile](FactureX-French-Profile) |
 | [Dependency Injection](SharpTypst-Dependency-Injection) | | |

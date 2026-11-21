@@ -29,6 +29,7 @@ byte[] pdf = TypstCompiler.CompileToPdf("""
 - [M3scalinum.Text.Pdf](#m3scalinumtextpdf)
 - [M3scalinum.Text.Pdf.FactureX](#m3scalinumtextpdffacturex)
 - [M3scalinum.Text.Templates](#m3scalinumtexttemplates)
+- [M3scalinum.Text.Mcp](#m3scalinumtextmcp)
 - [Versioning](#versioning)
 - [Supported platforms](#supported-platforms)
 - [Documentation](#documentation)
@@ -47,6 +48,7 @@ byte[] pdf = TypstCompiler.CompileToPdf("""
 | `M3scalinum.Text.Pdf` | PAdES-B signatures, written as incremental updates | — |
 | `M3scalinum.Text.Pdf.FactureX` | Factur-X / ZUGFeRD invoices: read, validate, render, read back | SharpTypst |
 | `M3scalinum.Text.Templates` | Four business-document layouts — invoice, quotation, account statement, attestation — with typed options and English or French labels | SharpTypst |
+| `M3scalinum.Text.Mcp` | A Model Context Protocol server over stdio: render a document or a Factur-X invoice, list the layouts | SharpTypst, Templates, FactureX |
 
 The third and fourth answer a question the first does not: a document that has to be signed, and an
 invoice that has to be booked. They are separate packages rather than features of the compiler
@@ -241,6 +243,44 @@ edited locally rather than taken from the package, and `AddTextTemplates()` regi
 layout reads but the set does not declare fails the render naming the missing key, never a silent
 English word in a French document.
 
+## M3scalinum.Text.Mcp
+
+A [Model Context Protocol](https://modelcontextprotocol.io) server, so a model — in an editor, an
+agent, anywhere that speaks MCP — can ask for a document and get a PDF back. The compiler, the layout
+pack and the e-invoice renderer are all inside the process: nothing is spawned and nothing is
+downloaded.
+
+```bash
+dotnet add package M3scalinum.Text.Mcp
+```
+
+```csharp
+using M3scalinum.Text.Mcp;
+
+var options = new McpServerOptions
+{
+    MaxDocumentSize = 512 * 1024,
+    AllowedTemplateIds = [TemplateIds.Invoice],
+};
+
+await McpServer.RunStdioAsync(options);
+```
+
+| Tool | Does |
+| --- | --- |
+| `render_document` | Renders Typst source, or a layout from `M3scalinum.Text.Templates` with its parameters |
+| `render_invoice` | Renders a Factur-X PDF/A-3 from an invoice payload, validated against the EN 16931 rules |
+| `list_templates` | Lists the layouts this server serves: ids, versions, languages, parameters |
+
+The PDF comes back as an MCP embedded resource — `application/pdf`, base64 — unless the host allowed
+file output and the call named a path. The protocol is JSON-RPC 2.0 over stdio, hand-written on a
+source-generated serializer context so the package stays `PublishAot`-clean; there is no SDK
+dependency.
+
+A tool call is written by a model, so the defaults are the restrictive ones: no file is read, no file
+is written unless `AllowFileOutput` is set, no socket is opened, and a document, a message and a
+compilation are each capped. See [the specification](docs/specifications/17-mcp.md).
+
 ## Versioning
 
 Two trains, two numbers, because they answer different questions.
@@ -248,7 +288,7 @@ Two trains, two numbers, because they answer different questions.
 | Train | Packages | Version |
 | --- | --- | --- |
 | **SharpTypst** | the three compiler packages | `0.15.1.<revision>` — the version *is* the embedded Typst, plus a build count |
-| **Suite** | `M3scalinum.Text.Pdf`, `.Pdf.FactureX` | whatever the tag names: `v0.51.2` publishes `0.51.2` |
+| **Suite** | `M3scalinum.Text.Pdf`, `.Pdf.FactureX`, `.Templates`, `.Mcp` | whatever the tag names: `v0.51.2` publishes `0.51.2` |
 
 A signing fix published as `0.15.1.43` would read as a compiler release, and would jump to `0.16.0`
 the day Typst does, for code that contains no compiler at all. So the two trains tag and release
@@ -260,8 +300,8 @@ separately: `sharptypst-v0.15.1.42` and `v0.51.2`.
 - `win-x64`, `win-arm64`, `linux-x64`, `linux-arm64`, `linux-musl-x64` (Alpine), `osx` (universal,
   Intel and Apple Silicon)
 
-The native compiler ships inside `M3scalinum.Text.SharpTypst` for each of these. The two suite
-packages ship managed assemblies only, so they run wherever .NET does.
+The native compiler ships inside `M3scalinum.Text.SharpTypst` for each of these. The suite packages
+ship managed assemblies only, so they run wherever .NET does.
 
 ## Documentation
 
@@ -323,13 +363,14 @@ Not yet on nuget.org. Everything below passes on the current tree:
 
 | Suite | Tests |
 | --- | --- |
-| `Text.SharpTypst.Tests` | 384 |
-| `Text.Pdf.Tests` | 257 |
-| `Text.Pdf.FactureX.Tests` | 170 |
+| `Text.SharpTypst.Tests` | 389 |
+| `Text.Pdf.Tests` | 279 |
+| `Text.Pdf.FactureX.Tests` | 229 |
 | `Text.SharpTypst.Templates.Generator.Tests` | 14 |
 | `Text.Templates.Tests` | 80 |
+| `Text.Mcp.Tests` | 58 |
 | `Text.Suite.Tests` (public surface and documentation) | 7 |
-| `Text.SharpTypst.Integration.Tests` (real compiler) | 235 |
+| `Text.SharpTypst.Integration.Tests` (real compiler) | 247 |
 
 The `coverage` job fails below 90 % of production lines. Native AOT publish, a 10 000-cycle leak test
 and a benchmark regression gate are in place. The public API of `M3scalinum.Text.SharpTypst` is the

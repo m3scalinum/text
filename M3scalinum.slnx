@@ -3,6 +3,7 @@
   <Folder Name="/src/">
     <Project Path="src/Text.Pdf.FactureX/Text.Pdf.FactureX.csproj" />
     <Project Path="src/Text.Pdf/Text.Pdf.csproj" />
+    <Project Path="src/Text.Mcp/Text.Mcp.csproj" />
     <Project Path="src/Text.SharpTypst.DependencyInjection/Text.SharpTypst.DependencyInjection.csproj" />
     <Project Path="src/Text.SharpTypst.Native/Text.SharpTypst.Native.csproj" />
     <Project Path="src/Text.SharpTypst.Templates.Generator/Text.SharpTypst.Templates.Generator.csproj" />
@@ -11,6 +12,7 @@
   </Folder>
 
   <Folder Name="/tests/">
+    <Project Path="tests/Text.Mcp.Tests/Text.Mcp.Tests.csproj" />
     <Project Path="tests/Text.Pdf.FactureX.Tests/Text.Pdf.FactureX.Tests.csproj" />
     <Project Path="tests/Text.Pdf.Tests/Text.Pdf.Tests.csproj" />
     <Project Path="tests/Text.SharpTypst.Integration.Tests/Text.SharpTypst.Integration.Tests.csproj" />
