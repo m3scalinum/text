@@ -1,0 +1,35 @@
+[package]
+name = "sharp-text-barcodes"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+publish = false
+description = "C ABI over the rxing barcode engine, for M3scalinum.Text.Barcodes"
+license = "Apache-2.0"
+
+[lib]
+name = "sharp_text_barcodes"
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+# rxing is Apache-2.0, the licence of this repository. Only the encoders and decoders are built:
+# no image I/O beyond PNG, no SVG reader, no client support.
+rxing = { version = "0.9.4", default-features = false, features = [
+    "encoders",
+    "decoders",
+    "full_barcode_format_support",
+    "encoding_rs",
+] }
+# PNG only, pinned to the version rxing itself depends on so the tree holds one copy. MIT OR
+# Apache-2.0.
+image = { version = "=0.25.8", default-features = false, features = ["png"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+# catch_unwind at the FFI boundary requires unwinding: never set panic = "abort".
+panic = "unwind"
+strip = "debuginfo"
+
+[profile.dev]
+panic = "unwind"

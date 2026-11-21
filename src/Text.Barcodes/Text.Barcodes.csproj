@@ -1,0 +1,66 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!--
+      This package follows the suite, not a compiler: see Directory.Build.props. The release tag is
+      the version, so a release passes -p:SuiteVersion=<tag>; a local build falls back to
+      TextVersion, which is bumped to the last released version.
+    -->
+    <SuiteVersion Condition="'$(SuiteVersion)' == ''">$(TextVersion)</SuiteVersion>
+    <Version>$(SuiteVersion)</Version>
+    <AssemblyVersion>$(SuiteVersion)</AssemblyVersion>
+    <FileVersion>$(SuiteVersion)</FileVersion>
+    <InformationalVersion>$(Version)</InformationalVersion>
+    <TargetFrameworks>net8.0;net9.0;net10.0;net11.0</TargetFrameworks>
+    <!-- Clears the single-TFM default Directory.Build.props sets, as the other multi-targeted
+         projects do; without it only net11.0 is built and pack fails on the missing assemblies. -->
+    <TargetFramework />
+    <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <IsAotCompatible>true</IsAotCompatible>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <PackageId>M3scalinum.Text.Barcodes</PackageId>
+    <Description>Encode and decode QR Code, DataMatrix, Aztec, PDF417, Code 128, Code 39, EAN-13, EAN-8, ITF and Codabar in-process: SVG and PNG out, text and symbology back.</Description>
+    <PackageTags>barcode;qrcode;datamatrix;aztec;pdf417;ean13;ean8;code128;code39;itf;codabar;svg;png</PackageTags>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The live-handle counter is the diagnostic the leak test asserts on. -->
+    <InternalsVisibleTo Include="M3scalinum.Text.Barcodes.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="/" />
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="/" />
+    <None Include="..\..\NOTICE" Pack="true" PackagePath="/" />
+    <None Include="..\..\THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="/" Condition="Exists('..\..\THIRD-PARTY-NOTICES.md')" />
+  </ItemGroup>
+
+  <!--
+    Natives are packed under the standard runtimes/<rid>/native/ layout, so no buildTransitive
+    targets are needed. The files are produced by the CI matrix; a local pack simply omits the ones
+    that are not there, and the resolver then reports the RID it could not load.
+  -->
+  <ItemGroup>
+    <None Include="$(NativeArtifactsDir)\win-x64\sharp_text_barcodes.dll"
+          Pack="true" PackagePath="runtimes/win-x64/native/" Visible="false"
+          Condition="Exists('$(NativeArtifactsDir)\win-x64\sharp_text_barcodes.dll')" />
+    <None Include="$(NativeArtifactsDir)\win-arm64\sharp_text_barcodes.dll"
+          Pack="true" PackagePath="runtimes/win-arm64/native/" Visible="false"
+          Condition="Exists('$(NativeArtifactsDir)\win-arm64\sharp_text_barcodes.dll')" />
+    <None Include="$(NativeArtifactsDir)\linux-x64\libsharp_text_barcodes.so"
+          Pack="true" PackagePath="runtimes/linux-x64/native/" Visible="false"
+          Condition="Exists('$(NativeArtifactsDir)\linux-x64\libsharp_text_barcodes.so')" />
+    <None Include="$(NativeArtifactsDir)\linux-arm64\libsharp_text_barcodes.so"
+          Pack="true" PackagePath="runtimes/linux-arm64/native/" Visible="false"
+          Condition="Exists('$(NativeArtifactsDir)\linux-arm64\libsharp_text_barcodes.so')" />
+    <None Include="$(NativeArtifactsDir)\osx\libsharp_text_barcodes.dylib"
+          Pack="true" PackagePath="runtimes/osx/native/" Visible="false"
+          Condition="Exists('$(NativeArtifactsDir)\osx\libsharp_text_barcodes.dylib')" />
+    <None Include="$(NativeArtifactsDir)\osx\libsharp_text_barcodes-universal.dylib"
+          Pack="true" PackagePath="runtimes/osx/native/libsharp_text_barcodes.dylib" Visible="false"
+          Condition="Exists('$(NativeArtifactsDir)\osx\libsharp_text_barcodes-universal.dylib')" />
+  </ItemGroup>
+
+</Project>
