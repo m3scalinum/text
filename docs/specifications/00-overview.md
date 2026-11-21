@@ -37,6 +37,43 @@ All three converge on the same compiler entry point and the same export pipeline
 - `osx-x64`, `linux-arm64`, `win-arm64` — accepted as future RIDs, not shipped in v1.
 - Any network access at compile time unless the caller opts into the Universe package resolver.
 
+### 2.3 The document test
+
+The suite produces and manipulates **documents**: bytes that a reader opens and a person reads. It
+does not run services, and it does not own a jurisdiction's rules. Every proposed capability answers
+one question:
+
+> **Does it produce or transform bytes that are a document?**
+
+A capability that fails the test is `Hors scope`. The exclusion is recorded with its reason and with
+its counterpart: an extension point the caller plugs, so that the capability leaves the library
+without leaving the product.
+
+**Decision — the package owns the standard, not the national rules.** For e-invoicing the suite owns
+EN 16931, the syntaxes that express it (CII, UBL, FatturaPA, Facturae, Factur-X/ZUGFeRD) and the
+profile mechanism; it owns neither a jurisdiction's rule set, nor the channel a document is deposited
+into, nor the identifier a platform assigns. The operational test that follows: *when a country
+publishes a new version of its rules, does the suite have to ship a release?* If it does, the line has
+been crossed. The national syntaxes already implemented are frozen: no extension, no new syntax.
+
+| Excluded | Why it is not this suite's job | Counterpart the caller plugs |
+| --- | --- | --- |
+| Peppol addressing and delivery (SMP/SML, AS4) | The access point resolves the address and delivers: a lookup and a transport | `IInvoiceTransport` |
+| Platform clearance and identifiers (ZATCA Fatoora, KSeF, MyInvois, CFDI timbrado, GST IRN, NF-e) | The document only exists once the platform has stamped it | `IInvoiceTransport` |
+| Public-sector deposit (Chorus Pro, TED/eForms) | A deposit protocol with its own lifecycle and status | `IInvoiceTransport` |
+| Country reporting APIs (SII, VeriFactu, myDATA, NAV, e-Factura) | A report per administration, published by that administration | `IInvoiceTransport` |
+| National rule sets and CIUS (XRechnung, Peppol BIS, UBL-TR, Peppol PINT) | N rule sets, versioned outside our calendar | `IEInvoiceProfile` |
+| Trust lists and revocation (LOTL, OCSP, CRL) | A fetch; the library signs and verifies with what it is given — see [14](14-pdf-signature.md) | `IRevocationSource`, and the trust list supplied as bytes |
+| Qualified signatures and seals (eIDAS, EUDI wallet) | A qualified signature is delivered by an accredited provider | the caller's certificate and provider |
+| Health documents (FHIR server, CDA ecosystem) | A server stands behind them; the suite renders the document it is given | the caller's own API |
+| Vertical declarations (DSN, SAF-T, payroll) | National obligations with a legal calendar, not a document format | the caller's reader, fed with the bytes |
+| Print workflow (imposition, PDF/X, ZPL/EPL) | A production chain for a press, not a document | none — out of the product |
+| PDF editing (conversion to DOCX, XFA forms) | A different product built on a renderer | none — out of the product |
+| A preview server | A socket and a session state | none — out of the product |
+
+The list is the backlog's; the project board carries the ticket-level exclusions, and a ticket that
+fails the test is closed by pointing at this section rather than argued case by case.
+
 ## 3. Use cases
 
 | ID | Use case | Entry point |

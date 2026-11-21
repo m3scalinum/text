@@ -110,4 +110,6 @@ file names, to find what you want.
 M3scalinum.Text.Typst compiles Typst source and exports it. It does not implement layout, does not
 host a service, and does not parse Typst. Everything a caller can control is either a Typst feature
 surfaced as a typed option or an environment input (source bytes, font bytes, package bytes,
-clock). Anything else is out of scope and belongs in Typst itself.
+clock). Anything else is out of scope and belongs in Typst itself. No package owns the rules of a
+jurisdiction, a channel a document is deposited into, or a crawl of the network: those are seams the
+caller plugs — see [00 §2.3](00-overview.md#23-the-document-test).

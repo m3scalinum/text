@@ -20,7 +20,9 @@ This document is normative for that package. The main library is described in
 | --- | --- |
 | Full EN 16931 / Schematron conformance | Roughly 200 rules with code lists and profile cardinalities; the CI job validates the XML against the official XSD instead |
 | Signature, transmission, Chorus Pro / Peppol | A separate concern with its own protocol |
-| Order-X, EXTENDED German extensions | Different documents; the profile enum exists so they can be added |
+| National rule sets and CIUS (XRechnung, UBL-TR, Peppol PINT) | N rule sets versioned by their administrations: the caller supplies them through `IEInvoiceProfile` — see [00 §2.3](00-overview.md#23-the-document-test) |
+| Country platforms (ZATCA, KSeF, MyInvois, CFDI timbrado, GST, NF-e) | The document only exists once the platform has stamped it: `IInvoiceTransport` |
+| Order-X, EXTENDED German extensions | Different documents; the profile enum is frozen — no new national syntax |
 | Peppol BIS beyond the document | The SMP/SML lookup, the AS4 transport and the access point's own acceptance are exchange concerns, not invoice terms |
 
 ## 2. The model
