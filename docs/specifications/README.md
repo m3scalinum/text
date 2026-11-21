@@ -54,7 +54,7 @@ them is a bug.
 | `src/Text.Docx` | Word documents read into the document model over `zip` 9 and `roxmltree` |
 | `src/Text.Charts` | Seven chart kinds from a typed model, emitted as SVG, with no dependency |
 | `src/Text.Epub` | A valid EPUB 3 container built from the compiler's HTML |
-| Tests | 459 unit (fake native) + 345 Pdf + 364 Factur-X + 111 templates + 112 mcp + 86 barcodes + 26 docx + 17 epub + 82 charts + 31 ocr + 7 suite + 14 generator + 251 integration (real compiler) |
+| Tests | 459 unit (fake native) + 345 Pdf + 364 Factur-X + 111 templates + 112 mcp + 105 barcodes + 46 docx + 106 epub + 82 charts + 99 ocr + 7 suite + 14 generator + 251 integration (real compiler) |
 | Benchmarks | `benchmarks/Text.SharpTypst.Benchmarks`, baseline stored, `--check` gate in CI |
 | Build & packaging | Build files in place; native packaging wired in CI |
 

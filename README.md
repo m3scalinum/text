@@ -380,11 +380,11 @@ Not yet on nuget.org. Everything below passes on the current tree:
 | `Text.Pdf.FactureX.Tests` | 364 |
 | `Text.Templates.Tests` | 111 |
 | `Text.Mcp.Tests` | 112 |
-| `Text.Barcodes.Tests` | 86 |
-| `Text.Docx.Tests` | 26 |
-| `Text.Epub.Tests` | 17 |
+| `Text.Barcodes.Tests` | 105 |
+| `Text.Docx.Tests` | 46 |
+| `Text.Epub.Tests` | 106 |
 | `Text.Charts.Tests` | 82 |
-| `Text.Ocr.Tests` | 31 |
+| `Text.Ocr.Tests` | 99 |
 | `Text.Suite.Tests` (public surface and documentation) | 7 |
 | `Text.SharpTypst.Templates.Generator.Tests` | 14 |
 | `Text.SharpTypst.Integration.Tests` (real compiler) | 251 |
