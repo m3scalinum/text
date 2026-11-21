@@ -2,12 +2,15 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using System.Threading;
 using System.Threading.Tasks;
 using M3scalinum.Text.Mcp.Internal;
+using M3scalinum.Text.Pdf;
 using M3scalinum.Text.Pdf.FactureX;
 using M3scalinum.Text.SharpTypst.Compilation;
 using M3scalinum.Text.SharpTypst.Templates;
@@ -15,15 +18,16 @@ using M3scalinum.Text.SharpTypst.Templates;
 namespace M3scalinum.Text.Mcp;
 
 /// <summary>
-/// A Model Context Protocol server that renders documents and invoices, speaking JSON-RPC 2.0 over a
-/// pair of streams.
+/// A Model Context Protocol server that renders documents and invoices, and post-processes PDFs,
+/// speaking JSON-RPC 2.0 over a pair of streams.
 /// </summary>
 /// <remarks>
 /// <para>
 /// The server is transport-agnostic in the way a test needs it to be: <see cref="RunAsync"/> takes the
 /// two streams, and <see cref="RunStdioAsync"/> is the same loop bound to the standard input and
-/// output. It serves three tools — <c>render_document</c>, <c>render_invoice</c> and
-/// <c>list_templates</c> — and it holds no state between messages.
+/// output. It serves six tools — <c>render_document</c>, <c>render_invoice</c>,
+/// <c>list_templates</c>, <c>sign_document</c>, <c>merge_documents</c> and <c>extract_text</c> — and
+/// it holds no state between messages.
 /// </para>
 /// <para>
 /// The security posture is the point of the package. A tool call is authored by a model, so it can
@@ -361,9 +365,13 @@ public sealed class McpServer
             McpToolNames.RenderDocument => await RenderDocumentAsync(arguments, cancellationToken).ConfigureAwait(false),
             McpToolNames.RenderInvoice => await RenderInvoiceAsync(arguments, cancellationToken).ConfigureAwait(false),
             McpToolNames.ListTemplates => ListTemplates(),
+            McpToolNames.SignDocument => await SignDocumentAsync(arguments, cancellationToken).ConfigureAwait(false),
+            McpToolNames.MergeDocuments => await MergeDocumentsAsync(arguments, cancellationToken).ConfigureAwait(false),
+            McpToolNames.ExtractText => ExtractText(arguments),
             _ => throw new McpToolArgumentsException(
                 $"unknown tool '{name}'; this server serves {McpToolNames.RenderDocument}, "
-                + $"{McpToolNames.RenderInvoice} and {McpToolNames.ListTemplates}"),
+                + $"{McpToolNames.RenderInvoice}, {McpToolNames.ListTemplates}, "
+                + $"{McpToolNames.SignDocument}, {McpToolNames.MergeDocuments} and {McpToolNames.ExtractText}"),
         };
 
     /// <summary>Renders Typst source, or one layout of the pack with its parameters.</summary>
@@ -486,6 +494,221 @@ public sealed class McpServer
         };
     }
 
+    /// <summary>Signs a PDF with a PKCS#12 certificate, as a PAdES signature.</summary>
+    private async Task<ToolCallResultDto> SignDocumentAsync(
+        JsonElement arguments,
+        CancellationToken cancellationToken)
+    {
+        var outputPath = ConfirmedOutputPath(arguments);
+        var pdf = ReadBinary(arguments, "pdf", "pdfPath");
+        var certificate = ReadBinary(arguments, "certificate", "certificatePath");
+        var password = OptionalString(arguments, "password")
+            ?? throw new McpToolArgumentsException(
+                "'password' is required; pass an empty string when the certificate carries none");
+
+        using var signing = LoadCertificate(certificate, password);
+
+        var options = new PdfSignatureOptions
+        {
+            Reason = OptionalString(arguments, "reason"),
+            Location = OptionalString(arguments, "location"),
+        };
+
+        var signed = PdfSigner.Sign(pdf, signing, options);
+
+        return await DeliverAsync(signed, CountPages(signed), outputPath, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>Merges two or more PDFs into one, in the order the call gives them.</summary>
+    private async Task<ToolCallResultDto> MergeDocumentsAsync(
+        JsonElement arguments,
+        CancellationToken cancellationToken)
+    {
+        var outputPath = ConfirmedOutputPath(arguments);
+        var documents = ReadBinaryArray(arguments, "documents", "documentPaths");
+
+        if (documents.Count < 2)
+        {
+            throw new McpToolArgumentsException(
+                $"merging needs at least two PDFs; this call carried {documents.Count}");
+        }
+
+        var merged = PdfPages.Merge([.. documents]);
+
+        return await DeliverAsync(merged, CountPages(merged), outputPath, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>Reads the text each page of a PDF draws, as one JSON text block.</summary>
+    private ToolCallResultDto ExtractText(JsonElement arguments)
+    {
+        var pdf = ReadBinary(arguments, "pdf", "pdfPath");
+        var extracted = PdfText.Extract(pdf);
+
+        var result = new ExtractedTextDto
+        {
+            PageCount = extracted.PageCount,
+            Pages = extracted.Pages
+                .Select(page => new ExtractedPageDto { Page = page.PageNumber, Text = page.Text })
+                .ToArray(),
+        };
+
+        return new ToolCallResultDto
+        {
+            Content =
+            [
+                new ContentBlockDto
+                {
+                    Type = "text",
+                    Text = JsonSerializer.Serialize(result, McpJsonContext.Default.ExtractedTextDto),
+                },
+            ],
+        };
+    }
+
+    /// <summary>
+    /// Reads one binary argument, inline as base64 or from a path the host allowed, and refuses both
+    /// at once or neither.
+    /// </summary>
+    private byte[] ReadBinary(JsonElement arguments, string inlineName, string pathName)
+    {
+        var inline = OptionalString(arguments, inlineName);
+        var path = OptionalString(arguments, pathName);
+
+        if ((inline is null) == (path is null))
+        {
+            throw new McpToolArgumentsException(
+                $"exactly one of '{inlineName}' or '{pathName}' is required");
+        }
+
+        return inline is not null ? Decode(inline, inlineName) : ReadFile(path!, pathName);
+    }
+
+    /// <summary>Reads an array of PDFs, inline as base64 or from paths, in the order given.</summary>
+    private List<byte[]> ReadBinaryArray(JsonElement arguments, string inlineName, string pathName)
+    {
+        var inline = OptionalArray(arguments, inlineName);
+        var paths = OptionalArray(arguments, pathName);
+
+        if ((inline is null) == (paths is null))
+        {
+            throw new McpToolArgumentsException(
+                $"exactly one of '{inlineName}' or '{pathName}' is required");
+        }
+
+        var documents = new List<byte[]>(inline?.Count ?? paths!.Count);
+
+        if (inline is not null)
+        {
+            for (var index = 0; index < inline.Count; index++)
+            {
+                documents.Add(Decode(inline[index], $"{inlineName}[{index}]"));
+            }
+
+            return documents;
+        }
+
+        for (var index = 0; index < paths!.Count; index++)
+        {
+            documents.Add(ReadFile(paths[index], $"{pathName}[{index}]"));
+        }
+
+        return documents;
+    }
+
+    /// <summary>Decodes a base64 argument, refusing a value that is not base64 or is oversized.</summary>
+    private byte[] Decode(string value, string argument)
+    {
+        // Four base64 characters carry three bytes, so this is the most the value can decode to.
+        var buffer = new byte[(value.Length / 4 * 3) + 3];
+
+        if (!Convert.TryFromBase64String(value, buffer, out var written))
+        {
+            throw new McpToolArgumentsException($"'{argument}' must be base64-encoded binary data");
+        }
+
+        EnsureBinarySize(written, argument);
+        return buffer.AsSpan(0, written).ToArray();
+    }
+
+    /// <summary>Reads a file the call named, only when the host allows file access.</summary>
+    private byte[] ReadFile(string path, string argument)
+    {
+        if (path.Length == 0)
+        {
+            throw new McpToolArgumentsException($"'{argument}' must not be empty");
+        }
+
+        if (!_options.AllowFileOutput)
+        {
+            throw new McpToolArgumentsException(
+                $"this server does not read files: pass '{argument}' inline as base64, "
+                + "or have the host enable file output");
+        }
+
+        if (!File.Exists(path))
+        {
+            throw new McpToolArgumentsException($"'{argument}' does not name an existing file");
+        }
+
+        var length = new FileInfo(path).Length;
+
+        if (length > _options.MaxDocumentSize)
+        {
+            throw new McpToolArgumentsException(
+                $"'{argument}' is {length} bytes; this server accepts at most {_options.MaxDocumentSize}");
+        }
+
+        return File.ReadAllBytes(path);
+    }
+
+    /// <summary>Refuses a binary document larger than the host allows.</summary>
+    private void EnsureBinarySize(int size, string argument)
+    {
+        if (size > _options.MaxDocumentSize)
+        {
+            throw new McpToolArgumentsException(
+                $"'{argument}' is {size} bytes; this server accepts at most {_options.MaxDocumentSize}");
+        }
+    }
+
+    /// <summary>Loads the PKCS#12 a call carried, keeping its private key in memory only.</summary>
+    private static X509Certificate2 LoadCertificate(byte[] pkcs12, string password)
+    {
+        try
+        {
+#if NET9_0_OR_GREATER
+            return X509CertificateLoader.LoadPkcs12(pkcs12, password, X509KeyStorageFlags.EphemeralKeySet);
+#else
+            return new X509Certificate2(pkcs12, password, X509KeyStorageFlags.EphemeralKeySet);
+#endif
+        }
+        catch (CryptographicException exception)
+        {
+            throw new McpToolArgumentsException(
+                "'certificate' is not a readable PKCS#12 file; check the file and the password",
+                exception);
+        }
+    }
+
+    /// <summary>The page count of a PDF, when it can be read; <see langword="null"/> otherwise.</summary>
+    private static int? CountPages(byte[] pdf)
+    {
+        try
+        {
+            return PdfText.Extract(pdf).PageCount;
+        }
+        catch (PdfTextException)
+        {
+            return null;
+        }
+        catch (PdfOperationException)
+        {
+            return null;
+        }
+    }
+
     /// <summary>
     /// Returns the PDF, either as an embedded base64 resource or written to the path the caller named.
     /// </summary>
@@ -578,6 +801,31 @@ public sealed class McpServer
                     + "languages and declared parameters.",
                 InputSchema = McpToolSchemas.ListTemplates,
             },
+            new ToolDefinitionDto
+            {
+                Name = McpToolNames.SignDocument,
+                Description =
+                    "Sign a PDF with a PKCS#12 certificate, as a PAdES-B signature, and return the "
+                    + "signed file. Pass the PDF base64-encoded, or name a path when the host allows "
+                    + "file output; the password is required, and an empty one is accepted.",
+                InputSchema = McpToolSchemas.SignDocument,
+            },
+            new ToolDefinitionDto
+            {
+                Name = McpToolNames.MergeDocuments,
+                Description =
+                    "Merge two or more PDFs into one, in the order given, keeping every page's "
+                    + "content, fonts, images and annotations.",
+                InputSchema = McpToolSchemas.MergeDocuments,
+            },
+            new ToolDefinitionDto
+            {
+                Name = McpToolNames.ExtractText,
+                Description =
+                    "Read the text each page of a PDF draws, through the fonts' ToUnicode maps, and "
+                    + "answer it per page. A page whose text cannot be decoded is reported empty.",
+                InputSchema = McpToolSchemas.ExtractText,
+            },
         ],
     };
 
@@ -623,6 +871,36 @@ public sealed class McpServer
             && value.ValueKind is not JsonValueKind.Null
                 ? value
                 : null;
+
+    /// <summary>Reads an array of strings, or <see langword="null"/> when it is absent.</summary>
+    private static List<string>? OptionalArray(JsonElement arguments, string name)
+    {
+        if (arguments.ValueKind != JsonValueKind.Object
+            || !arguments.TryGetProperty(name, out var value)
+            || value.ValueKind is JsonValueKind.Null)
+        {
+            return null;
+        }
+
+        if (value.ValueKind != JsonValueKind.Array)
+        {
+            throw new McpToolArgumentsException($"'{name}' must be an array of strings");
+        }
+
+        var items = new List<string>();
+
+        foreach (var element in value.EnumerateArray())
+        {
+            if (element.ValueKind != JsonValueKind.String)
+            {
+                throw new McpToolArgumentsException($"'{name}' must be an array of strings");
+            }
+
+            items.Add(element.GetString() ?? string.Empty);
+        }
+
+        return items;
+    }
 
     /// <summary>
     /// Reads <c>outputPath</c> and refuses it outright when the host disabled file output.

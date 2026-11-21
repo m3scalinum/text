@@ -18,6 +18,9 @@ public sealed class TemplateOptionsTests
         TemplateIds.Quotation,
         TemplateIds.Statement,
         TemplateIds.Attestation,
+        TemplateIds.Contract,
+        TemplateIds.Payslip,
+        TemplateIds.PurchaseOrder,
     };
 
     [Fact]
@@ -88,6 +91,9 @@ public sealed class TemplateOptionsTests
             TemplateIds.Invoice => Load<InvoiceOptions>(descriptor),
             TemplateIds.Quotation => Load<QuotationOptions>(descriptor),
             TemplateIds.Statement => Load<StatementOptions>(descriptor),
+            TemplateIds.Contract => Load<ContractOptions>(descriptor),
+            TemplateIds.Payslip => Load<PayslipOptions>(descriptor),
+            TemplateIds.PurchaseOrder => Load<PurchaseOrderOptions>(descriptor),
             _ => Load<AttestationOptions>(descriptor),
         };
 
@@ -134,6 +140,41 @@ public sealed class TemplateOptionsTests
             OpeningBalance = 12500.75,
             Transactions = [],
             Labels = TemplateLabels.For(TemplateIds.Statement, TemplateLanguage.French),
+        }.ToParameters(),
+        TemplateIds.Contract => new ContractOptions
+        {
+            Title = "Contrat de prestation de conseil",
+            Number = "CT-2026-0007",
+            Issued = new DateOnly(2026, 3, 2),
+            Effective = new DateOnly(2026, 4, 1),
+            PartyA = new Dictionary<string, object?>(StringComparer.Ordinal),
+            PartyB = new Dictionary<string, object?>(StringComparer.Ordinal),
+            Clauses = [],
+            Labels = TemplateLabels.For(TemplateIds.Contract, TemplateLanguage.French),
+        }.ToParameters(),
+        TemplateIds.Payslip => new PayslipOptions
+        {
+            Title = "Bulletin de paie 03/2026",
+            Number = "BP-2026-0312",
+            Issued = new DateOnly(2026, 4, 2),
+            PeriodStart = new DateOnly(2026, 3, 1),
+            PeriodEnd = new DateOnly(2026, 3, 31),
+            Employer = new Dictionary<string, object?>(StringComparer.Ordinal),
+            Employee = new Dictionary<string, object?>(StringComparer.Ordinal),
+            Earnings = [],
+            Contributions = [],
+            Labels = TemplateLabels.For(TemplateIds.Payslip, TemplateLanguage.French),
+        }.ToParameters(),
+        TemplateIds.PurchaseOrder => new PurchaseOrderOptions
+        {
+            Title = "Bon de commande mobilier",
+            Number = "BC-2026-0145",
+            Issued = new DateOnly(2026, 3, 5),
+            Buyer = new Dictionary<string, object?>(StringComparer.Ordinal),
+            Supplier = new Dictionary<string, object?>(StringComparer.Ordinal),
+            Items = [],
+            Delivery = new Dictionary<string, object?>(StringComparer.Ordinal),
+            Labels = TemplateLabels.For(TemplateIds.PurchaseOrder, TemplateLanguage.French),
         }.ToParameters(),
         _ => new AttestationOptions
         {

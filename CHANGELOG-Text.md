@@ -19,6 +19,30 @@ Not yet published.
 
 ### Added
 
+- `M3scalinum.Text.Templates`: three more layouts, `contract` (contrat: two parties, numbered clauses
+  with an optional bullet list each, and a signature block), `payslip` (bulletin de paie: employer
+  and employee blocks, the period, the gross earnings lines, the contributions and the net, computed
+  from the amounts the caller supplies) and `purchase-order` (bon de commande: buyer, supplier,
+  delivery address, ordered lines with tax and total, terms and two signature lines). Each ships as
+  an embedded `layouts/<id>/template.toml` and `template.typ`, a typed options record generated from
+  the manifest (`ContractOptions`, `PayslipOptions`, `PurchaseOrderOptions`), an English and French
+  label set in `TemplateLabels`, and an entry in `TemplateCatalog` — seven layouts in all. The
+  layouts print no word of their own: every heading, clause phrase, column title and date pattern is
+  a label, so the same file renders in English or in French. Tested with a minimal and a realistic
+  dataset per layout (page count, a known string in the text the PDF draws, both languages) and with
+  the typed exception a missing required parameter raises.
+- `M3scalinum.Text.Mcp`: three more tools. `sign_document` signs a PDF with a PKCS#12 certificate and
+  its password, with an optional reason and location, and returns the PAdES-signed file; the key is
+  loaded into memory only. `merge_documents` merges two or more PDFs, in the order given, and
+  `extract_text` reads the text each page draws, through the fonts' `/ToUnicode` maps, as
+  `{"pageCount":N,"pages":[{"page":…,"text":…}]}`. A document arrives base64-encoded, or as a path
+  only when the host set `AllowFileOutput` — a path a model chose is ambient access, so it is refused
+  with `-32602` exactly as `outputPath` is — and every input is bounded by `MaxDocumentSize`. The
+  tools share the existing dispatch, limits and error mapping: a bad argument is a JSON-RPC error, a
+  failed signature or an unreadable document is a tool error carrying the reason. Tested with real
+  frames: a `%PDF` header and a signature `PdfSignatureVerifier` reads back as intact, a page count
+  and the markers of the pages merged, the text of a page, plus the invalid-argument and
+  `AllowFileOutput=false` refusals.
 - `M3scalinum.Text.Pdf` and `PdfText`: `Extract` and `ExtractPage` read the text a received PDF
   draws, as bytes in and bytes out. The walk decodes the page content streams, runs the text state
   (`BT`/`ET`, `Tf`, `Td`/`TD`/`Tm`/`T*`, `Tj`/`TJ`/`'`/`"`, spacing, `q`/`Q`, `cm`) and recurses into

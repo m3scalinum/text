@@ -64,6 +64,50 @@ error, not a PDF.
 
 Returns the ids, versions, languages and declared parameters of the layouts this server serves.
 
+### `sign_document`
+
+Signs a PDF with a PKCS#12 certificate, as a PAdES-B signature, and returns the signed file.
+
+| Argument | Type | Meaning |
+| --- | --- | --- |
+| `pdf` | string | The PDF, base64; mutually exclusive with `pdfPath` |
+| `pdfPath` | string | Absolute path of the PDF; refused unless the host allows file output |
+| `certificate` | string | The `.p12`/`.pfx` with its private key, base64; mutually exclusive with `certificatePath` |
+| `certificatePath` | string | Absolute path of the certificate; refused unless the host allows file output |
+| `password` | string | Password of the PKCS#12 — required, and an empty string is a valid one |
+| `reason`, `location` | string | What the signature declares about itself |
+| `outputPath` | string | Where to write the signed PDF; refused unless the host allows it |
+
+The signature is appended as an incremental update, so a PDF/A document stays PDF/A and an earlier
+signature stays valid. The key is loaded into memory only, and no timestamp authority is consulted.
+
+### `merge_documents`
+
+Merges two or more PDFs into one, in the order given.
+
+| Argument | Type | Meaning |
+| --- | --- | --- |
+| `documents` | array of string | The PDFs, base64, in order; mutually exclusive with `documentPaths` |
+| `documentPaths` | array of string | Absolute paths, in order; refused unless the host allows file output |
+| `outputPath` | string | Where to write the merged PDF; refused unless the host allows it |
+
+Each page keeps its content, fonts, images and annotations. Tagging, outlines and form dictionaries
+are dropped by a merge, exactly as `PdfPages.Merge` documents.
+
+### `extract_text`
+
+Reads the text each page draws.
+
+| Argument | Type | Meaning |
+| --- | --- | --- |
+| `pdf` | string | The PDF, base64; mutually exclusive with `pdfPath` |
+| `pdfPath` | string | Absolute path; refused unless the host allows file output |
+
+The answer is one text block: `{"pageCount":2,"pages":[{"page":1,"text":"…"},{"page":2,"text":"…"}]}`.
+Text is decoded through the fonts' `/ToUnicode` maps, with the positioning of each run supplying the
+spaces and line breaks. An encrypted document, or one whose streams use a filter the server does not
+implement, comes back as a tool error naming the reason.
+
 ## What comes back
 
 A PDF is binary, so it travels as an MCP embedded resource: a text block with the size, and a resource
@@ -84,17 +128,21 @@ block with the path.
 Malformed calls are JSON-RPC error objects: `-32700` for a line that is not JSON (or too long),
 `-32600` for a message that is not valid JSON-RPC, `-32601` for an unknown method, `-32602` for an
 unknown tool or bad arguments. A well-formed call whose work failed — Typst rejected the source, the
-invoice breaks a rule — is a result with `"isError": true` and the reason.
+invoice breaks a rule, the PDF is encrypted — is a result with `"isError": true` and the reason.
 
 ## Security posture
 
 A tool call is written by a model. The server reads no file it was not given, writes nothing unless
 the host enabled file output, opens no socket, fetches no package, and caps the size of a document,
-the length of a message and the time a compilation may take.
+the length of a message and the time a compilation may take. A path in any argument — `outputPath`,
+`pdfPath`, `documentPaths`, `certificatePath` — is refused with `-32602` while `AllowFileOutput` is
+`false`; the PDF tools take their input as base64 bytes instead. The signing key is loaded into
+memory, never into a key store, and the private key never leaves the process.
 
 ## Notes
 
 - The protocol is JSON-RPC 2.0 over stdio, one message per line. The package is `PublishAot`-clean:
   no reflection-based serializer, no hosting framework.
-- The tests drive the server over an in-memory stream pair. The five that compile need
-  `SHARPTYPST_NATIVE_PATH` and skip with a message when it is absent.
+- The tests drive the server over an in-memory stream pair. The ones that compile render need
+  `SHARPTYPST_NATIVE_PATH` and skip with a message when it is absent; the protocol and argument
+  tests run without it.

@@ -31,12 +31,20 @@ public sealed class TemplateCatalogTests
         """;
 
     [Fact]
-    public void The_default_catalog_holds_the_four_layouts()
+    public void The_default_catalog_holds_the_seven_layouts()
     {
         var ids = TemplateCatalog.Default.Templates.Select(descriptor => descriptor.Id).ToList();
 
         Assert.Equal(
-            [TemplateIds.Invoice, TemplateIds.Quotation, TemplateIds.Statement, TemplateIds.Attestation],
+            [
+                TemplateIds.Invoice,
+                TemplateIds.Quotation,
+                TemplateIds.Statement,
+                TemplateIds.Attestation,
+                TemplateIds.Contract,
+                TemplateIds.Payslip,
+                TemplateIds.PurchaseOrder,
+            ],
             ids);
         Assert.All(TemplateCatalog.Default.Templates, descriptor => Assert.Equal("1.0.0", descriptor.Version));
         Assert.All(

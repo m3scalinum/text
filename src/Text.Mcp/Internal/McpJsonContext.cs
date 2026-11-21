@@ -25,6 +25,7 @@ namespace M3scalinum.Text.Mcp.Internal;
 [JsonSerializable(typeof(ToolCallResultDto))]
 [JsonSerializable(typeof(TemplateListDto))]
 [JsonSerializable(typeof(RenderSummaryDto))]
+[JsonSerializable(typeof(ExtractedTextDto))]
 internal sealed partial class McpJsonContext : JsonSerializerContext;
 
 /// <summary>The <c>initialize</c> result.</summary>
@@ -144,4 +145,24 @@ internal sealed class RenderSummaryDto
     public int? PageCount { get; init; }
 
     public string? Path { get; init; }
+}
+
+/// <summary>What <c>extract_text</c> answers: the text of each page, in page order.</summary>
+internal sealed class ExtractedTextDto
+{
+    /// <summary>How many pages the document has.</summary>
+    public int PageCount { get; init; }
+
+    /// <summary>The text each page draws; <see cref="ExtractedPageDto.Page"/> counts from one.</summary>
+    public IReadOnlyList<ExtractedPageDto> Pages { get; init; } = [];
+}
+
+/// <summary>The text of one page.</summary>
+internal sealed class ExtractedPageDto
+{
+    /// <summary>The page number, counted from one as a reader numbers it.</summary>
+    public int Page { get; init; }
+
+    /// <summary>The text the page draws, in reading order as far as positioning allows.</summary>
+    public string Text { get; init; } = string.Empty;
 }

@@ -1,0 +1,17 @@
+name = "contract"
+version = "1.0.0"
+entry = "template.typ"
+description = "A4 service or employment contract (contrat): the two parties, the numbered clauses in order and the signature block, with every label supplied by the caller"
+authors = ["SharpTypst"]
+
+[parameters]
+title = { type = "string", required = true }
+number = { type = "string", required = true }
+issued = { type = "date", required = true }
+effective = { type = "date", required = true }
+party_a = { type = "object", required = true }
+party_b = { type = "object", required = true }
+clauses = { type = "array", of = "object", required = true }
+labels = { type = "object", required = true }
+place = { type = "string", default = "" }
+notes = { type = "string", default = "" }
