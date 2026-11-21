@@ -98,7 +98,7 @@ public sealed class PdfSignatureVerification
                 return PdfSignatureLevel.None;
             }
 
-            var level = PdfSignatureLevel.BaselineLT;
+            var level = PdfSignatureLevel.BaselineLTA;
 
             foreach (var signature in Signatures)
             {

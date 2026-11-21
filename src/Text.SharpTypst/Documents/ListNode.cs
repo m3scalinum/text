@@ -26,6 +26,7 @@ internal sealed class ListNode : TypstNode
 
     private readonly IReadOnlyList<ListItem> _items;
     private readonly bool _ordered;
+    private readonly bool _loose;
 
     public ListNode(IReadOnlyList<TypstContent> items, bool ordered)
     {
@@ -42,11 +43,12 @@ internal sealed class ListNode : TypstNode
         _items = entries;
     }
 
-    public ListNode(IReadOnlyList<ListItem> items, bool ordered)
+    public ListNode(IReadOnlyList<ListItem> items, bool ordered, bool loose = false)
     {
         ArgumentNullException.ThrowIfNull(items);
         _items = items;
         _ordered = ordered;
+        _loose = loose;
     }
 
     internal override void Write(TypstMarkupWriter writer)
@@ -57,17 +59,28 @@ internal sealed class ListNode : TypstNode
         }
 
         writer.BlankLine();
-        WriteItems(writer, _items, _ordered, 0);
+        WriteItems(writer, _items, _ordered, 0, _loose);
     }
 
     private static void WriteItems(
         TypstMarkupWriter writer,
         IReadOnlyList<ListItem> items,
         bool ordered,
-        int depth)
+        int depth,
+        bool loose)
     {
+        var first = true;
+
         foreach (var item in items)
         {
+            if (!first && loose)
+            {
+                // A blank line between items is what makes a Typst list loose.
+                writer.NewLine();
+            }
+
+            first = false;
+
             writer.WriteVerbatim(Indent(depth));
             writer.WriteVerbatim(ordered ? "+ " : "- ");
             item.Content.Write(writer);
@@ -77,11 +90,14 @@ internal sealed class ListNode : TypstNode
             {
                 if (child is ListNode nested)
                 {
-                    WriteItems(writer, nested._items, nested._ordered, depth + 1);
+                    WriteItems(writer, nested._items, nested._ordered, depth + 1, nested._loose);
                 }
                 else
                 {
-                    child.Write(writer);
+                    using (writer.Indent())
+                    {
+                        child.Write(writer);
+                    }
                 }
             }
         }

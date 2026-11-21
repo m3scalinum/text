@@ -1,0 +1,35 @@
+[package]
+name = "sharp-text-docx"
+version = "0.1.0"
+edition = "2024"
+# `docx-rs` 0.4.22 and its `zip` 8.6 dependency are the real floor; edition 2024 asks for 1.85.
+rust-version = "1.85"
+publish = false
+description = "C ABI over a DOCX reader, for M3scalinum.Text.Docx"
+license = "Apache-2.0"
+
+[lib]
+name = "sharp_text_docx"
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+# `default-features = false` drops the `image` crate: this reader hands the original media bytes back
+# and never decodes or re-encodes an image, so the decoder would be dead weight and a wider licence
+# surface.
+docx-rs = { version = "0.4.22", default-features = false }
+# The package is opened here before docx-rs sees it, so "not a zip" and "no word/document.xml" are
+# told apart instead of collapsing into one reader error. Cargo shares the `zip` 8.6 build with
+# docx-rs, so this is not a second copy of the crate.
+zip = { version = "8.6", default-features = false, features = ["deflate"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+# catch_unwind at the FFI boundary requires unwinding: never set panic = "abort".
+panic = "unwind"
+strip = "debuginfo"
+
+[profile.dev]
+panic = "unwind"

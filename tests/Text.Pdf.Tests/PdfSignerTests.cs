@@ -63,36 +63,22 @@ public sealed class PdfSignerTests
     private static byte[] Sign(string pdf, PdfSignatureOptions? options = null)
         => PdfSigner.Sign(Encoding.Latin1.GetBytes(pdf), Certificate(), options);
 
-    /// <summary>Reads the byte range a reader would use, and returns the two slices.</summary>
+    /// <summary>
+    /// Reads the byte range a reader would use, and returns the two slices. The signature is located
+    /// through the object table and the range it declares, not by a regex over the file as text: the
+    /// hex placeholder is zero-padded, and trimming those zeros cuts real DER bytes whenever the CMS
+    /// happens to end in <c>0x00</c> — a flake that shows up in one run out of a hundred and
+    /// twenty-eight. <see cref="PdfLtaSignatureSlice"/> takes the length from the ASN.1 header.
+    /// </summary>
     private static (byte[] Signed, byte[] Signature) Extract(byte[] pdf)
     {
-        var text = Encoding.Latin1.GetString(pdf);
+        var dictionary = Assert.Single(PdfLtaSignatureSlice.Dictionaries(pdf));
+        var range = dictionary.ByteRange;
 
-        var range = Regex.Match(text, @"/ByteRange\[(\d+) (\d+) (\d+) (\d+)\]");
-        Assert.True(range.Success, "the signature dictionary carries no /ByteRange");
+        Assert.Equal(0, range[0]);
+        Assert.Equal(pdf.Length, range[2] + range[3]);
 
-        var first = int.Parse(range.Groups[1].Value, CultureInfo.InvariantCulture);
-        var firstLength = int.Parse(range.Groups[2].Value, CultureInfo.InvariantCulture);
-        var second = int.Parse(range.Groups[3].Value, CultureInfo.InvariantCulture);
-        var secondLength = int.Parse(range.Groups[4].Value, CultureInfo.InvariantCulture);
-
-        Assert.Equal(0, first);
-        Assert.Equal(pdf.Length, second + secondLength);
-
-        var signed = new byte[firstLength + secondLength];
-        Buffer.BlockCopy(pdf, first, signed, 0, firstLength);
-        Buffer.BlockCopy(pdf, second, signed, firstLength, secondLength);
-
-        var contents = Regex.Match(text, @"/Contents<([0-9A-Fa-f]+)>");
-        Assert.True(contents.Success, "the signature dictionary carries no /Contents");
-
-        var hex = contents.Groups[1].Value.TrimEnd('0');
-        if (hex.Length % 2 != 0)
-        {
-            hex += "0";
-        }
-
-        return (signed, Convert.FromHexString(hex));
+        return (PdfLtaSignatureSlice.Covered(pdf, dictionary), PdfLtaSignatureSlice.Contents(pdf, dictionary));
     }
 
     [Fact]
@@ -188,8 +174,17 @@ public sealed class PdfSignerTests
         cms.Decode(signature);
         cms.CheckSignature(verifySignatureOnly: true);
 
-        // And the second one covers the whole file, first signature included.
-        var text = Encoding.Latin1.GetString(second);
-        Assert.Equal(2, Regex.Count(text, @"/SubFilter/ETSI\.CAdES\.detached"));
+        // And the second one covers the whole file, first signature included. Both dictionaries are
+        // counted from the object table, not by matching a string in the file.
+        var dictionaries = PdfLtaSignatureSlice.Dictionaries(second);
+        Assert.Equal(2, dictionaries.Count);
+        Assert.Equal(second.Length, dictionaries[1].ByteRange[2] + dictionaries[1].ByteRange[3]);
+        Assert.True(first.Length <= dictionaries[1].ByteRange[2]);
+
+        var last = new SignedCms(
+            new ContentInfo(PdfLtaSignatureSlice.Covered(second, dictionaries[1])),
+            detached: true);
+        last.Decode(PdfLtaSignatureSlice.Contents(second, 1));
+        last.CheckSignature(verifySignatureOnly: true);
     }
 }
