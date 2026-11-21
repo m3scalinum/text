@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!--
+      The OCR package follows the suite, not the compiler: see Directory.Build.props.
+      A release passes -p:SuiteVersion=<tag>; an untagged build falls back to TextVersion.
+    -->
+    <SuiteVersion Condition="'$(SuiteVersion)' == ''">$(TextVersion)</SuiteVersion>
+    <Version>$(SuiteVersion)</Version>
+    <AssemblyVersion>$(SuiteVersion)</AssemblyVersion>
+    <FileVersion>$(SuiteVersion)</FileVersion>
+    <InformationalVersion>$(Version)</InformationalVersion>
+    <TargetFrameworks>net8.0;net9.0;net10.0;net11.0</TargetFrameworks>
+    <!-- Clears the single-TFM default Directory.Build.props sets. -->
+    <TargetFramework />
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsAotCompatible>true</IsAotCompatible>
+    <IsPackable>true</IsPackable>
+    <PackageId>M3scalinum.Text.Ocr</PackageId>
+    <Description>Read text from page images and scanned PDFs in-process, with models the caller supplies.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="M3scalinum.Text.Ocr.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+</Project>
