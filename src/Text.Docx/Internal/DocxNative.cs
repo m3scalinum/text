@@ -8,11 +8,6 @@ namespace M3scalinum.Text.Docx.Internal;
 /// <summary>Owns a native parsed document.</summary>
 internal sealed class DocxHandle : SafeHandleZeroOrMinusOneIsInvalid
 {
-    public DocxHandle()
-        : base(ownsHandle: true)
-    {
-    }
-
     public DocxHandle(IntPtr handle)
         : base(ownsHandle: true) => SetHandle(handle);
 

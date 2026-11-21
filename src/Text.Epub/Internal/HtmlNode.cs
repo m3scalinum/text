@@ -20,19 +20,6 @@ internal sealed class HtmlElement : HtmlNode
     public List<KeyValuePair<string, string>> Attributes { get; } = [];
 
     public List<HtmlNode> Children { get; } = [];
-
-    public string? Attribute(string name)
-    {
-        foreach (var attribute in Attributes)
-        {
-            if (string.Equals(attribute.Key, name, System.StringComparison.Ordinal))
-            {
-                return attribute.Value;
-            }
-        }
-
-        return null;
-    }
 }
 
 /// <summary>A run of text, already decoded.</summary>
