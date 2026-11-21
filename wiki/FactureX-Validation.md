@@ -1,4 +1,4 @@
-# FactureX — validation
+# Validation
 
 ## The call
 

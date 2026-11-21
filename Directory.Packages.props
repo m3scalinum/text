@@ -20,7 +20,7 @@
   </ItemGroup>
 
   <ItemGroup Condition="'$(CoreVersion)' != ''">
-    <PackageVersion Include="M3scalinum.Text.SharpTypst" Version="$(CoreVersion)" />
+    <PackageVersion Include="M3scalinum.Text.Typst" Version="$(CoreVersion)" />
   </ItemGroup>
 
 </Project>

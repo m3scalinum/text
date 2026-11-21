@@ -1,4 +1,4 @@
-# Pdf — converting a document to PDF/A
+# Converting a document to PDF/A
 
 ## What it answers
 

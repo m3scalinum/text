@@ -1,6 +1,6 @@
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
-using M3scalinum.Text.SharpTypst.Compilation;
+using M3scalinum.Text.Typst.Compilation;
 using M3scalinum.Text.Pdf;
 
 // Compiles a document, signs it with PAdES, and writes both files so a validator can check them.
@@ -11,7 +11,7 @@ Directory.CreateDirectory(outputDirectory);
 const string Source = """
     = Facture signée
 
-    Une facture qui porte une signature PAdES, produite par M3scalinum.Text.SharpTypst.
+    Une facture qui porte une signature PAdES, produite par M3scalinum.Text.Typst.
 
     #table(
       columns: 3,
@@ -45,7 +45,7 @@ Console.WriteLine($"  wrote {Path.GetFileName(unsignedPath)} ({pdf.Length} bytes
 // structure, and a real deployment loads its own from a .pfx or a key store.
 using var key = RSA.Create(2048);
 var request = new CertificateRequest(
-    "CN=M3scalinum.Text.SharpTypst Sample, O=M3scalinum.Text.SharpTypst, C=FR",
+    "CN=M3scalinum.Text.Typst Sample, O=M3scalinum.Text.Typst, C=FR",
     key,
     HashAlgorithmName.SHA256,
     RSASignaturePadding.Pkcs1);

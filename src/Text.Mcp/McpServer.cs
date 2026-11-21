@@ -12,8 +12,9 @@ using System.Threading.Tasks;
 using M3scalinum.Text.Mcp.Internal;
 using M3scalinum.Text.Pdf;
 using M3scalinum.Text.Pdf.FactureX;
-using M3scalinum.Text.SharpTypst.Compilation;
-using M3scalinum.Text.SharpTypst.Templates;
+using M3scalinum.Text.Typst.Compilation;
+using M3scalinum.Text.Templates;
+using M3scalinum.Text.Typst.Templates;
 
 namespace M3scalinum.Text.Mcp;
 

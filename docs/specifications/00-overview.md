@@ -1,8 +1,8 @@
 # 00 — Overview
 
-## 1. What M3scalinum.Text.SharpTypst is
+## 1. What M3scalinum.Text.Typst is
 
-A .NET library (single public package, `M3scalinum.Text.SharpTypst`) that hosts the Typst compiler in-process and
+A .NET library (single public package, `M3scalinum.Text.Typst`) that hosts the Typst compiler in-process and
 offers three ways to produce a document:
 
 1. **Source** — hand-written or generated `.typ` text, compiled as-is.
@@ -69,7 +69,7 @@ All three converge on the same compiler entry point and the same export pipeline
 
 | Term | Meaning |
 | --- | --- |
-| **World** | Typst's environment trait: the set of sources, fonts, packages and the clock a compilation sees. In M3scalinum.Text.SharpTypst, a `TypstWorld` is the managed description of that environment. |
+| **World** | Typst's environment trait: the set of sources, fonts, packages and the clock a compilation sees. In M3scalinum.Text.Typst, a `TypstWorld` is the managed description of that environment. |
 | **Source** | A named byte buffer of Typst markup, identified by a virtual path (`main.typ`, `partials/header.typ`). |
 | **Root** | The virtual path of the source that is compiled. Defaults to `main.typ`. |
 | **Paged document** | The result of laying out content onto pages. Required for PDF, SVG and PNG. |
@@ -86,9 +86,9 @@ All three converge on the same compiler entry point and the same export pipeline
 
 | Item | Value |
 | --- | --- |
-| Package id | `M3scalinum.Text.SharpTypst` |
+| Package id | `M3scalinum.Text.Typst` |
 | Root namespace | `Typst` |
-| Assembly | `M3scalinum.Text.SharpTypst.dll` |
+| Assembly | `M3scalinum.Text.Typst.dll` |
 | Target framework | `net8.0`, `net9.0`, `net10.0`, `net11.0` |
 | Native library | `sharp_typst` (`sharp_typst.dll`, `libsharp_typst.so`, `libsharp_typst.dylib`) |
 | Licence | Apache-2.0 — the same licence as Typst, so the combined work is trivially compliant |
@@ -100,4 +100,4 @@ target `net11.0` only, which keeps the test matrix at one runtime. Rejected: `ne
 `Span`-based marshalling, no AOT story).
 
 **Decision — root namespace `Typst`.** The package id carries the `.NET` suffix; repeating it in
-every `using` is noise. Rejected: `M3scalinum.Text.SharpTypst.*` namespaces.
+every `using` is noise. Rejected: `M3scalinum.Text.Typst.*` namespaces.

@@ -161,7 +161,7 @@ the table this package knows are left as text, which is visible but well-formed.
 
 ### 4.1 Why there is no compiler reference
 
-`M3scalinum.Text.SharpTypst` can export HTML, and a bridge could have taken a `TypstDocument` or a
+`M3scalinum.Text.Typst` can export HTML, and a bridge could have taken a `TypstDocument` or a
 `CompilationResult` and called it. This package takes a string instead, and keeps the dependency out:
 
 - **The release trains differ.** The compiler wrapper's version tracks the embedded Typst compiler

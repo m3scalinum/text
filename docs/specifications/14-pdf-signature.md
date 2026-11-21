@@ -3,7 +3,7 @@
 ## 1. Scope
 
 `M3scalinum.Text.Pdf` signs a PDF with PAdES, reads those signatures back, and is where
-post-processing of the documents M3scalinum.Text.SharpTypst produces will live. It has no dependency
+post-processing of the documents M3scalinum.Text.Typst produces will live. It has no dependency
 on the compiler: it takes bytes and returns bytes, so it signs a document from any source.
 
 **In scope.** A PAdES signature over the whole file, with the certificate the caller supplies; a
@@ -248,7 +248,7 @@ never at the claimed signing time, which is whatever the file says.
   ECDSA signatures are checked; other algorithms are not.
 - The reader finds objects by scanning for `N 0 obj` headers rather than by following the
   cross-reference table, so a PDF that keeps its objects in object streams (compressed xref) is not
-  read. Every PDF this package writes, and every PDF M3scalinum.Text.SharpTypst produces, uses plain
+  read. Every PDF this package writes, and every PDF M3scalinum.Text.Typst produces, uses plain
   object tables.
 
 ## 9. Verification of this work

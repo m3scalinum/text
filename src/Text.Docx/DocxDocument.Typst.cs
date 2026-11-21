@@ -1,10 +1,10 @@
 using System;
 using System.Collections.Generic;
-using M3scalinum.Text.SharpTypst.Documents;
+using M3scalinum.Text.Documents;
 
 namespace M3scalinum.Text.Docx;
 
-/// <summary>Turns a read document into the document model of <c>M3scalinum.Text.SharpTypst</c>.</summary>
+/// <summary>Turns a read document into the document model of <c>M3scalinum.Text.Typst</c>.</summary>
 public sealed partial class DocxDocument
 {
     /// <summary>
@@ -14,7 +14,7 @@ public sealed partial class DocxDocument
     /// <para>
     /// The result is a <see cref="TypstDocument"/> of the suite's own model — the same one every
     /// other producer builds — so it compiles through
-    /// <see cref="M3scalinum.Text.SharpTypst.Compilation.TypstCompiler"/> and exports like any other
+    /// <see cref="M3scalinum.Text.Typst.Compilation.TypstCompiler"/> and exports like any other
     /// document.
     /// </para>
     /// <para>

@@ -2,7 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text.Json;
-using M3scalinum.Text.SharpTypst.Templates;
+using M3scalinum.Text.Templates;
+using M3scalinum.Text.Typst.Templates;
 
 namespace M3scalinum.Text.Mcp.Internal;
 

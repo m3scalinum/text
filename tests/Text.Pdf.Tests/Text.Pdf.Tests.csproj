@@ -11,7 +11,7 @@
 
   <ItemGroup>
     <!--
-      Real documents, compiled by M3scalinum.Text.SharpTypst with Typst 0.15.1 and committed as
+      Real documents, compiled by M3scalinum.Text.Typst with Typst 0.15.1 and committed as
       bytes: the checker must survive a real producer, not a hand-written minimal file. See
       fixtures/pdfua/README.md for how each one was produced.
     -->

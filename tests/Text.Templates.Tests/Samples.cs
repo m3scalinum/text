@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using M3scalinum.Text.SharpTypst.Templates;
+using M3scalinum.Text.Templates;
 
 namespace M3scalinum.Text.Templates.Tests;
 

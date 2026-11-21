@@ -1,6 +1,6 @@
 using System;
 using Microsoft.Extensions.DependencyInjection;
-using M3scalinum.Text.SharpTypst.Templates;
+using M3scalinum.Text.Templates;
 using Xunit;
 
 namespace M3scalinum.Text.Templates.Tests;

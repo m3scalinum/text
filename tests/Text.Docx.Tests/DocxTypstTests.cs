@@ -1,7 +1,7 @@
 using System.IO;
 using M3scalinum.Text.Docx;
-using M3scalinum.Text.SharpTypst.Compilation;
-using M3scalinum.Text.SharpTypst.Documents;
+using M3scalinum.Text.Typst.Compilation;
+using M3scalinum.Text.Documents;
 using Xunit;
 
 namespace M3scalinum.Text.Docx.Tests;

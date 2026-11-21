@@ -37,7 +37,7 @@ public sealed class PdfSignerTests
         using var key = RSA.Create(2048);
 
         var request = new CertificateRequest(
-            "CN=M3scalinum.Text.SharpTypst Test, O=M3scalinum.Text.SharpTypst, C=FR",
+            "CN=M3scalinum.Text.Typst Test, O=M3scalinum.Text.Typst, C=FR",
             key,
             HashAlgorithmName.SHA256,
             RSASignaturePadding.Pkcs1);

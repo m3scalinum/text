@@ -2,21 +2,25 @@
 
 - [Home](Home)
 
-**SharpTypst** — compile Typst in-process
+**Typst** — compile Typst in-process
 
-- [Getting Started](SharpTypst-Getting-Started)
-- [Compiling](SharpTypst-Compiling)
-- [Document Model](SharpTypst-Document-Model)
-- [Importing HTML](SharpTypst-Html-Import)
-- [Templates](SharpTypst-Templates)
-- [Diagnostics](SharpTypst-Diagnostics)
-- [Packages and Fonts](SharpTypst-Packages-and-Fonts)
-- [Dependency Injection](SharpTypst-Dependency-Injection)
-- [Performance](SharpTypst-Performance)
-- [Troubleshooting](SharpTypst-Troubleshooting)
-- [Building from Source](SharpTypst-Building-from-Source)
+- [Getting Started](Typst-Getting-Started)
+- [Compiling](Typst-Compiling)
+- [Templates](Typst-Templates)
+- [Diagnostics](Typst-Diagnostics)
+- [Packages and Fonts](Typst-Packages-and-Fonts)
+- [Dependency Injection](Typst-Dependency-Injection)
+- [Performance](Typst-Performance)
+- [Troubleshooting](Typst-Troubleshooting)
+- [Building from Source](Typst-Building-from-Source)
 
-**Pdf** — sign a document
+**Documents** — the document model
+
+- [The document model](Documents-Model)
+- [Importing HTML](Documents-Html-Import)
+- [Importing Markdown](Documents-Markdown-Import)
+
+**Pdf** — sign, change and read a PDF
 
 - [Getting Started](Pdf-Getting-Started)
 - [Signing](Pdf-Signing)
@@ -24,20 +28,7 @@
 - [Pages and forms](Pdf-Pages-and-Forms)
 - [Reading text](Pdf-Text)
 - [Encryption](Pdf-Encryption)
-
-**Beyond a page** — other formats and in-process engines
-
-- [Barcodes](Barcodes)
-- [OCR](Ocr)
-- [Reading DOCX](Docx)
-- [Charts](Charts)
-- [EPUB](Epub)
 - [Converting to PDF/A](Pdf-Conversion)
-- [Importing Markdown](SharpTypst-Markdown-Import)
-
-**MCP** — render from a model
-
-- [The MCP server](Mcp-Server)
 
 **FactureX** — build and read an e-invoice
 
@@ -49,3 +40,15 @@
 - [The Peppol CIUS](FactureX-Peppol)
 - [The XRechnung CIUS](FactureX-XRechnung)
 - [The French profile](FactureX-French-Profile)
+
+**Formats and engines** — one page each
+
+- [Barcodes](Barcodes)
+- [Charts](Charts)
+- [Reading DOCX](Docx)
+- [EPUB](Epub)
+- [OCR](Ocr)
+
+**MCP** — serve it over the protocol
+
+- [The MCP server](Mcp-Server)

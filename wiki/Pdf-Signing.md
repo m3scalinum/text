@@ -1,4 +1,4 @@
-# Pdf — signing and verifying
+# Signing and verifying
 
 ## What the signature is
 

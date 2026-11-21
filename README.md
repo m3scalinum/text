@@ -1,8 +1,8 @@
 # M3scalinum.Text
 
-[![CI (SharpTypst)](https://github.com/m3scalinum/text/actions/workflows/ci-sharptypst.yml/badge.svg?branch=main)](https://github.com/m3scalinum/text/actions/workflows/ci-sharptypst.yml)
+[![CI (Typst)](https://github.com/m3scalinum/text/actions/workflows/ci-sharptypst.yml/badge.svg?branch=main)](https://github.com/m3scalinum/text/actions/workflows/ci-sharptypst.yml)
 [![CI (Text suite)](https://github.com/m3scalinum/text/actions/workflows/ci-text.yml/badge.svg?branch=main)](https://github.com/m3scalinum/text/actions/workflows/ci-text.yml)
-[![NuGet SharpTypst](https://img.shields.io/nuget/v/M3scalinum.Text.SharpTypst.svg)](https://www.nuget.org/packages/M3scalinum.Text.SharpTypst)
+[![NuGet Typst](https://img.shields.io/nuget/v/M3scalinum.Text.Typst.svg)](https://www.nuget.org/packages/M3scalinum.Text.Typst)
 [![NuGet Pdf](https://img.shields.io/nuget/v/M3scalinum.Text.Pdf.svg)](https://www.nuget.org/packages/M3scalinum.Text.Pdf)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://github.com/m3scalinum/text/blob/main/LICENSE)
 [![.NET](https://img.shields.io/badge/.NET-8.0%20%7C%209.0%20%7C%2010.0%20%7C%2011.0-512BD4.svg)](https://dotnet.microsoft.com)
@@ -13,7 +13,7 @@ builds the e-invoice European platforms exchange. No browser, no Office, no proc
 binary on `PATH`.
 
 ```csharp
-using M3scalinum.Text.SharpTypst.Compilation;
+using M3scalinum.Text.Typst.Compilation;
 
 byte[] pdf = TypstCompiler.CompileToPdf("""
     #set page(paper: "a4")
@@ -25,11 +25,13 @@ byte[] pdf = TypstCompiler.CompileToPdf("""
 ## Contents
 
 - [The packages](#the-packages)
-- [M3scalinum.Text.SharpTypst](#m3scalinumtextsharptypst)
+- [M3scalinum.Text.Typst](#m3scalinumtexttypst)
+- [M3scalinum.Text.Documents](#m3scalinumtextdocuments)
 - [M3scalinum.Text.Pdf](#m3scalinumtextpdf)
 - [M3scalinum.Text.Pdf.FactureX](#m3scalinumtextpdffacturex)
 - [M3scalinum.Text.Templates](#m3scalinumtexttemplates)
 - [M3scalinum.Text.Mcp](#m3scalinumtextmcp)
+- [The other formats](#the-other-formats)
 - [Versioning](#versioning)
 - [Supported platforms](#supported-platforms)
 - [Documentation](#documentation)
@@ -42,30 +44,30 @@ byte[] pdf = TypstCompiler.CompileToPdf("""
 
 | Package | What it does | Depends on |
 | --- | --- | --- |
-| `M3scalinum.Text.SharpTypst` | Compiles Typst in-process. PDF, SVG, PNG, HTML, Markdown, plain text, bundles | — |
-| `M3scalinum.Text.SharpTypst.DependencyInjection` | `AddSharpTypst` for `Microsoft.Extensions.DependencyInjection` | SharpTypst |
-| `M3scalinum.Text.SharpTypst.Templates.Generator` | Roslyn generator: a `template.toml` becomes a typed options record | — |
+| `M3scalinum.Text.Typst` | Compiles Typst in-process. PDF, SVG, PNG, HTML, Markdown, plain text, bundles | — |
+| `M3scalinum.Text.Documents` | The document model: typed content, inline styles, tables, figures, lists, page setup, and the HTML and Markdown importers | — |
+| `M3scalinum.Text.Typst.DependencyInjection` | `AddTypst` for `Microsoft.Extensions.DependencyInjection` | Typst |
+| `M3scalinum.Text.Templates.Generator` | Roslyn generator: a `template.toml` becomes a typed options record | — |
 | `M3scalinum.Text.Pdf` | PAdES-B signatures, written as incremental updates | — |
-| `M3scalinum.Text.Pdf.FactureX` | Factur-X / ZUGFeRD invoices: read, validate, render, read back | SharpTypst |
-| `M3scalinum.Text.Templates` | Seven business-document layouts — invoice, quotation, account statement, attestation, contract, payslip, purchase order — with typed options and English or French labels | SharpTypst |
-| `M3scalinum.Text.Mcp` | A Model Context Protocol server over stdio: render a document or a Factur-X invoice, list the layouts, sign, merge and read PDFs | SharpTypst, Templates, FactureX, Pdf |
+| `M3scalinum.Text.Pdf.FactureX` | Factur-X / ZUGFeRD invoices: read, validate, render, read back | Documents, Typst |
+| `M3scalinum.Text.Templates` | Seven business-document layouts — invoice, quotation, account statement, attestation, contract, payslip, purchase order — with typed options and English or French labels | Typst |
+| `M3scalinum.Text.Mcp` | A Model Context Protocol server over stdio: render a document or a Factur-X invoice, list the layouts, sign, merge and read PDFs | Typst, Documents, Templates, FactureX, Pdf |
 | `M3scalinum.Text.Barcodes` | QR, DataMatrix, Aztec, PDF417, Code 128/39, EAN-13/8, ITF and Codabar: encode to SVG or PNG, decode back | — |
 | `M3scalinum.Text.Ocr` | Text, lines and boxes out of a page image, with the models supplied by the caller | — |
-| `M3scalinum.Text.Docx` | A Word document read into the document model, then renderable like any other | SharpTypst |
+| `M3scalinum.Text.Docx` | A Word document read into the document model, then renderable like any other | Documents, Typst |
 | `M3scalinum.Text.Charts` | Line, area, bar, stacked bar, scatter, pie, donut and sparkline charts, emitted as SVG | — |
 | `M3scalinum.Text.Epub` | An EPUB 3 container built from the HTML the compiler produces | — |
 
-The third and fourth answer a question the first does not: a document that has to be signed, and an
-invoice that has to be booked. They are separate packages rather than features of the compiler
-package, because they are useful without it and because they version differently — see
+Two trains carry them: a package that embeds the compiler takes its version from Typst itself, and the
+rest release on their own schedule — a signing fix must not read as a compiler release. See
 [Versioning](#versioning).
 
-## M3scalinum.Text.SharpTypst
+## M3scalinum.Text.Typst
 
 Hosts the Typst compiler **in-process** behind a managed .NET API.
 
 ```bash
-dotnet add package M3scalinum.Text.SharpTypst
+dotnet add package M3scalinum.Text.Typst
 ```
 
 ### Why
@@ -80,7 +82,7 @@ dotnet add package M3scalinum.Text.SharpTypst
 ### Quick start
 
 ```csharp
-using M3scalinum.Text.SharpTypst.Compilation;
+using M3scalinum.Text.Typst.Compilation;
 
 var pdf = TypstCompiler.CompileToPdf("""
     #set page(paper: "a4", margin: 2cm)
@@ -126,7 +128,7 @@ result.ExportPdf(response.Body);
 | Compile | Typst 0.15 language and standard library, paged and HTML documents |
 | Export | PDF, SVG, PNG, HTML, Markdown, plain text, and an HTML bundle with its assets |
 | Streaming | `ExportPdf(Stream)` copies the output out in 64 KiB chunks: no second, managed copy of a large PDF |
-| Telemetry | `ActivitySource` and `Meter` named `M3scalinum.Text.SharpTypst`: spans, durations, page counts, outcomes |
+| Telemetry | `ActivitySource` and `Meter` named `M3scalinum.Text.Typst`: spans, durations, page counts, outcomes |
 | PDF standards | PDF/A-1b to A-4e, PDF/UA-1, page ranges, tagged output, metadata |
 | Fonts | Embedded, scanned from a directory, or the host's installed fonts |
 | Async | `CompileAsync` on the thread pool, with the cancellation caveat documented |
@@ -140,12 +142,55 @@ result.ExportPdf(response.Body);
 | Templates | A `.typ` layout with declared, typed parameters, filled from C# |
 | Determinism | Fixed clock by default; identical inputs produce identical output |
 
-The satellites:
+### Wiring it up
+
+`M3scalinum.Text.Typst.DependencyInjection` registers the compiler as a singleton, a pre-configured
+world builder as a transient and `ITypstWorldFactory` as the seam a host injects, with
+`ValidateOnStart` so a bad limit fails at boot rather than at the first compile:
 
 ```bash
-dotnet add package M3scalinum.Text.SharpTypst.DependencyInjection
-dotnet add package M3scalinum.Text.SharpTypst.Templates.Generator
+dotnet add package M3scalinum.Text.Typst.DependencyInjection
 ```
+
+```csharp
+builder.Services.AddTypst(options => options.Limits.MaxSourceBytes = 4 * 1024 * 1024);
+```
+
+`M3scalinum.Text.Templates.Generator` turns a `template.toml` into a typed options record at build
+time, so a parameter renamed in a layout is a compile error in the record that fills it:
+
+```bash
+dotnet add package M3scalinum.Text.Templates.Generator
+```
+
+## M3scalinum.Text.Documents
+
+The document model, and the package the rest of the suite builds on: typed content, inline styles,
+tables with merged cells, figures, lists, page setup, and the HTML and Markdown importers. It emits
+Typst markup and depends on nothing — no compiler, no native library — so a parser can build a
+document without paying for the compiler.
+
+```bash
+dotnet add package M3scalinum.Text.Documents
+```
+
+```csharp
+using M3scalinum.Text.Documents;
+
+var document = TypstDocument.Create()
+    .Page(p => p.Paper("a4").Margin(TypstLength.Cm(2)))
+    .Heading(1, "Q3 report")
+    .Paragraph(TypstContent.Empty.Text("Revenue grew by ").Bold("12%").Text(" this quarter."))
+    .Table(t => t
+        .Columns(TypstLength.Fr(1), TypstLength.Fr(1))
+        .HeaderRow("Region", "Revenue")
+        .Row("North", "1.2M"));
+```
+
+`TypstDocument.FromHtml(html)` and `TypstDocument.FromMarkdown(markdown)` import the two formats a web
+application and a repository already speak, into that same model. The rest of the builder — metadata,
+footnotes, bibliography, math, counters, labels — is in
+[the document model](https://github.com/m3scalinum/text/wiki/Documents-Model).
 
 ## M3scalinum.Text.Pdf
 
@@ -225,8 +270,8 @@ Every word a layout prints is a label the caller passes, so one file renders in 
 French — column headings, legal phrases and the date pattern included:
 
 ```csharp
-using M3scalinum.Text.SharpTypst.Compilation;
-using M3scalinum.Text.SharpTypst.Templates;
+using M3scalinum.Text.Typst.Compilation;
+using M3scalinum.Text.Templates;
 
 var catalog = TemplateCatalog.Default;
 var invoice = catalog.Get("invoice");                // or catalog.Get("invoice", "1.0.0")
@@ -293,14 +338,79 @@ is written unless `AllowFileOutput` is set, no socket is opened, and a document,
 compilation are each capped. The PDF tools take their documents as base64 and refuse a `pdfPath`,
 `documentPaths` or `certificatePath` while file output is disabled. See [the specification](docs/specifications/17-mcp.md).
 
+## The other formats
+
+Five packages, one format each, each usable on its own. None embeds a second engine: what needs a
+page goes through `M3scalinum.Text.Typst`, and the rest emits bytes.
+
+### M3scalinum.Text.Docx — read a Word document
+
+`DocxReader` turns a `.docx` into a `DocxDocument` — blocks in document order, merged table cells,
+numbering, styled runs — with the embedded images as bytes, not re-encoded. `ToTypstDocument()` then
+hands it to the suite's own model, so it renders like anything else.
+
+```csharp
+using M3scalinum.Text.Docx;
+
+DocxDocument document = DocxReader.Read(File.ReadAllBytes("received.docx"));
+byte[] pdf = TypstCompiler.CompileToPdf(document.ToTypstDocument());
+```
+
+### M3scalinum.Text.Epub — an EPUB 3 container
+
+```csharp
+using M3scalinum.Text.Epub;
+
+var book = new EpubBook(new EpubMetadata { Title = "A Field Guide", Language = "en" });
+book.AddChapter("First Steps", "<h1>First Steps</h1><p>Hello &amp; welcome.</p>");
+
+File.WriteAllBytes("guide.epub", EpubWriter.Write(book));
+```
+
+### M3scalinum.Text.Charts — SVG a report can embed
+
+```csharp
+using M3scalinum.Text.Charts;
+
+var spec = ChartSpec.Bar()
+    .WithTitle("Revenue by quarter")
+    .AddSeries("2026", [new ChartPoint(0, 50, "Q1"), new ChartPoint(0, 70, "Q2")]);
+
+string svg = Chart.RenderSvg(spec, new ChartSize(640, 360));
+```
+
+### M3scalinum.Text.Barcodes — QR to Codabar, in-process
+
+```csharp
+using M3scalinum.Text.Barcodes;
+
+BarcodeImage image = Barcode.Encode(BarcodeSymbology.QrCode, "BT-1=FA-2026-000123");
+
+byte[] png = image.Png;   // ready to embed in a PDF page
+string svg = image.Svg;   // ready to hand to a layout engine
+```
+
+### M3scalinum.Text.Ocr — text out of a page image
+
+```csharp
+using M3scalinum.Text.Ocr;
+
+using OcrEngine engine = OcrEngine.FromModels(detectionModel, recognitionModel);
+
+OcrResult result = engine.Recognize(File.ReadAllBytes("scan.png"));
+Console.WriteLine(result.Text);
+```
+
+The models are caller-supplied: the package downloads nothing and bundles no weights.
+
 ## Versioning
 
 Two trains, two numbers, because they answer different questions.
 
 | Train | Packages | Version |
 | --- | --- | --- |
-| **SharpTypst** | the three compiler packages | `0.15.1.<revision>` — the version *is* the embedded Typst, plus a build count |
-| **Suite** | `M3scalinum.Text.Pdf`, `.Pdf.FactureX`, `.Templates`, `.Mcp` | whatever the tag names: `v0.51.2` publishes `0.51.2` |
+| **Typst** | the four compiler packages | `0.15.1.<revision>` — the version *is* the embedded Typst, plus a build count |
+| **Suite** | `M3scalinum.Text.Pdf`, `.Pdf.FactureX`, `.Templates`, `.Mcp`, `.Barcodes`, `.Charts`, `.Docx`, `.Epub`, `.Ocr` | whatever the tag names: `v0.51.2` publishes `0.51.2` |
 
 A signing fix published as `0.15.1.43` would read as a compiler release, and would jump to `0.16.0`
 the day Typst does, for code that contains no compiler at all. So the two trains tag and release
@@ -312,48 +422,25 @@ separately: `sharptypst-v0.15.1.42` and `v0.51.2`.
 - `win-x64`, `win-arm64`, `linux-x64`, `linux-arm64`, `linux-musl-x64` (Alpine), `osx` (universal,
   Intel and Apple Silicon)
 
-The native compiler ships inside `M3scalinum.Text.SharpTypst` for each of these. The suite packages
+The native compiler ships inside `M3scalinum.Text.Typst` for each of these. The suite packages
 ship managed assemblies only, so they run wherever .NET does.
 
 ## Documentation
 
-The **[user guide](https://github.com/m3scalinum/text/wiki)** is organised by package:
+The **[user guide](https://github.com/m3scalinum/text/wiki)** is organised by package: a getting-started
+page for each, then one page per topic.
 
-| [SharpTypst](https://github.com/m3scalinum/text/wiki/SharpTypst-Getting-Started) | [Pdf](https://github.com/m3scalinum/text/wiki/Pdf-Getting-Started) | [FactureX](https://github.com/m3scalinum/text/wiki/FactureX-Getting-Started) |
-| --- | --- | --- |
-| [Compiling](https://github.com/m3scalinum/text/wiki/SharpTypst-Compiling) | [Signing](https://github.com/m3scalinum/text/wiki/Pdf-Signing) | [The invoice model](https://github.com/m3scalinum/text/wiki/FactureX-Model) |
-| [Document model](https://github.com/m3scalinum/text/wiki/SharpTypst-Document-Model) | | [Rendering](https://github.com/m3scalinum/text/wiki/FactureX-Rendering) |
-| [Templates](https://github.com/m3scalinum/text/wiki/SharpTypst-Templates) | | [Reading](https://github.com/m3scalinum/text/wiki/FactureX-Reading) |
-| [Diagnostics](https://github.com/m3scalinum/text/wiki/SharpTypst-Diagnostics) | | [Validation](https://github.com/m3scalinum/text/wiki/FactureX-Validation) |
-| [Packages and fonts](https://github.com/m3scalinum/text/wiki/SharpTypst-Packages-and-Fonts) | | [The French profile](https://github.com/m3scalinum/text/wiki/FactureX-French-Profile) |
-| [Dependency injection](https://github.com/m3scalinum/text/wiki/SharpTypst-Dependency-Injection) | | |
-| [Performance](https://github.com/m3scalinum/text/wiki/SharpTypst-Performance) | | |
-| [Troubleshooting](https://github.com/m3scalinum/text/wiki/SharpTypst-Troubleshooting) | | |
-| [Building from source](https://github.com/m3scalinum/text/wiki/SharpTypst-Building-from-Source) | | |
-
-The specifications are the contract the implementation is held to.
-
-<details>
-<summary>Specifications</summary>
-
-| Document | Content |
+| Group | Pages |
 | --- | --- |
-| [00-overview.md](docs/specifications/00-overview.md) | Scope, use cases, quality attributes, vocabulary |
-| [01-architecture.md](docs/specifications/01-architecture.md) | Layers, projects, dependency rules, threading, lifetime |
-| [02-native-abi.md](docs/specifications/02-native-abi.md) | The C ABI contract |
-| [03-compilation.md](docs/specifications/03-compilation.md) | Worlds, sources, fonts, packages, formats, determinism |
-| [04-document-model.md](docs/specifications/04-document-model.md) | The fluent builder and its escaping rules |
-| [05-templates.md](docs/specifications/05-templates.md) | Template packages and typed parameters |
-| [06-markdown-and-text-export.md](docs/specifications/06-markdown-and-text-export.md) | Semantic export and its fidelity contract |
-| [07-diagnostics.md](docs/specifications/07-diagnostics.md) | Diagnostic model and exception taxonomy |
-| [08-build-and-packaging.md](docs/specifications/08-build-and-packaging.md) | MSBuild props, native packaging, CI and the two release trains |
-| [09-testing.md](docs/specifications/09-testing.md) | Test pyramid, fixtures, golden files |
-| [11-reference-coverage.md](docs/specifications/11-reference-coverage.md) | Every Typst reference item and how it is reachable |
-| [12-dependency-injection.md](docs/specifications/12-dependency-injection.md) | The DI package: services, lifetimes, options, validation |
-| [13-facturx.md](docs/specifications/13-facturx.md) | Profiles, the invoice model, the rules, cascade invoicing |
-| [14-pdf-signature.md](docs/specifications/14-pdf-signature.md) | PAdES as an incremental update, and what it preserves |
+| **[Typst](https://github.com/m3scalinum/text/wiki/Typst-Getting-Started)** | [Getting started](https://github.com/m3scalinum/text/wiki/Typst-Getting-Started), [Compiling](https://github.com/m3scalinum/text/wiki/Typst-Compiling), [Templates](https://github.com/m3scalinum/text/wiki/Typst-Templates), [Diagnostics](https://github.com/m3scalinum/text/wiki/Typst-Diagnostics), [Packages and fonts](https://github.com/m3scalinum/text/wiki/Typst-Packages-and-Fonts), [Dependency injection](https://github.com/m3scalinum/text/wiki/Typst-Dependency-Injection), [Performance](https://github.com/m3scalinum/text/wiki/Typst-Performance), [Troubleshooting](https://github.com/m3scalinum/text/wiki/Typst-Troubleshooting) |
+| **[Documents](https://github.com/m3scalinum/text/wiki/Documents-Model)** | [The document model](https://github.com/m3scalinum/text/wiki/Documents-Model), [Importing HTML](https://github.com/m3scalinum/text/wiki/Documents-Html-Import), [Importing Markdown](https://github.com/m3scalinum/text/wiki/Documents-Markdown-Import) |
+| **[Pdf](https://github.com/m3scalinum/text/wiki/Pdf-Getting-Started)** | [Getting started](https://github.com/m3scalinum/text/wiki/Pdf-Getting-Started), [Signing](https://github.com/m3scalinum/text/wiki/Pdf-Signing), [Conformance](https://github.com/m3scalinum/text/wiki/Pdf-Conformance), [Pages and forms](https://github.com/m3scalinum/text/wiki/Pdf-Pages-and-Forms), [Reading text](https://github.com/m3scalinum/text/wiki/Pdf-Text), [Encryption](https://github.com/m3scalinum/text/wiki/Pdf-Encryption), [Converting to PDF/A](https://github.com/m3scalinum/text/wiki/Pdf-Conversion) |
+| **[FactureX](https://github.com/m3scalinum/text/wiki/FactureX-Getting-Started)** | [Getting started](https://github.com/m3scalinum/text/wiki/FactureX-Getting-Started), [The invoice model](https://github.com/m3scalinum/text/wiki/FactureX-Model), [Rendering](https://github.com/m3scalinum/text/wiki/FactureX-Rendering), [Reading](https://github.com/m3scalinum/text/wiki/FactureX-Reading), [Validation](https://github.com/m3scalinum/text/wiki/FactureX-Validation), [Peppol](https://github.com/m3scalinum/text/wiki/FactureX-Peppol), [XRechnung](https://github.com/m3scalinum/text/wiki/FactureX-XRechnung), [The French profile](https://github.com/m3scalinum/text/wiki/FactureX-French-Profile) |
+| **Formats** | [Barcodes](https://github.com/m3scalinum/text/wiki/Barcodes), [Charts](https://github.com/m3scalinum/text/wiki/Charts), [Reading DOCX](https://github.com/m3scalinum/text/wiki/Docx), [EPUB](https://github.com/m3scalinum/text/wiki/Epub), [OCR](https://github.com/m3scalinum/text/wiki/Ocr) |
+| **[MCP](https://github.com/m3scalinum/text/wiki/Mcp-Server)** | [The MCP server](https://github.com/m3scalinum/text/wiki/Mcp-Server), [Building from source](https://github.com/m3scalinum/text/wiki/Typst-Building-from-Source) |
 
-</details>
+The [specifications](docs/specifications/README.md) are the contract the implementation is held to:
+one document per area, numbered, with an index grouped by subject.
 
 ## Building from source
 
@@ -362,42 +449,28 @@ Requires the .NET 11 SDK and Rust 1.92 or newer.
 ```bash
 cargo build --release --manifest-path native/sharp-typst/Cargo.toml
 dotnet build -c Release
-dotnet test tests/Text.SharpTypst.Tests -c Release
+dotnet test tests/Text.Typst.Tests -c Release
 ```
 
 Set `SHARPTYPST_NATIVE_PATH` to the built `libsharp_typst` to run the integration tests against it.
-See [Building from Source](https://github.com/m3scalinum/text/wiki/SharpTypst-Building-from-Source)
+See [Building from Source](https://github.com/m3scalinum/text/wiki/Typst-Building-from-Source)
 for the full sequence, the coverage commands and the packaging checks.
 
 ## Project status
 
-Not yet on nuget.org. Everything below passes on the current tree:
-
-| Suite | Tests |
-| --- | --- |
-| `Text.SharpTypst.Tests` | 459 |
-| `Text.Pdf.Tests` | 345 |
-| `Text.Pdf.FactureX.Tests` | 364 |
-| `Text.Templates.Tests` | 111 |
-| `Text.Mcp.Tests` | 112 |
-| `Text.Barcodes.Tests` | 105 |
-| `Text.Docx.Tests` | 46 |
-| `Text.Epub.Tests` | 106 |
-| `Text.Charts.Tests` | 82 |
-| `Text.Ocr.Tests` | 99 |
-| `Text.Suite.Tests` (public surface and documentation) | 7 |
-| `Text.SharpTypst.Templates.Generator.Tests` | 14 |
-| `Text.SharpTypst.Integration.Tests` (real compiler) | 251 |
+Not yet on nuget.org. **2 101 tests** run across thirteen suites on the current tree; the per-suite
+counts, and which suites need a native artifact, are in
+[09-testing.md](docs/specifications/09-testing.md#1-the-suites).
 
 The `coverage` job fails below 90 % of production lines. Native AOT publish, a 10 000-cycle leak test
-and a benchmark regression gate are in place. The public API of `M3scalinum.Text.SharpTypst` is the
+and a benchmark regression gate are in place. The public API of `M3scalinum.Text.Typst` is the
 last thing to settle before 1.0.
 
 ## Contributing
 
 Issues and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) for the build, the test
 suites and the gates CI enforces. Changes to behaviour belong in `CHANGELOG.md` under `[Unreleased]`,
-and in the matching train file — `CHANGELOG-SharpTypst.md` or `CHANGELOG-Text.md` — when the package
+and in the matching train file — `CHANGELOG-Typst.md` or `CHANGELOG-Text.md` — when the package
 itself changes.
 
 This project follows the [Contributor Covenant](CODE_OF_CONDUCT.md). To report a vulnerability, use

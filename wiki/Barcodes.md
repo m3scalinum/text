@@ -104,7 +104,7 @@ the default is four. Every other symbology round-trips at one pixel per module.
 
 The package carries its engine as a native library per runtime identifier — `win-x64`, `win-arm64`,
 `linux-x64`, `linux-arm64`, `linux-musl-x64`, `osx` — under `runtimes/<rid>/native/`, the same layout
-`M3scalinum.Text.SharpTypst` uses. `BARCODES_NATIVE_PATH` points a build at a locally compiled library
+`M3scalinum.Text.Typst` uses. `BARCODES_NATIVE_PATH` points a build at a locally compiled library
 instead.
 
 The engine is [rxing](https://crates.io/crates/rxing) 0.9.4, a Rust port of ZXing, licensed

@@ -1,4 +1,4 @@
-# Pdf — checking conformance
+# Checking conformance
 
 ## What it answers
 
@@ -11,7 +11,7 @@ using M3scalinum.Text.Pdf;
 
 var pdf = compiled.ExportPdf(new PdfExportOptions
 {
-    Standards = [M3scalinum.Text.SharpTypst.Export.PdfConformanceStandard.PdfUa1],
+    Standards = [M3scalinum.Text.Typst.Export.PdfConformanceStandard.PdfUa1],
 });
 
 var report = PdfConformance.Check(pdf, PdfConformanceStandard.PdfUa1);

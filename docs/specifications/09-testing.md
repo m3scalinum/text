@@ -1,19 +1,33 @@
 # 09 — Testing
 
-## 1. Pyramid
+## 1. The suites
 
-| Level | Project | Needs natives | Count | Runtime |
+| Level | Project | Needs natives | Tests | Runtime |
 | --- | --- | --- | --- | --- |
-| Unit (compiler) | `tests/Text.SharpTypst.Tests` | No | 281 | < 5 s |
-| Unit (signing) | `tests/Text.Pdf.Tests` | No | 8 | < 2 s |
-| Unit (e-invoicing) | `tests/Text.Pdf.FactureX.Tests` | No | 125 | < 10 s |
-| Unit (generator) | `tests/Text.SharpTypst.Templates.Generator.Tests` | No | 14 | < 5 s |
-| Layouts | `tests/Text.Templates.Tests` | For the render tests | 80 | < 15 s |
-| Suite | `tests/Text.Suite.Tests` | No | 7 | < 2 s |
+| Unit (compiler) | `tests/Text.Typst.Tests` | No — fake native | 459 | ~2 s |
+| Unit (signing, conformance, pages, forms, text, encryption) | `tests/Text.Pdf.Tests` | No | 345 | ~10 s |
+| Unit (e-invoicing) | `tests/Text.Pdf.FactureX.Tests` | No | 364 | ~10 s |
+| Unit (mcp) | `tests/Text.Mcp.Tests` | No | 112 | ~3 s |
+| Unit (barcodes) | `tests/Text.Barcodes.Tests` | **Yes** — `sharp_text_barcodes` | 105 | ~5 s |
+| Unit (docx) | `tests/Text.Docx.Tests` | **Yes** — `sharp_text_docx` | 46 | ~5 s |
+| Unit (ocr) | `tests/Text.Ocr.Tests` | No — fake native | 99 | ~5 s |
+| Unit (charts) | `tests/Text.Charts.Tests` | No | 82 | ~2 s |
+| Unit (epub) | `tests/Text.Epub.Tests` | No | 106 | ~2 s |
+| Unit (generator) | `tests/Text.Templates.Generator.Tests` | No | 14 | < 5 s |
+| Layouts | `tests/Text.Templates.Tests` | Yes, for the render tests | 111 | ~15 s |
+| Suite (surface and docs) | `tests/Text.Suite.Tests` | No | 7 | < 2 s |
+| Integration | `tests/Text.Typst.Integration.Tests` | **Yes** — `SHARPTYPST_NATIVE_PATH` | 251 | < 3 min |
 | ABI | `native/sharp-typst` (`cargo test`) | — | 9 | < 30 s |
-| Integration | `tests/Text.SharpTypst.Integration.Tests` | Yes | 229 | < 3 min |
-| Golden | inside integration | Yes | ~30 fixtures | < 1 min |
-| Benchmark | `tests/Text.SharpTypst.Benchmarks` | Yes | 8 scenarios | manual / nightly |
+| Benchmark | `benchmarks/Text.Typst.Benchmarks` | Yes | 8 scenarios | manual / nightly |
+
+That is 2 101 managed tests in thirteen suites, plus the nine Rust ABI tests and the benchmark
+scenarios.
+
+A suite marked *fake native* exercises the layer above the ABI through an `internal` seam, which is
+why it runs on a machine with no Rust toolchain; a suite marked **Yes** needs the real cdylib from
+`native/artifacts` (or, for the compiler, the path in `SHARPTYPST_NATIVE_PATH`) and fails with
+`DllNotFoundException` without it. `Text.Barcodes.Tests` and `Text.Docx.Tests` are the two that
+cannot run on a checkout whose `native/artifacts` carries no `win-x64` build.
 
 The split is deliberate: everything that can be tested without loading a native library is, so
 that `dotnet test` on a machine without a Rust toolchain still covers the writer, the template
@@ -78,7 +92,7 @@ change to the compiler cannot skip it: `ci-text.yml` runs it.
 | List-marker escaping | A paragraph starting with `1.` stays a paragraph (no `<ol>` in the HTML export); `1.5` is left alone; the unit tests pin the emitted markup for `1.`, `42.` and the non-marker cases |
 | Template paths | A manifest `entry` of `..`, an absolute path or a drive letter is rejected; a nested entry inside the template still loads. Each case plants a real file outside the directory, so the test fails for the right reason |
 | Bundle paths | `WriteTo` and `WriteToZip` reject `..`, an absolute path, a drive letter and an empty path; a nested relative path still works |
-| Public API shape | No two public types share a name across namespaces, every public type lives in a `M3scalinum.Text.SharpTypst` namespace, every public async method ends with `Async` |
+| Public API shape | No two public types share a name across namespaces, every public type lives in a `M3scalinum.Text.Typst` namespace, every public async method ends with `Async` |
 | Introspection coverage | Named counters, `counter.at`, `state.at`, `context` text/let/measure, an outline with and without a title, and the typed HTML element with and without attributes |
 | Page setup | Uniform and per-side margins, `MarginX`/`MarginY`, the last-call-wins rule, `Landscape`, `Fill`, `Columns`, argument validation; a landscape page is wider than tall, a portrait one taller than wide, and a footer with `PageNumber`/`PageCount` compiles |
 | Diagnostic snippets | The caret renderer: gutter width, single-char span, multi-line span, hints after the snippet, `includeSnippet: false`, no span; the native layer fills `SourceLine` for errors, warnings and included files |
@@ -133,7 +147,7 @@ Rules:
 
 ## 7. Performance tests
 
-`benchmarks/Text.SharpTypst.Benchmarks` is dependency-free on purpose: seven scenarios, 50 iterations
+`benchmarks/Text.Typst.Benchmarks` is dependency-free on purpose: seven scenarios, 50 iterations
 each, the **minimum** reported (the most stable estimator for CPU-bound work), and a 1.5× gate
 against `benchmarks/baseline.json`.
 
@@ -166,13 +180,13 @@ The project uses Microsoft.Testing.Platform, so `--collect:"XPlat Code Coverage"
 
 ```bash
 dotnet-coverage collect -f cobertura -o unit.xml \
-  "dotnet test tests/Text.SharpTypst.Tests -c Release --no-build"
+  "dotnet test tests/Text.Typst.Tests -c Release --no-build"
 dotnet-coverage collect -f cobertura -o facturx.xml \
   "dotnet test tests/Text.Pdf.FactureX.Tests -c Release --no-build"
 dotnet-coverage collect -f cobertura -o pdf.xml \
   "dotnet test tests/Text.Pdf.Tests -c Release --no-build"
 dotnet-coverage collect -f cobertura -o int.xml \
-  "dotnet test tests/Text.SharpTypst.Integration.Tests -c Release --no-build --filter FullyQualifiedName!~LeakTests"
+  "dotnet test tests/Text.Typst.Integration.Tests -c Release --no-build --filter FullyQualifiedName!~LeakTests"
 dotnet-coverage merge -f cobertura -o all.xml unit.xml facturx.xml pdf.xml int.xml
 ```
 
@@ -189,13 +203,13 @@ built anyway — but it is not what protects them: a pull request that only touc
 never starts that workflow, so the gate that would catch it is the one in `ci-text.yml`.
 
 **`--require` scopes the measurement, it does not only assert presence.** The suite workflow collects
-two suites, and `M3scalinum.Text.SharpTypst` is linked into the output as a dependency — measured at
+two suites, and `M3scalinum.Text.Typst` is linked into the output as a dependency — measured at
 4.8 %, because nothing in those suites compiles a document. Counting it gave 25.9 % and a gate that
 failed on every run. Restricted to the two assemblies the train owns, the same report reads 91.0 %
 (`M3scalinum.Text.Pdf` 92.6 %, `M3scalinum.Text.Pdf.FactureX` 91.2 %).
 
 The render path — `FacturXRenderer`, which drives the compiler — is exercised by
-`Text.SharpTypst.Integration.Tests`, which needs the native library and therefore runs in the
+`Text.Typst.Integration.Tests`, which needs the native library and therefore runs in the
 compiler workflow. The suite gate measures the managed half of those two packages.
 
 **Every suite must be in the merge, and the gate enforces it.** `coverage-gate.py` takes
@@ -226,11 +240,11 @@ which is metadata for the generator and never read at runtime.
 - No `Thread.Sleep`, no retries, no network. A test that needs the network is not a test.
 - Integration tests are marked with a trait `[Trait("Category", "Integration")]` so they can be
   filtered out on machines without natives. With the xunit v3 runner the filter is a query:
-  `dotnet test tests/Text.SharpTypst.Tests -- -filter "/*/*/*[Category!=Integration]"`.
+  `dotnet test tests/Text.Typst.Tests -- -filter "/*/*/*[Category!=Integration]"`.
 
 ## 10. Reference conformance
 
-The Typst reference is the specification of the language. Three tests keep M3scalinum.Text.SharpTypst honest about
+The Typst reference is the specification of the language. Three tests keep M3scalinum.Text.Typst honest about
 it (details in [11 §5](11-reference-coverage.md#5-conformance)):
 
 | Test | Asserts |

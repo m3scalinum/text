@@ -7,7 +7,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Text.Mcp\Text.Mcp.csproj" />
-    <ProjectReference Include="..\..\src\Text.SharpTypst.Native\Text.SharpTypst.Native.csproj" />
+    <ProjectReference Include="..\..\src\Text.Typst.Native\Text.Typst.Native.csproj" />
   </ItemGroup>
 
   <ItemGroup>

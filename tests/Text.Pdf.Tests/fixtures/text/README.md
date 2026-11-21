@@ -6,7 +6,7 @@ an encrypted trailer — are written by hand in the test file, where they can be
 
 | File | Produced with | Covers |
 | --- | --- | --- |
-| `extract.pdf` | `fixtures/text/extract.typ`, compiled by Typst 0.15.1 through `M3scalinum.Text.SharpTypst` | Two pages, a marker per page, a three-column table, a two-column table, a footnote, embedded subset fonts with `/ToUnicode` |
+| `extract.pdf` | `fixtures/text/extract.typ`, compiled by Typst 0.15.1 through `M3scalinum.Text.Typst` | Two pages, a marker per page, a three-column table, a two-column table, a footnote, embedded subset fonts with `/ToUnicode` |
 | `foreign.pdf` | `foreign.html`, printed by headless Google Chrome 157 | A different producer: heading, paragraph, table, footnote, embedded fonts with `/ToUnicode` |
 
 ## How `extract.pdf` was produced

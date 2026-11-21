@@ -1,7 +1,7 @@
 # PDF/UA conformance fixtures
 
 These three files are real output from the compiler, committed as bytes because
-`Text.Pdf.Tests` deliberately has no reference on `M3scalinum.Text.SharpTypst`: the checker is
+`Text.Pdf.Tests` deliberately has no reference on `M3scalinum.Text.Typst`: the checker is
 bytes-in/bytes-out, so its fixtures cannot be produced at test time without pulling the compiler
 into the test project.
 
@@ -18,7 +18,7 @@ parser reads a file whose objects are not plain `N 0 obj` at a table offset; the
 use them solely to show that a minimal PDF is *not* PDF/UA.
 
 All three come from `document.typ` with `logo.png`, compiled by Typst 0.15.1 through
-`M3scalinum.Text.SharpTypst`, with:
+`M3scalinum.Text.Typst`, with:
 
 ```csharp
 new PdfExportOptions

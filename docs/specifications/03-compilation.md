@@ -5,7 +5,7 @@ How a world is described, what the compiler is given, and what comes out.
 ## 1. Entry points
 
 ```csharp
-using M3scalinum.Text.SharpTypst.Compilation;
+using M3scalinum.Text.Typst.Compilation;
 
 // Shortest path: one source, defaults, PDF.
 byte[] pdf = TypstCompiler.CompileToPdf("#set page(paper: \"a4\")\nHello *world*.");
@@ -378,7 +378,7 @@ Two things remain host-dependent and are called out because callers trip on them
 
 **Decision — cross-machine PDF determinism is not a goal.** The producer string carries the Typst
 version, and the document IDs are content-derived but not canonicalised across builds of the native
-library. Two machines running the same M3scalinum.Text.SharpTypst version produce the same bytes; two different
+library. Two machines running the same M3scalinum.Text.Typst version produce the same bytes; two different
 versions may not. Pinning the producer string and the ID derivation would buy nothing a caller can
 use, since a reproducible build pins the package version anyway.
 
@@ -458,7 +458,7 @@ this is better than a `Timeout` that silently leaks a thread per hostile request
 ## 11. Version pinning
 
 The bundled Typst version is fixed by the Rust crate version and exposed as
-`TypstEnvironment.TypstVersion` and `TypstEnvironment.SharpTypstVersion`. The package version
+`TypstEnvironment.TypstVersion` and `TypstEnvironment.LibraryVersion`. The package version
 carries it: `0.15.1.<revision>` (see [08 §7](08-build-and-packaging.md#7-versioning-and-releases)).
-Supporting a second Typst version means publishing a second package line (`M3scalinum.Text.SharpTypst` 0.16.x
+Supporting a second Typst version means publishing a second package line (`M3scalinum.Text.Typst` 0.16.x
 against Typst 0.16), not loading two compilers in one process.

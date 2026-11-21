@@ -192,7 +192,7 @@ the writer builds the whole file in memory.
 ## 6. Verification
 
 The tests in `tests/Text.Pdf.Tests` operate on files `typst-pdf 0.15.1` produced through
-`M3scalinum.Text.SharpTypst` — the same PDF/UA-1, PDF/A-2b and PDF/A-4 fixtures the conformance
+`M3scalinum.Text.Typst` — the same PDF/UA-1, PDF/A-2b and PDF/A-4 fixtures the conformance
 tests use, with two pages, compressed content streams, subset fonts and `/ToUnicode` maps.
 
 - **Merge** asserts four pages in order across two documents, the rotation of each page as a marker

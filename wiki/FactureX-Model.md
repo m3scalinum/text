@@ -1,4 +1,4 @@
-# FactureX — the invoice model
+# The invoice model
 
 One model covers both syntaxes the standard allows: CII (`CrossIndustryInvoice`) and UBL (`Invoice`,
 `CreditNote`). The reader fills it, `CiiWriter` and `UblWriter` emit it, and the rest of your code

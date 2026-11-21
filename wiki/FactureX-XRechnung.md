@@ -1,4 +1,4 @@
-# FactureX — the XRechnung CIUS
+# The XRechnung CIUS
 
 XRechnung is Germany's CIUS of EN 16931, published by KoSIT for UBL and for CII. An invoice to a
 public authority has to be one, and since 2025 a German receiver accepts it as the B2B syntax too.

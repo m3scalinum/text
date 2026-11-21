@@ -5,7 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Xml;
 using System.Xml.Linq;
-using M3scalinum.Text.SharpTypst;
+using M3scalinum.Text.Typst;
 
 namespace M3scalinum.Text.Pdf.FactureX;
 

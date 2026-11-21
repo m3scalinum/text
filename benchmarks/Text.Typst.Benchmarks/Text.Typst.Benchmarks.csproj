@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+    <AssemblyName>Text.Typst.Benchmarks</AssemblyName>
+    <PackageId>Text.Typst.Benchmarks</PackageId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Text.Typst\Text.Typst.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,4 +1,4 @@
-M3scalinum.Text.SharpTypst
+M3scalinum.Text.Typst
 Copyright 2026 m3scalinum
 
 This product includes software developed at Typst GmbH and the Typst

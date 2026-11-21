@@ -194,7 +194,7 @@ both counts return to their baseline over thousands of cycles.
 | A hand-written encoder per symbology | Ten specifications, ten conformance surfaces, and a Reed-Solomon implementation per family. Not a feature, a project. |
 
 The cost is one native library per runtime identifier, shipped inside the package under
-`runtimes/<rid>/native/`. That is the same shape `M3scalinum.Text.SharpTypst` already ships, and the
+`runtimes/<rid>/native/`. That is the same shape `M3scalinum.Text.Typst` already ships, and the
 resolver is the same code: `BARCODES_NATIVE_PATH` overrides it for a local build, then
 `runtimes/<rid>/native/`, then `runtimes/<portable-rid>/native/`, then `runtimes/<os>/native/`, then
 the application directory.

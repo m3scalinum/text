@@ -1,4 +1,4 @@
-# FactureX — rendering
+# Rendering
 
 ## The three calls
 

@@ -1,4 +1,4 @@
-# FactureX — the Peppol CIUS
+# The Peppol CIUS
 
 A Peppol access point does not accept a document because it is valid UBL. It accepts it because the
 CIUS says so: it routes on the profile identifiers and the electronic addresses, and it refuses a

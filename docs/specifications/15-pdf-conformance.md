@@ -60,19 +60,19 @@ the loop on the bytes:
 ```csharp
 var pdf = compiled.ExportPdf(new PdfExportOptions
 {
-    Standards = [M3scalinum.Text.SharpTypst.Export.PdfConformanceStandard.PdfUa1],
+    Standards = [M3scalinum.Text.Typst.Export.PdfConformanceStandard.PdfUa1],
 });
 
 PdfConformance.Assert(pdf, PdfConformanceStandard.PdfUa1);
 ```
 
 **Decision — a second enum, named `PdfConformanceStandard`.** The checker could not reuse
-`M3scalinum.Text.SharpTypst.Export.PdfStandard` without a reference on the compiler, and it could
+`M3scalinum.Text.Typst.Export.PdfStandard` without a reference on the compiler, and it could
 not declare a type of the same name: `PublicApiTests.No_two_public_types_share_a_name_across_namespaces`
 forbids it, because a caller importing both namespaces would get CS0104 on the bare name. The
 members are the same, so a reader maps them at a glance:
 
-| `M3scalinum.Text.SharpTypst.Export.PdfStandard` | `M3scalinum.Text.Pdf.PdfConformanceStandard` |
+| `M3scalinum.Text.Typst.Export.PdfStandard` | `M3scalinum.Text.Pdf.PdfConformanceStandard` |
 | --- | --- |
 | `Pdf14` … `Pdf20` | same members |
 | `PdfA1b`, `PdfA1a` | same members |
@@ -152,7 +152,7 @@ the figure that owns the object reference.
 
 The tests are the deliverable, and they use **real output**: `fixtures/pdfua/ua1.pdf`,
 `a2b.pdf` and `a4.pdf` are committed bytes produced by Typst 0.15.1 through
-`M3scalinum.Text.SharpTypst` (`fixtures/pdfua/README.md` records the exact source, logo and export
+`M3scalinum.Text.Typst` (`fixtures/pdfua/README.md` records the exact source, logo and export
 options). A hand-written minimal PDF would not exercise the parser against object streams,
 compressed XMP, two embedded fonts, an outline and a two-page structure tree.
 

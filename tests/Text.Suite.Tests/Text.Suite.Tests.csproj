@@ -7,15 +7,16 @@
 
   <!--
     The tests that judge the suite as a whole: the public surface across every package, and the
-    documentation that describes it. They live here rather than in Text.SharpTypst.Tests so that a
+    documentation that describes it. They live here rather than in Text.Typst.Tests so that a
     change to M3scalinum.Text.Pdf does not drag the compiler pipeline through six native builds, and
     a change to the compiler does not skip the check on the suite's docs.
   -->
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Text.SharpTypst\Text.SharpTypst.csproj" />
-    <ProjectReference Include="..\..\src\Text.SharpTypst.Native\Text.SharpTypst.Native.csproj" />
-    <ProjectReference Include="..\..\src\Text.SharpTypst.DependencyInjection\Text.SharpTypst.DependencyInjection.csproj" />
-    <ProjectReference Include="..\..\src\Text.SharpTypst.Templates\Text.SharpTypst.Templates.csproj" />
+    <ProjectReference Include="..\..\src\Text.Typst\Text.Typst.csproj" />
+    <ProjectReference Include="..\..\src\Text.Documents\Text.Documents.csproj" />
+    <ProjectReference Include="..\..\src\Text.Typst.Native\Text.Typst.Native.csproj" />
+    <ProjectReference Include="..\..\src\Text.Typst.DependencyInjection\Text.Typst.DependencyInjection.csproj" />
+    <ProjectReference Include="..\..\src\Text.Templates\Text.Templates.csproj" />
     <ProjectReference Include="..\..\src\Text.Pdf\Text.Pdf.csproj" />
     <ProjectReference Include="..\..\src\Text.Pdf.FactureX\Text.Pdf.FactureX.csproj" />
     <ProjectReference Include="..\..\src\Text.Mcp\Text.Mcp.csproj" />

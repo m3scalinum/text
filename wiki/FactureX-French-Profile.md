@@ -1,4 +1,4 @@
-# FactureX — the French profile
+# The French profile
 
 `FacturXProfile.ExtendedCtcFr` is the profile French platforms ask for. It is a subset of `EXTENDED`,
 so `fx:ConformanceLevel` stays `EXTENDED`; only the guideline URN distinguishes it:

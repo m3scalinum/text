@@ -4,13 +4,14 @@
     <Project Path="src/Text.Pdf.FactureX/Text.Pdf.FactureX.csproj" />
     <Project Path="src/Text.Pdf/Text.Pdf.csproj" />
     <Project Path="src/Text.Mcp/Text.Mcp.csproj" />
-    <Project Path="src/Text.SharpTypst.DependencyInjection/Text.SharpTypst.DependencyInjection.csproj" />
-    <Project Path="src/Text.SharpTypst.Native/Text.SharpTypst.Native.csproj" />
-    <Project Path="src/Text.SharpTypst.Templates.Generator/Text.SharpTypst.Templates.Generator.csproj" />
-    <Project Path="src/Text.SharpTypst.Templates/Text.SharpTypst.Templates.csproj" />
-    <Project Path="src/Text.SharpTypst/Text.SharpTypst.csproj" />
+    <Project Path="src/Text.Typst.DependencyInjection/Text.Typst.DependencyInjection.csproj" />
+    <Project Path="src/Text.Typst.Native/Text.Typst.Native.csproj" />
+    <Project Path="src/Text.Templates.Generator/Text.Templates.Generator.csproj" />
+    <Project Path="src/Text.Templates/Text.Templates.csproj" />
+    <Project Path="src/Text.Typst/Text.Typst.csproj" />
     <Project Path="src/Text.Barcodes/Text.Barcodes.csproj" />
     <Project Path="src/Text.Charts/Text.Charts.csproj" />
+    <Project Path="src/Text.Documents/Text.Documents.csproj" />
     <Project Path="src/Text.Docx/Text.Docx.csproj" />
     <Project Path="src/Text.Epub/Text.Epub.csproj" />
     <Project Path="src/Text.Ocr/Text.Ocr.csproj" />
@@ -20,9 +21,9 @@
     <Project Path="tests/Text.Mcp.Tests/Text.Mcp.Tests.csproj" />
     <Project Path="tests/Text.Pdf.FactureX.Tests/Text.Pdf.FactureX.Tests.csproj" />
     <Project Path="tests/Text.Pdf.Tests/Text.Pdf.Tests.csproj" />
-    <Project Path="tests/Text.SharpTypst.Integration.Tests/Text.SharpTypst.Integration.Tests.csproj" />
-    <Project Path="tests/Text.SharpTypst.Templates.Generator.Tests/Text.SharpTypst.Templates.Generator.Tests.csproj" />
-    <Project Path="tests/Text.SharpTypst.Tests/Text.SharpTypst.Tests.csproj" />
+    <Project Path="tests/Text.Typst.Integration.Tests/Text.Typst.Integration.Tests.csproj" />
+    <Project Path="tests/Text.Templates.Generator.Tests/Text.Templates.Generator.Tests.csproj" />
+    <Project Path="tests/Text.Typst.Tests/Text.Typst.Tests.csproj" />
     <Project Path="tests/Text.Suite.Tests/Text.Suite.Tests.csproj" />
     <Project Path="tests/Text.Templates.Tests/Text.Templates.Tests.csproj" />
     <Project Path="tests/Text.Barcodes.Tests/Text.Barcodes.Tests.csproj" />
@@ -35,11 +36,11 @@
   <Folder Name="/samples/">
     <Project Path="samples/Text.Pdf.FactureX.Samples/Text.Pdf.FactureX.Samples.csproj" />
     <Project Path="samples/Text.Pdf.Samples/Text.Pdf.Samples.csproj" />
-    <Project Path="samples/Text.SharpTypst.Samples/Text.SharpTypst.Samples.csproj" />
+    <Project Path="samples/Text.Typst.Samples/Text.Typst.Samples.csproj" />
   </Folder>
 
   <Folder Name="/benchmarks/">
-    <Project Path="benchmarks/Text.SharpTypst.Benchmarks/Text.SharpTypst.Benchmarks.csproj" />
+    <Project Path="benchmarks/Text.Typst.Benchmarks/Text.Typst.Benchmarks.csproj" />
   </Folder>
 
 </Solution>

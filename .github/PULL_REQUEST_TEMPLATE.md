@@ -10,7 +10,7 @@
 
 <!-- Tick what this change reaches: it decides which version, which changelog and which CI run. -->
 
-- [ ] `M3scalinum.Text.SharpTypst` (and `.DependencyInjection`, `.Templates.Generator`)
+- [ ] `M3scalinum.Text.Typst` (and `.DependencyInjection`, `.Templates.Generator`)
 - [ ] `M3scalinum.Text.Pdf`
 - [ ] `M3scalinum.Text.Pdf.FactureX`
 - [ ] Build, CI, packaging or documentation only
@@ -32,10 +32,10 @@
 - [ ] `cargo fmt --check` and `cargo clippy -- -D warnings` pass (if `native/` changed)
 - [ ] `dotnet build -c Release` passes with no new warnings
 - [ ] The unit suites of the packages touched pass:
-      `tests/Text.SharpTypst.Tests`, `tests/Text.Pdf.Tests`, `tests/Text.Pdf.FactureX.Tests`,
-      `tests/Text.SharpTypst.Templates.Generator.Tests`
+      `tests/Text.Typst.Tests`, `tests/Text.Pdf.Tests`, `tests/Text.Pdf.FactureX.Tests`,
+      `tests/Text.Templates.Generator.Tests`
 - [ ] Integration tests added or updated (if the native ABI, an exporter or the Factur-X render changed)
-- [ ] `CHANGELOG.md` has an entry under `[Unreleased]`, and `CHANGELOG-SharpTypst.md` or
+- [ ] `CHANGELOG.md` has an entry under `[Unreleased]`, and `CHANGELOG-Typst.md` or
       `CHANGELOG-Text.md` when a package's own surface changes
 - [ ] Documentation updated: `wiki/<Package>-*.md` for user-facing behaviour, `docs/specifications/`
       for a contract

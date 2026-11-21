@@ -34,11 +34,11 @@
       trains: a project reference inside the repository, and an exact package reference at release
       time, so the packed dependency names a core version that exists on NuGet.
     -->
-    <ProjectReference Include="..\Text.SharpTypst\Text.SharpTypst.csproj" Condition="'$(CoreVersion)' == ''" />
-    <PackageReference Include="M3scalinum.Text.SharpTypst" Condition="'$(CoreVersion)' != ''" />
+    <ProjectReference Include="..\Text.Typst\Text.Typst.csproj" Condition="'$(CoreVersion)' == ''" />
+    <PackageReference Include="M3scalinum.Text.Typst" Condition="'$(CoreVersion)' != ''" />
 
     <ProjectReference Include="..\Text.Pdf.FactureX\Text.Pdf.FactureX.csproj" />
-    <ProjectReference Include="..\Text.SharpTypst.Templates\Text.SharpTypst.Templates.csproj" />
+    <ProjectReference Include="..\Text.Templates\Text.Templates.csproj" />
 
     <!-- Signing, merging and reading a PDF are the operations of this package family, and it
          releases on the same suite train as this one, so a project reference is what names it. -->

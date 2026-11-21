@@ -4,8 +4,8 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text.RegularExpressions;
-using M3scalinum.Text.SharpTypst.Compilation;
-using M3scalinum.Text.SharpTypst.DependencyInjection;
+using M3scalinum.Text.Typst.Compilation;
+using M3scalinum.Text.Typst.DependencyInjection;
 using Xunit;
 
 namespace M3scalinum.Text.Suite.Tests;
@@ -26,13 +26,13 @@ public sealed class DocumentationDriftTests
         "TypstMarkupWriter",
     };
 
-    /// <summary>Members that come from the BCL or from a package, not from M3scalinum.Text.SharpTypst.</summary>
+    /// <summary>Members that come from the BCL or from a package, not from M3scalinum.Text.Typst.</summary>
     private static readonly HashSet<string> AllowedForeignMembers = new(StringComparer.Ordinal)
     {
         // OpenTelemetry wiring, shown in 07-diagnostics.md and Performance.md.
         "AddMeter",
         "AddOpenTelemetry",
-        "AddSharpTypst",
+        "AddTypst",
         "AddSource",
         "Combine",
         "LoadPkcs12FromFile",
@@ -138,10 +138,11 @@ public sealed class DocumentationDriftTests
     private static IEnumerable<Assembly> Assemblies()
     {
         yield return typeof(TypstCompiler).Assembly;
+        yield return typeof(M3scalinum.Text.Documents.TypstDocument).Assembly;
         yield return typeof(TypstOptions).Assembly;
         yield return typeof(M3scalinum.Text.Pdf.PdfSigner).Assembly;
         yield return typeof(M3scalinum.Text.Pdf.FactureX.FacturXInvoice).Assembly;
-        yield return typeof(M3scalinum.Text.SharpTypst.Templates.TemplateCatalog).Assembly;
+        yield return typeof(M3scalinum.Text.Templates.TemplateCatalog).Assembly;
         yield return typeof(M3scalinum.Text.Mcp.McpServer).Assembly;
         yield return typeof(M3scalinum.Text.Barcodes.Barcode).Assembly;
         yield return typeof(M3scalinum.Text.Charts.Chart).Assembly;

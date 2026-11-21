@@ -1,4 +1,4 @@
-name: ci (SharpTypst)
+name: ci (Typst)
 
 on:
   push:
@@ -49,14 +49,57 @@ on:
 env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
+  # Bump this to invalidate every native cache below. The crate source is hashed into the key, but
+  # the musl link recipe and the universal-darwin lipo step live in this file, not in the crate, so
+  # a change there is invisible to hashFiles.
+  NATIVE_CACHE_VERSION: v1
 
 # Read-only by default: no job here writes to the repository. The publish job of release-sharptypst.yml
 # overrides this with the OIDC permission it needs.
 permissions:
   contents: read
 
+# A branch pushed three times otherwise runs three full pipelines — six native builds, AOT, the leak
+# soak — because the previous run is neither cancelled nor reused. The newest run wins.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 
 jobs:
+  changes:
+    # Decides which of the expensive jobs are worth a runner. It reports on every run, so a job it
+    # disables shows up as skipped — which a required check accepts — rather than as missing, which
+    # would leave a pull request blocked forever waiting for a status.
+    name: changes
+    runs-on: ubuntu-latest
+    outputs:
+      compiler: ${{ steps.filter.outputs.compiler }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: filter
+        shell: bash
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ -z "$PR_BASE" ]; then
+            # A push to main, a tag or a manual run: nothing to narrow.
+            echo "compiler=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed=$(git diff --name-only "$PR_BASE" HEAD)
+          echo "changed files:"; echo "$changed"
+          # The compile path and everything that measures it. A change confined to a format package,
+          # a PDF tool or the documentation cannot move a benchmark or a trimming result.
+          if printf '%s\n' "$changed" |
+              grep -qE '^(native/|benchmarks/|samples/|src/Text\.(Typst|Documents|Templates)(\.|/)|Directory\.|global\.json)'; then
+            echo "compiler=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "compiler=false" >> "$GITHUB_OUTPUT"
+          fi
+
   native:
     name: native (${{ matrix.rid }})
     runs-on: ${{ matrix.os }}
@@ -102,29 +145,46 @@ jobs:
       RUSTFLAGS: ${{ matrix.target != '' && '-C linker=musl-gcc' || '' }}
     steps:
       - uses: actions/checkout@v7
+      # The six Rust builds are the long pole, and the crate changes far less often than the managed
+      # tree does. The cache holds the *library each RID produces*, not `target/` (which reaches
+      # 6 GB), so a managed-only pull request restores it in seconds and skips every cargo step —
+      # fmt, clippy and the crate's own tests already ran on the run that populated the entry.
+      #
+      # The restore has to follow the checkout: `hashFiles` reads the workspace, and an empty one
+      # hashes to the empty string, which would freeze the key forever.
+      - uses: actions/cache@v4
+        id: natives
+        with:
+          path: native/artifacts/${{ matrix.rid }}
+          key: natives-typst-${{ matrix.rid }}-ci-${{ env.NATIVE_CACHE_VERSION }}-${{ hashFiles('native/sharp-typst/Cargo.toml', 'native/sharp-typst/Cargo.lock', 'native/sharp-typst/build.rs', 'native/sharp-typst/src/**') }}
       - uses: dtolnay/rust-toolchain@stable
+        if: steps.natives.outputs.cache-hit != 'true'
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+        if: steps.natives.outputs.cache-hit != 'true'
         with:
           workspaces: native/sharp-typst
       - name: Install the musl toolchain
-        if: matrix.target != ''
+        if: steps.natives.outputs.cache-hit != 'true' && matrix.target != ''
         run: |
           sudo apt-get update
           sudo apt-get install -y musl-tools
           rustup target add ${{ matrix.target }}
       - name: Format
+        if: steps.natives.outputs.cache-hit != 'true'
         run: cargo fmt --check --manifest-path native/sharp-typst/Cargo.toml
       - name: Lint
+        if: steps.natives.outputs.cache-hit != 'true'
         run: cargo clippy $CRT_TARGET --manifest-path native/sharp-typst/Cargo.toml --all-targets -- -D warnings
       - name: Test
+        if: steps.natives.outputs.cache-hit != 'true'
         run: cargo test $CRT_TARGET --manifest-path native/sharp-typst/Cargo.toml
       - name: Build
-        if: matrix.rid != 'osx' && matrix.target == ''
+        if: steps.natives.outputs.cache-hit != 'true' && matrix.rid != 'osx' && matrix.target == ''
         run: cargo build --release --manifest-path native/sharp-typst/Cargo.toml
       - name: Build (musl)
-        if: matrix.target != ''
+        if: steps.natives.outputs.cache-hit != 'true' && matrix.target != ''
         run: |
           # Rust cannot emit a cdylib for a musl target: it drops the crate type with a warning and
           # produces only the staticlib. Link that into a shared object, forcing every tn_* entry
@@ -137,7 +197,7 @@ jobs:
           strip --strip-all native/sharp-typst/target/release/libsharp_typst.so
           ls -la native/sharp-typst/target/release/libsharp_typst.so
       - name: Build (universal)
-        if: matrix.rid == 'osx'
+        if: steps.natives.outputs.cache-hit != 'true' && matrix.rid == 'osx'
         run: |
           # One dylib for both architectures: .NET falls back from osx-arm64 and osx-x64 to osx.
           rustup target add aarch64-apple-darwin x86_64-apple-darwin
@@ -149,10 +209,19 @@ jobs:
             native/sharp-typst/target/x86_64-apple-darwin/release/libsharp_typst.dylib \
             -output native/sharp-typst/target/release/libsharp_typst.dylib
           lipo -info native/sharp-typst/target/release/libsharp_typst.dylib
+      - name: Stage the library
+        if: steps.natives.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          mkdir -p "native/artifacts/${{ matrix.rid }}"
+          cp "native/sharp-typst/target/release/${{ matrix.lib }}" "native/artifacts/${{ matrix.rid }}/"
+          ls -l "native/artifacts/${{ matrix.rid }}/"
       - uses: actions/upload-artifact@v7
+        # Staged from `native/artifacts`, not from `target/`, so the upload is the same step whether
+        # the library was just built or restored from the cache above.
         with:
           name: native-${{ matrix.rid }}
-          path: native/sharp-typst/target/release/${{ matrix.lib }}
+          path: native/artifacts/${{ matrix.rid }}/${{ matrix.lib }}
           if-no-files-found: error
 
   managed:
@@ -164,8 +233,11 @@ jobs:
         with:
           dotnet-version: 11.0.x
       - run: dotnet restore
-      - run: dotnet build -c Release --no-restore -p:BuildRevision=${{ github.run_number }}
-      - run: dotnet test tests/Text.SharpTypst.Tests -c Release --no-build
+      # The solution is built for net8.0, net9.0, net10.0 and net11.0 so that `pack` can compare the
+      # four surfaces; this job only tests net11.0. Building the test project by path builds one
+      # target of every project it references — the four-TFM build belongs to `pack`.
+      - run: dotnet build tests/Text.Typst.Tests -c Release --no-restore -p:BuildRevision=${{ github.run_number }}
+      - run: dotnet test tests/Text.Typst.Tests -c Release --no-build
 
   integration:
     name: integration (${{ matrix.rid }})
@@ -209,7 +281,7 @@ jobs:
       - name: Test against the real compiler
         env:
           SHARPTYPST_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/${{ matrix.rid }}/${{ matrix.lib }}
-        run: dotnet test tests/Text.SharpTypst.Integration.Tests -c Release --no-build
+        run: dotnet test tests/Text.Typst.Integration.Tests -c Release --no-build
 
   musl:
     name: integration (linux-musl-x64)
@@ -227,7 +299,7 @@ jobs:
       - run: dotnet restore
       - name: Publish the sample for musl
         run: >
-          dotnet publish samples/Text.SharpTypst.Samples -c Release -r linux-musl-x64 --self-contained
+          dotnet publish samples/Text.Typst.Samples -c Release -r linux-musl-x64 --self-contained
           -o artifacts/musl
       - name: Run it on Alpine
         # The glibc build loads on the Ubuntu runner and fails here, which is exactly the failure
@@ -236,11 +308,15 @@ jobs:
           cp native/artifacts/linux-musl-x64/libsharp_typst.so artifacts/musl/
           docker run --rm -v "$PWD/artifacts/musl:/app" -w /app \
             -e SHARPTYPST_NATIVE_PATH=/app/libsharp_typst.so \
-            mcr.microsoft.com/dotnet/runtime-deps:11.0-alpine ./M3scalinum.Text.SharpTypst.Samples
+            mcr.microsoft.com/dotnet/runtime-deps:11.0-alpine ./M3scalinum.Text.Typst.Samples
 
   aot:
     name: native aot publish
-    needs: [native]
+    needs: [native, changes]
+    # A trimming or AOT regression cannot come from a package that never touches the compile path. The
+    # job still reports — as skipped, which a required status check accepts — so the pull request is
+    # not left waiting for a status that will never arrive.
+    if: needs.changes.outputs.compiler == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -253,15 +329,18 @@ jobs:
           path: native/artifacts/linux-x64
       - run: dotnet restore
       - name: Publish the sample as Native AOT
-        run: dotnet publish samples/Text.SharpTypst.Samples -c Release -r linux-x64 -p:PublishAot=true -o artifacts/aot
+        run: dotnet publish samples/Text.Typst.Samples -c Release -r linux-x64 -p:PublishAot=true -o artifacts/aot
       - name: Run it
         env:
           SHARPTYPST_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/linux-x64/libsharp_typst.so
-        run: ./artifacts/aot/M3scalinum.Text.SharpTypst.Samples
+        run: ./artifacts/aot/M3scalinum.Text.Typst.Samples
 
   benchmarks:
     name: benchmarks
-    needs: [native]
+    needs: [native, changes]
+    # A change to a format package, a PDF tool or the documentation cannot move a compile benchmark,
+    # and the baseline is noisy enough that a run nobody needs is a run nobody reads.
+    if: needs.changes.outputs.compiler == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -277,7 +356,7 @@ jobs:
       - name: Compare against the stored baseline
         env:
           SHARPTYPST_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/linux-x64/libsharp_typst.so
-        run: dotnet run --project benchmarks/Text.SharpTypst.Benchmarks -c Release --no-build -- --check benchmarks/baseline.json
+        run: dotnet run --project benchmarks/Text.Typst.Benchmarks -c Release --no-build -- --check benchmarks/baseline.json
 
   coverage:
     name: coverage
@@ -300,7 +379,7 @@ jobs:
       - name: Collect (unit)
         run: >
           dotnet-coverage collect -f cobertura -o artifacts/coverage/unit.xml
-          "dotnet test tests/Text.SharpTypst.Tests -c Release --no-build"
+          "dotnet test tests/Text.Typst.Tests -c Release --no-build"
       - name: Collect (facturx)
         # The e-invoicing suite is pure managed code and carries most of the FacturX package's
         # lines; leaving it out of the merge is what dropped the gate below its floor.
@@ -316,7 +395,7 @@ jobs:
           SHARPTYPST_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/linux-x64/libsharp_typst.so
         run: >
           dotnet-coverage collect -f cobertura -o artifacts/coverage/integration.xml
-          "dotnet test tests/Text.SharpTypst.Integration.Tests -c Release --no-build
+          "dotnet test tests/Text.Typst.Integration.Tests -c Release --no-build
           --filter FullyQualifiedName!~LeakTests"
       - name: Merge
         run: >
@@ -329,7 +408,7 @@ jobs:
         # uncovered instead of uncollected.
         run: >
           python3 tests/coverage-gate.py artifacts/coverage/coverage.xml 90
-          --require M3scalinum.Text.SharpTypst M3scalinum.Text.SharpTypst.Native M3scalinum.Text.SharpTypst.DependencyInjection M3scalinum.Text.Pdf.FactureX M3scalinum.Text.Pdf
+          --require M3scalinum.Text.Typst M3scalinum.Text.Documents M3scalinum.Text.Typst.Native M3scalinum.Text.Typst.DependencyInjection M3scalinum.Text.Pdf.FactureX M3scalinum.Text.Pdf
       - uses: actions/upload-artifact@v7
         with:
           name: coverage
@@ -358,13 +437,14 @@ jobs:
             cp -r "$dir"/* "native/artifacts/$rid/"
           done
           find native/artifacts -name "*.dll" -o -name "*.so" -o -name "*.dylib" | sort
-      - run: dotnet pack src/Text.SharpTypst -c Release -o artifacts/packages -p:BuildRevision=${{ github.run_number }}
-      - run: dotnet pack src/Text.SharpTypst.DependencyInjection -c Release -o artifacts/packages -p:BuildRevision=${{ github.run_number }}
-      - run: dotnet pack src/Text.SharpTypst.Templates.Generator -c Release -o artifacts/packages -p:BuildRevision=${{ github.run_number }}
+      - run: dotnet pack src/Text.Documents -c Release -o artifacts/packages -p:BuildRevision=${{ github.run_number }}
+      - run: dotnet pack src/Text.Typst -c Release -o artifacts/packages -p:BuildRevision=${{ github.run_number }}
+      - run: dotnet pack src/Text.Typst.DependencyInjection -c Release -o artifacts/packages -p:BuildRevision=${{ github.run_number }}
+      - run: dotnet pack src/Text.Templates.Generator -c Release -o artifacts/packages -p:BuildRevision=${{ github.run_number }}
       - run: dotnet pack src/Text.Pdf.FactureX -c Release -o artifacts/packages -p:BuildRevision=${{ github.run_number }}
       - run: dotnet pack src/Text.Pdf -c Release -o artifacts/packages -p:BuildRevision=${{ github.run_number }}
       - name: Verify the packages
-        # A package with no runtimes/ entry, or one depending on the unpublished M3scalinum.Text.SharpTypst.Native,
+        # A package with no runtimes/ entry, or one depending on the unpublished M3scalinum.Text.Typst.Native,
         # is not installable. Both shipped once.
         run: |
           for package in artifacts/packages/*.nupkg; do

@@ -1,4 +1,4 @@
-# FactureX — getting started
+# Getting started
 
 `M3scalinum.Text.Pdf.FactureX` produces the e-invoice the French and German ecosystems exchange: a
 PDF/A-3 with the invoice XML attached (`factur-x.xml`) and the XMP metadata the standard requires.
@@ -9,7 +9,7 @@ given.
 dotnet add package M3scalinum.Text.Pdf.FactureX
 ```
 
-It renders through `M3scalinum.Text.SharpTypst`, which it takes from nuget.org; the rest of the work —
+It renders through `M3scalinum.Text.Typst`, which it takes from nuget.org; the rest of the work —
 the model, the writer, the validator, the reader — is plain managed code.
 
 ## End to end

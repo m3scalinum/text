@@ -9,19 +9,21 @@ answer different questions:
 
 | Train | Packages | Version | Why its own number |
 | --- | --- | --- | --- |
-| **SharpTypst** | `M3scalinum.Text.SharpTypst`, `.DependencyInjection`, `.Templates.Generator` | `0.15.1.<revision>`, the embedded Typst version plus a build count | the number *is* the compiler it carries |
-| **Suite** | `M3scalinum.Text.Pdf`, `M3scalinum.Text.Pdf.FactureX` | whatever the tag names (`v0.51.2` → `0.51.2`) | code with no compiler in it must not jump when Typst does |
+| **Typst** | `M3scalinum.Text.Typst`, `.Documents`, `.DependencyInjection`, `.Templates.Generator` | `0.15.1.<revision>`, the embedded Typst version plus a build count | the number *is* the compiler it carries |
+| **Suite** | `M3scalinum.Text.Pdf`, `.Pdf.FactureX`, `.Templates`, `.Mcp`, `.Barcodes`, `.Charts`, `.Docx`, `.Epub`, `.Ocr` | whatever the tag names (`v0.51.2` → `0.51.2`) | code with no compiler in it must not jump when Typst does |
 
-## The packages
+## Start here
 
-**[M3scalinum.Text.SharpTypst](SharpTypst-Getting-Started)** — compile Typst in-process. PDF, SVG, PNG,
+These three carry most of the value.
+
+**[M3scalinum.Text.Typst](Typst-Getting-Started)** — compile Typst in-process. PDF, SVG, PNG,
 HTML, Markdown, plain text, bundles. No process to spawn, no binary on `PATH`, no temporary files.
 
 ```csharp
-using M3scalinum.Text.SharpTypst.Compilation;
+using M3scalinum.Text.Typst.Compilation;
 
 var pdf = TypstCompiler.CompileToPdf("""
-    #set page(paper: \"a4\", margin: 2cm)
+    #set page(paper: "a4", margin: 2cm)
 
     = Hello
 
@@ -31,8 +33,9 @@ var pdf = TypstCompiler.CompileToPdf("""
 File.WriteAllBytes("hello.pdf", pdf);
 ```
 
-**[M3scalinum.Text.Pdf](Pdf-Getting-Started)** — sign what you produced. PAdES-B written as an
-incremental update, so a PDF/A document stays PDF/A and an earlier signature stays valid.
+**[M3scalinum.Text.Pdf](Pdf-Getting-Started)** — sign what you produced, and change it. PAdES-B
+written as an incremental update, so a PDF/A document stays PDF/A and an earlier signature stays
+valid; plus pages, forms, text, encryption and conformance.
 
 ```csharp
 using M3scalinum.Text.Pdf;
@@ -51,23 +54,59 @@ var invoice = FacturXReader.Read(File.ReadAllText("invoice.xml"));
 byte[] document = FacturXRenderer.Render(invoice);
 ```
 
+## The rest of the suite
+
+- **`M3scalinum.Text.Documents`** — the document model every other package builds: typed content,
+  styles, tables, figures, lists, page setup, and the HTML and Markdown importers. No compiler, no
+  native code. → [The document model](Documents-Model)
+- **`M3scalinum.Text.Templates`** — seven business layouts (invoice, quotation, account statement,
+  attestation, contract, payslip, purchase order) with typed options and English or French labels.
+  → [Templates](Typst-Templates)
+- **`M3scalinum.Text.Docx`** — read a Word document into the document model, then render it like any
+  other. → [Reading Word documents](Docx)
+- **`M3scalinum.Text.Epub`** — package a document as an EPUB 3 book, built with
+  `System.IO.Compression`. → [Writing an EPUB](Epub)
+- **`M3scalinum.Text.Charts`** — a typed chart model that emits SVG a report can embed. No
+  dependency. → [Charts](Charts)
+- **`M3scalinum.Text.Barcodes`** — QR, DataMatrix, Aztec, PDF417, Code 128/39, EAN-13/8, ITF and
+  Codabar, encoded to SVG or PNG and decoded back. → [Barcodes](Barcodes)
+- **`M3scalinum.Text.Ocr`** — text, lines and boxes out of a page image or a scanned PDF, with the
+  models the caller supplies. → [OCR](Ocr)
+- **`M3scalinum.Text.Mcp`** — a Model Context Protocol server over stdio or HTTP: render, list the
+  layouts, sign, merge and read PDFs, writing nothing to disk unless the host says so.
+  → [The MCP server](Mcp-Server)
+- **`M3scalinum.Text.Typst.DependencyInjection`** — `AddTypst` for
+  `Microsoft.Extensions.DependencyInjection`, with validated options.
+  → [Dependency injection](Typst-Dependency-Injection)
+
 ## Where to go
 
-|[SharpTypst](SharpTypst-Getting-Started)|[Pdf](Pdf-Getting-Started)|[FactureX](FactureX-Getting-Started)|
-| --- | --- | --- |
-| [Getting Started](SharpTypst-Getting-Started) | [Getting Started](Pdf-Getting-Started) | [Getting Started](FactureX-Getting-Started) |
-| [Compiling](SharpTypst-Compiling) | [Signing](Pdf-Signing) | [The invoice model](FactureX-Model) |
-| [Document Model](SharpTypst-Document-Model) | [Checking conformance](Pdf-Conformance) | [Rendering](FactureX-Rendering) |
-| [Templates](SharpTypst-Templates) | [Pages and forms](Pdf-Pages-and-Forms) | [Reading](FactureX-Reading) |
-| [Importing HTML](SharpTypst-Html-Import) | [Reading text](Pdf-Text) | [Validation](FactureX-Validation) |
-| [Diagnostics](SharpTypst-Diagnostics) | [Encryption](Pdf-Encryption) | [The French profile](FactureX-French-Profile) |
-| [Packages and Fonts](SharpTypst-Packages-and-Fonts) | [The MCP server](Mcp-Server) | |
-| [Barcodes](Barcodes) | [OCR](Ocr) | [Reading DOCX](Docx) |
-| [Charts](Charts) | [EPUB](Epub) | [Converting to PDF/A](Pdf-Conversion) |
-| [Dependency Injection](SharpTypst-Dependency-Injection) | | |
-| [Performance](SharpTypst-Performance) | | |
-| [Troubleshooting](SharpTypst-Troubleshooting) | | |
-| [Building from Source](SharpTypst-Building-from-Source) | | |
+**[Typst](Typst-Getting-Started)** — the compiler
+[Getting Started](Typst-Getting-Started) · [Compiling](Typst-Compiling) · [Templates](Typst-Templates) · 
+[Diagnostics](Typst-Diagnostics) · [Packages and Fonts](Typst-Packages-and-Fonts) · 
+[Dependency Injection](Typst-Dependency-Injection) · [Performance](Typst-Performance) · 
+[Troubleshooting](Typst-Troubleshooting) · [Building from Source](Typst-Building-from-Source)
+
+**[Documents](Documents-Model)** — the document model
+[The document model](Documents-Model) · [Importing HTML](Documents-Html-Import) · 
+[Importing Markdown](Documents-Markdown-Import)
+
+**[Pdf](Pdf-Getting-Started)** — sign, change and read a PDF
+[Getting Started](Pdf-Getting-Started) · [Signing](Pdf-Signing) · [Checking conformance](Pdf-Conformance) · 
+[Pages and forms](Pdf-Pages-and-Forms) · [Reading text](Pdf-Text) · [Encryption](Pdf-Encryption) · 
+[Converting to PDF/A](Pdf-Conversion)
+
+**[FactureX](FactureX-Getting-Started)** — build and read an e-invoice
+[Getting Started](FactureX-Getting-Started) · [The invoice model](FactureX-Model) · 
+[Rendering](FactureX-Rendering) · [Reading](FactureX-Reading) · [Validation](FactureX-Validation) · 
+[The Peppol CIUS](FactureX-Peppol) · [The XRechnung CIUS](FactureX-XRechnung) · 
+[The French profile](FactureX-French-Profile)
+
+**Formats and engines** — one page each
+[Barcodes](Barcodes) · [Charts](Charts) · [Reading DOCX](Docx) · [EPUB](Epub) · [OCR](Ocr)
+
+**[MCP](Mcp-Server)** — serve it over the Model Context Protocol
+[The MCP server](Mcp-Server)
 
 Nothing is published on nuget.org yet. The build, the tests and the packaging are documented in
-[Building from Source](SharpTypst-Building-from-Source).
+[Building from Source](Typst-Building-from-Source).
