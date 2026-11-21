@@ -23,6 +23,7 @@ them is a bug.
 | 12 | [12-dependency-injection.md](12-dependency-injection.md) | The `M3scalinum.Text.SharpTypst.DependencyInjection` package: services, lifetimes, options, validation |
 | 13 | [13-facturx.md](13-facturx.md) | The `M3scalinum.Text.Pdf.FactureX` package: reading, validating and rendering e-invoices |
 | 14 | [14-pdf-signature.md](14-pdf-signature.md) | The `M3scalinum.Text.Pdf` package: PAdES signatures as an incremental update |
+| 15 | [15-pdf-conformance.md](15-pdf-conformance.md) | The `PdfConformance` checker: which structural rules it establishes, and what veraPDF still validates |
 
 ## Status
 
@@ -34,9 +35,9 @@ them is a bug.
 | `src/Text.SharpTypst` (managed API) | World builder, compiler, `CompileBoth`, export options, packages, evaluation, templates, document model |
 | `src/Text.SharpTypst.DependencyInjection` | `AddSharpTypst`, options, validation |
 | `src/Text.SharpTypst.Templates.Generator` | Roslyn generator: `template.toml` → typed options record |
-| `src/Text.Pdf` | PAdES-B signatures as an incremental update; no dependency on the compiler |
+| `src/Text.Pdf` | PAdES-B signatures as an incremental update, structural PDF/A and PDF/UA conformance checks; no dependency on the compiler |
 | `src/Text.Pdf.FactureX` | CII/UBL reader, EN 16931 checks, CII writer, Factur-X renderer and XMP patch |
-| Tests | 281 unit (fake native) + 8 Pdf + 125 Factur-X + 14 generator + 7 suite + 229 integration (real compiler) |
+| Tests | 281 unit (fake native) + 44 Pdf + 125 Factur-X + 14 generator + 7 suite + 229 integration (real compiler) |
 | Benchmarks | `benchmarks/Text.SharpTypst.Benchmarks`, baseline stored, `--check` gate in CI |
 | Build & packaging | Build files in place; native packaging wired in CI |
 

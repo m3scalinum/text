@@ -18,6 +18,16 @@ Not yet published.
 
 ### Added
 
+- `M3scalinum.Text.Pdf` and `PdfConformance`: check PDF/UA-1 and PDF/A conformance from the bytes,
+  with `Check` returning a `PdfConformanceReport` and `Assert` throwing a
+  `PdfConformanceException`. The checker establishes catalog and cross-reference integrity, tagged
+  structure (`/StructTreeRoot`, `/ParentTree`, `/MarkInfo`), `/Lang`, a document title, `/Alt` or
+  `/ActualText` on every figure, embedded fonts with `/ToUnicode`, absence of `/Encrypt`, the PDF
+  version the claimed standard allows, and the XMP `pdfaid`/`pdfuaid` identifier. It is pure managed
+  parsing with no new dependency, has no reference on the compiler, and is a structural pre-flight
+  rather than a validator: veraPDF remains the reference for ISO 14289 and ISO 19005. Verified on
+  real Typst output (PDF/UA-1, PDF/A-2b, PDF/A-4) with one negative fixture per rule, produced by
+  mutating the real file. No PDF/UA-2 flavour is added: Typst 0.15.1 supports only `ua-1`.
 - `M3scalinum.Text.Pdf` and `PdfSigner.Sign`: a PAdES-B signature written as an incremental update,
   so a PDF/A document stays PDF/A, an embedded Factur-X attachment stays readable, and an earlier
   signature stays valid. Verified with pyHanko (intact, trusted, entire file) and, on a signed
