@@ -19,7 +19,8 @@ namespace M3scalinum.Text.Pdf;
 /// Flattening refuses what it cannot draw -- a widget with no appearance stream, an empty rectangle,
 /// a signature field -- and leaves those fields interactive, reporting each one. The <c>/AcroForm</c>
 /// entry is only removed when every field was flattened; a form that kept its values and its
-/// appearance is worth more than one whose fields disappeared. Encrypted documents are out of scope.
+/// appearance is worth more than one whose fields disappeared. An encrypted document is refused;
+/// open it with <see cref="PdfEncryption.Open"/> and fill the bytes it returns.
 /// </para>
 /// </remarks>
 public static class PdfForm

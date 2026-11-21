@@ -68,8 +68,9 @@ unfinished and correct.
 
 ## What is refused
 
-An encrypted document is refused by every operation: encryption is out of scope, and rewriting an
-encrypted file would produce either a broken file or a decrypted one. Bytes that are not a PDF, a
+An encrypted document is refused by every operation, with a message naming `PdfEncryption.Open`:
+rewriting ciphertext would produce either a broken file or a decrypted one. [Decrypt it
+first](Pdf-Encryption) and operate on the bytes that call returns. Bytes that are not a PDF, a
 document whose catalog or page tree cannot be read, a selection naming a page that does not exist,
 and a selection that would remove every page all throw rather than write a partial file.
 
@@ -78,7 +79,7 @@ tagging (`/StructTreeRoot`, `/MarkInfo`), outlines, named destinations and `/Acr
 annotations stay with their page and still draw, but the fields are no longer interactive. Rotate
 is the exception and keeps them.
 
-Text extraction, redaction, OCR and encryption are not part of this API.
+Text extraction, redaction and OCR are not part of this API; encryption is, in `PdfEncryption`.
 
 ## Signatures
 

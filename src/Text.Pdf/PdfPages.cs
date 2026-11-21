@@ -19,8 +19,9 @@ namespace M3scalinum.Text.Pdf;
 /// tagging (<c>/StructTreeRoot</c>, <c>/MarkInfo</c>), outlines, named destinations and the
 /// <c>/AcroForm</c> dictionary are dropped by merge, extraction, splitting and removal. Rotate is the
 /// exception: it copies the catalog as it is, so tagging, outlines and form fields survive a
-/// rotation. Text extraction, redaction, encryption and OCR are out of scope, and an encrypted
-/// document is refused rather than silently damaged.
+/// rotation. Text extraction, redaction and OCR are out of scope, and an encrypted document is
+/// refused rather than silently damaged: <see cref="PdfEncryption.Open"/> is what makes one
+/// readable first.
 /// </para>
 /// </remarks>
 public static class PdfPages

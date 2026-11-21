@@ -12,9 +12,13 @@ revocation data (PAdES-B-LT); a visible signature appearance, text or image; a d
 and a verifier that says what it can prove about what it read.
 
 **Out of scope, for now.** PAdES-B-LTA as a claim (a document timestamp can be added, but the
-verifier does not report the LTA level), encryption, redaction, OCR, merging, extracting pages, form
-filling other than the signature field, and fetching revocation data. Each is a separate piece of
-work, and none of them is needed to make a document signed and readable.
+verifier does not report the LTA level), redaction, OCR, merging, extracting pages, form filling
+other than the signature field, and fetching revocation data. Each is a separate piece of work, and
+none of them is needed to make a document signed and readable. Encryption is no longer out of
+scope — [19-pdf-encryption.md](19-pdf-encryption.md) reads and writes it — but signing an encrypted
+document is refused: an incremental update to ciphertext can never verify. Decrypt first, sign the
+bytes `PdfEncryption.Open` returned, and re-encrypt the result knowing the signature no longer
+covers it.
 
 ## 2. What a PAdES signature is
 

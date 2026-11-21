@@ -21,7 +21,7 @@ appearances into page content and removing the fields that were drawn.
 
 | Not done | Why |
 | --- | --- |
-| Encryption and decryption | An encrypted document is refused, not half-rewritten. |
+| Encryption and decryption | `PdfEncryption` owns both (see [19](19-pdf-encryption.md)); a page operation refuses an encrypted document rather than half-rewriting it. |
 | Text extraction | Another package owns it; the tests use a probe, not a public API. |
 | Redaction, OCR | Not a page operation; both need interpretation of the page. |
 | Rebuilding tagging, outlines or named destinations after a page change | A structure tree spans pages and has no meaning once pages are renumbered out of it. |

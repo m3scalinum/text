@@ -37,6 +37,9 @@ internal sealed partial class PdfFile
     private readonly Dictionary<int, Dictionary<int, PdfValue>> _objectStreams = [];
     private readonly List<PdfReadingProblem> _problems = [];
     private readonly List<PdfDictionary> _trailers = [];
+    private PdfStandardSecurity? _security;
+    private int _encryptObjectNumber = -1;
+    private bool _encryptMetadata = true;
 
     private PdfFile(byte[] data, int major, int minor)
     {
@@ -60,8 +63,59 @@ internal sealed partial class PdfFile
     /// <summary>Whether the trailer names an <c>/Encrypt</c> dictionary.</summary>
     internal bool IsEncrypted { get; private set; }
 
+    /// <summary>
+    /// The first element of the trailer's <c>/ID</c>, which an R4 document derives its file key from,
+    /// or an empty array when the trailer names none.
+    /// </summary>
+    internal byte[] Identifier
+        => Trailer["ID"] is PdfArray { Items.Count: > 0 } identifiers && identifiers.Items[0] is PdfString first
+            ? first.Bytes
+            : [];
+
+    /// <summary>
+    /// How many object numbers the file declares: its <c>/Size</c>, or one past the highest object
+    /// the cross-reference holds when the two disagree.
+    /// </summary>
+    internal int Size
+    {
+        get
+        {
+            var highest = 0;
+            foreach (var number in _entries.Keys)
+            {
+                highest = Math.Max(highest, number);
+            }
+
+            var size = Trailer["Size"] is PdfNumber number2 && number2.IsInteger ? (int)number2.AsInteger : 0;
+
+            return Math.Max(size, highest + 1);
+        }
+    }
+
     /// <summary>The document catalog, when the trailer names one that resolves to a dictionary.</summary>
     internal PdfDictionary? Catalog { get; private set; }
+
+    /// <summary>
+    /// Switches the reader to a decrypted view of the same bytes: every object read from now on has
+    /// its strings and streams decrypted with <paramref name="security"/>. Objects read before the
+    /// key was known are dropped from the cache and read again, which is what makes a catalog that
+    /// lives in an encrypted object stream resolvable at all.
+    /// </summary>
+    /// <param name="security">The handler, with its file key.</param>
+    /// <param name="encryptObjectNumber">The object holding <c>/Encrypt</c>, written in the clear.</param>
+    /// <param name="encryptMetadata">Whether <c>/EncryptMetadata</c> leaves the metadata stream encrypted.</param>
+    internal void UseDecryption(PdfStandardSecurity security, int encryptObjectNumber, bool encryptMetadata)
+    {
+        _security = security;
+        _encryptObjectNumber = encryptObjectNumber;
+        _encryptMetadata = encryptMetadata;
+        _cache.Clear();
+        _objectStreams.Clear();
+        Catalog = ResolveDictionary(Trailer["Root"]);
+    }
+
+    /// <summary>The generation the cross-reference records for <paramref name="number"/>.</summary>
+    internal int GenerationOf(int number) => _entries.TryGetValue(number, out var entry) ? entry.Generation : 0;
 
     /// <summary>
     /// Reads <paramref name="data"/> as a PDF. Returns <see langword="false"/> when the bytes are not
@@ -464,7 +518,7 @@ internal sealed partial class PdfFile
         SkipWhitespace(ref cursor);
 
         if (!TryReadInteger(ref cursor, out var number) ||
-            !TryReadInteger(ref cursor, out _) ||
+            !TryReadInteger(ref cursor, out var generation) ||
             !TryReadKeyword(ref cursor, "obj"u8))
         {
             return null;
@@ -473,13 +527,48 @@ internal sealed partial class PdfFile
         var value = ParseValue(ref cursor, 0);
 
         SkipWhitespace(ref cursor);
-        if (value is PdfDictionary dictionary && TryReadKeyword(ref cursor, "stream"u8))
+        PdfValue result = value is PdfDictionary dictionary && TryReadKeyword(ref cursor, "stream"u8)
+            ? ReadStream(dictionary, ref cursor, (int)number)
+            : value;
+
+        // The /Encrypt dictionary is written in the clear, so it is never decrypted; an empty string
+        // has nothing to decrypt and passes through untouched.
+        return _security is not null && number != _encryptObjectNumber
+            ? Decrypt(result, (int)number, (int)generation)
+            : result;
+    }
+
+    /// <summary>
+    /// Decrypts the strings and the stream data of an object, and corrects the <c>/Length</c> of a
+    /// stream whose bytes grew or shrank. The cross-reference stream of an encrypted file is never
+    /// encrypted, and neither is the metadata stream of a document that says so.
+    /// </summary>
+    private PdfValue Decrypt(PdfValue value, int number, int generation)
+    {
+        var security = _security!;
+
+        if (value is PdfStream stream)
         {
-            return ReadStream(dictionary, ref cursor, (int)number);
+            Decrypt(stream.Dictionary, number, generation);
+
+            if (!security.EncryptsStreams || stream.Dictionary.IsType("XRef") || !DecryptsMetadata(stream.Dictionary))
+            {
+                return stream;
+            }
+
+            var data = security.DecryptObject(number, generation, stream.Data);
+            stream.Dictionary.Entries["Length"] = new PdfNumber(data.Length);
+
+            return new PdfStream(stream.Dictionary, data);
         }
 
-        return value;
+        return PdfObjectTree.TransformStrings(
+            value,
+            security.EncryptsStrings ? bytes => security.DecryptObject(number, generation, bytes) : bytes => bytes);
     }
+
+    private bool DecryptsMetadata(PdfDictionary stream)
+        => _encryptMetadata || !stream.IsType("Metadata");
 
     private PdfStream ReadStream(PdfDictionary dictionary, ref Cursor cursor, int number)
     {
