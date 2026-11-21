@@ -9,6 +9,7 @@ mod diag;
 mod evaluate;
 mod export;
 mod ffi;
+mod page_text;
 mod semantic;
 mod world;
 
@@ -657,6 +658,35 @@ pub unsafe extern "C" fn tn_document_evaluate(
             }
             let bytes = evaluate::evaluate(&(*document).document)?;
             *out = TnBuffer::from_vec(bytes);
+            Ok(())
+        })
+    }
+}
+
+/// The text of one page, read from the paged layout in frame order. `page` is zero-based.
+///
+/// # Safety
+/// `document` must be a live handle from `tn_compile`; `out` must be writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn tn_document_page_text(
+    document: *const TnDocument,
+    page: u32,
+    out: *mut TnBuffer,
+    out_error: *mut *mut TnError,
+) -> i32 {
+    unsafe {
+        guard_status(out_error, || {
+            if document.is_null() {
+                return Err(TnError::new(
+                    TN_ERR_INVALID_HANDLE,
+                    "document handle is null",
+                ));
+            }
+            if out.is_null() {
+                return Err(TnError::invalid_argument("out must not be null"));
+            }
+            let text = page_text::page_text(&(*document).document, page as usize)?;
+            *out = TnBuffer::from_vec(text.into_bytes());
             Ok(())
         })
     }

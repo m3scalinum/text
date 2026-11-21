@@ -144,3 +144,28 @@ foreach (var entry in evaluation.Outline)
 
 `Evaluate()` reads the **laid-out** document, so page numbers are final and references are resolved.
 It requires a paged compilation.
+
+## Reading the text of a page
+
+Markdown and plain text (`ExportMarkdown()`, `ExportText()`) come from the HTML tree, so they have
+the document's structure but no pages. The layout knows the pages, and it can answer what text
+actually landed on page *n*:
+
+```csharp
+using var result = compiler.Compile(world);        // DocumentKind.Paged
+
+string page0 = result.ExtractText(0);              // zero-based, ends with "\n"
+IReadOnlyList<string> pages = result.ExtractTextPages();
+```
+
+This is the layout's text, in the order the frame tree yields it — not a semantic reconstruction.
+The page's frame is walked in order, groups included, and each text run contributes the characters
+its glyphs were shaped from. Runs on one line are joined, with a space where the layout left a
+horizontal gap (a table row reads as its cells separated by spaces); runs on different lines are
+separated by one newline. A heading is just text on a line and a list item is a line starting with
+its bullet. Hyphenation and ligatures come out as the font mapped them. The order is reading order
+for a single-column document and the frame tree's order otherwise.
+
+Both members require a paged document: on an HTML or bundle compilation they throw
+`TypstNativeException` with `TypstErrorCode.InvalidArgument`. An out-of-range page throws the same
+exception with the valid range in the message.

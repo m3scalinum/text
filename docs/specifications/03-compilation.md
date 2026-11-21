@@ -284,6 +284,47 @@ bytes are then pulled out in 64 KiB chunks (`tn_document_export_reader`, Spec 02
 overloads remove is the managed copy, so the peak allocation of a large export is halved. The
 stream is written synchronously and never seeked; a failing stream leaves the output truncated.
 
+### 4.5 Per-page text
+
+Markdown and plain text are derived from the HTML tree, so they have the document's structure but
+no pages, and they refuse a paged document. The layout knows the pages, so it can answer a
+different question: what text actually landed on page *n*.
+
+```csharp
+using var result = compiler.Compile(world);       // DocumentKind.Paged
+
+string page0 = result.ExtractText(0);             // zero-based
+IReadOnlyList<string> pages = result.ExtractTextPages();
+```
+
+| Member | Result |
+| --- | --- |
+| `ExtractText(int page)` | The text of one page, ending with `\n` |
+| `ExtractTextPages()` | One entry per page, in page order |
+
+The text is the layout's text, in the order the frame tree yields it, not a semantic
+reconstruction. The page's frame is walked in order, recursing into groups, and every text run
+contributes the characters its glyphs were shaped from. Runs on the same line are joined, with a
+space where the layout left a horizontal gap — a table row therefore reads as its cells separated
+by spaces; runs on different lines are separated by one newline. A heading is text on a line, a
+list item is a line that starts with its bullet, and nothing marks them as such. Hyphenation and
+ligatures come out as the font mapped them, so a ligature yields the characters it was shaped
+from and a hyphen inserted by the line breaker is part of the text.
+
+The order is the frame tree's order, which is reading order for a single-column document and is
+not for a multi-column or absolutely positioned layout.
+
+Both members require a paged document. On an HTML or bundle document the call throws
+`TypstNativeException` with `TypstErrorCode.InvalidArgument` and the message
+`page text requires a paged document`. An out-of-range page throws the same exception with the
+valid range in the message. `ExportText()` is unchanged: it still requires an HTML document and
+still returns the HTML tree's text.
+
+**Decision — a second entry point rather than a mode on `ExportText()`.** The two answers are
+produced by different parts of the compiler and carry different guarantees: one has structure and
+no pages, the other has pages and no structure. Folding them behind one flag would hide which one
+the caller got, and the failure modes are already disjoint.
+
 ## 5. Evaluation
 
 `CompilationResult.Evaluate()` returns what the laid-out document says about itself:

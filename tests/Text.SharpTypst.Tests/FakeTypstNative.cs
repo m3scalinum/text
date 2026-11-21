@@ -177,6 +177,23 @@ internal sealed class FakeTypstNative : ITypstNative
         return Encoding.UTF8.GetBytes(EvaluationJson);
     }
 
+    /// <summary>Per-page text the fake returns, by zero-based page index.</summary>
+    public Dictionary<int, string> PageTexts { get; } = [];
+
+    public List<int> PageTextRequests { get; } = [];
+
+    public byte[] PageText(TypstDocumentHandle document, int page)
+    {
+        PageTextRequests.Add(page);
+
+        if (ExportFailure is not null)
+        {
+            throw ExportFailure;
+        }
+
+        return Encoding.UTF8.GetBytes(PageTexts.TryGetValue(page, out var text) ? text : string.Empty);
+    }
+
     public byte[] FontFamilies(TypstWorldHandle world)
         => Encoding.UTF8.GetBytes(FontFamiliesJson);
 

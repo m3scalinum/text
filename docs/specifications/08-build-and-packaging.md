@@ -295,7 +295,8 @@ A consumer can therefore tell which compiler a package carries from its version 
 `0.15.1.*` → `0.15.2.*` bump is unambiguously a Typst upgrade.
 
 **The packages that do not embed it** — `M3scalinum.Text.Pdf` (PAdES signing,
-[14](14-pdf-signature.md)) and `M3scalinum.Text.Pdf.FactureX` ([13](13-facturx.md)) — carry whatever
+[14](14-pdf-signature.md)), `M3scalinum.Text.Pdf.FactureX` ([13](13-facturx.md)) and
+`M3scalinum.Text.Templates` (the layout pack, [05](05-templates.md)) — carry whatever
 version their tag names. `v0.51.2` publishes `0.51.2`, `v1.0.0` publishes `1.0.0`:
 
 ```
@@ -356,7 +357,7 @@ library reports, so bumping the Rust crate without bumping `TypstVersion` fails 
 - A Typst upgrade is a **minor** version of `M3scalinum.Text.SharpTypst` unless it changes emitted
   output, in which case it is a major (golden files change).
 
-`EnablePackageValidation` is on for the five packable projects. With no
+`EnablePackageValidation` is on for the six packable projects. With no
 `PackageValidationBaselineVersion` it still does real work: it compares the API surface of
 `net8.0`, `net9.0` and `net10.0` against `net11.0`, which is exactly where a conditional
 `PackageReference` or an `#if` would quietly drop a type. Once 1.0 is on nuget.org, set the baseline
@@ -367,7 +368,7 @@ parameter type instead of letting it reach a consumer.
 
 The suite is split along the same line as the versions. `.github/workflows/ci-sharptypst.yml`
 owns everything that needs the compiler; `.github/workflows/ci-text.yml` builds, tests and packs the
-two packages that do not.
+three packages that do not.
 
 `ci-sharptypst.yml`:
 

@@ -226,6 +226,14 @@ internal sealed class TypstNative : ITypstNative
             return NativeCallException.ReadAndFree(output);
         });
 
+    public byte[] PageText(TypstDocumentHandle document, int page)
+        => WithHandle(document, pointer =>
+        {
+            var status = NativeMethods.DocumentPageText(pointer, (uint)page, out var output, out var error);
+            NativeCallException.ThrowIfFailed(status, error, $"read the text of page {page}");
+            return NativeCallException.ReadAndFree(output);
+        });
+
     public byte[] FontFamilies(TypstWorldHandle world)
         => WithHandle(world, pointer =>
         {
