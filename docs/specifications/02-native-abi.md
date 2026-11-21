@@ -303,7 +303,39 @@ Returns a JSON array of the family names the world can resolve, sorted and dedup
 The list covers the embedded fonts plus everything registered through `tn_world_add_font` and the
 `fonts` section of the world config. It is the diagnostic for an "unknown font family" warning.
 
-### 3.10 Clone
+### 3.10 Page text
+
+```c
+int32_t tn_document_page_text(const TnDocument *document,
+                              uint32_t page,
+                              TnBuffer *out,
+                              TnError **out_error);
+```
+
+Returns the text of one page as UTF-8, without a terminator. `page` is zero-based and must be
+below `tn_document_page_count`.
+
+The text is the layout's text, not a semantic reconstruction. The frame of `pages()[page]` is
+walked in order, recursing into groups, and every `FrameItem::Text` run contributes its glyphs;
+each glyph carries the byte range of the characters it was shaped from, so the characters come
+back through the font. Consequences a caller must expect:
+
+- Runs on the same line are concatenated, with a space where the layout left a horizontal gap
+  (a table cell, an inline island). Runs on different lines are separated by one `\n`.
+- A heading is text on a line; a list item is a line that starts with its bullet glyph. Nothing
+  marks them as such — use the HTML document and `text` for structure.
+- Hyphenation and ligatures come out as the font mapped them: a ligature yields the characters
+  it was shaped from, and a hyphen introduced by the line breaker is part of the text.
+- The order is the order the frame tree yields, which for a single-column document is reading
+  order and for a multi-column or absolutely positioned layout is not.
+- Each page's text ends with exactly one `\n`; an empty page returns an empty buffer
+  (`ptr = NULL, len = 0`).
+
+A document compiled with `document = "html"` or `"bundle"` returns `TN_ERR_INVALID_ARGUMENT`,
+because only a paged document has pages. A page index out of range returns
+`TN_ERR_INVALID_ARGUMENT` with the valid range in the message.
+
+### 3.11 Clone
 
 ```c
 int32_t tn_world_clone(const TnWorld *world,

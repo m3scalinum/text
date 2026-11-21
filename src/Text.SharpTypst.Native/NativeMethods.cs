@@ -103,6 +103,10 @@ internal static partial class NativeMethods
     internal static partial int DocumentEvaluate(
         IntPtr document, out NativeBuffer output, out IntPtr error);
 
+    [LibraryImport(LibraryName, EntryPoint = "tn_document_page_text")]
+    internal static partial int DocumentPageText(
+        IntPtr document, uint page, out NativeBuffer output, out IntPtr error);
+
     [LibraryImport(LibraryName, EntryPoint = "tn_world_font_families")]
     internal static partial int WorldFontFamilies(
         IntPtr world, out NativeBuffer output, out IntPtr error);
