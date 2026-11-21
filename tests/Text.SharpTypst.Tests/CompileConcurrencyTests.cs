@@ -140,25 +140,25 @@ public sealed class CompileConcurrencyTests
     [Fact]
     public async Task A_zero_ceiling_removes_the_cap()
     {
-        var native = new FakeTypstNative { CompileDelay = TimeSpan.FromMilliseconds(150) };
+        // Zero means no cap, so both compilations must be inside the native call at the same time.
+        // The barrier proves it: a duration threshold would pass on a machine that started the
+        // second task late and fail on a loaded one, neither of which says anything about the gate.
+        using var barrier = new Barrier(2);
+        var native = new FakeTypstNative { CompileBarrier = barrier };
         var compiler = new TypstCompiler(native, maxConcurrency: 0);
 
         using var first = World(native);
         using var second = World(native);
 
-        var stopwatch = Stopwatch.StartNew();
         var results = await Task.WhenAll(
             compiler.CompileAsync(first, cancellationToken: TestContext.Current.CancellationToken),
             compiler.CompileAsync(second, cancellationToken: TestContext.Current.CancellationToken));
-        stopwatch.Stop();
 
         foreach (var result in results)
         {
             result.Dispose();
         }
 
-        Assert.True(
-            stopwatch.Elapsed < TimeSpan.FromMilliseconds(280),
-            $"an uncapped compiler serialised two compiles ({stopwatch.ElapsedMilliseconds} ms)");
+        Assert.Equal(2, native.CompileCount);
     }
 }

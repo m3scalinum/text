@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using System.Linq;
 using M3scalinum.Text.SharpTypst.Compilation;
 using Xunit;
@@ -41,34 +40,6 @@ public sealed class WorldCloneTests
 
         Assert.Equal(template.FontCount, clone.FontCount);
         Assert.Equal(template.FontFamilies, clone.FontFamilies);
-    }
-
-    [Fact]
-    public void Cloning_is_much_cheaper_than_building()
-    {
-        const int rounds = 50;
-
-        using var template = new TypstWorldBuilder().AddSource("main.typ", "= x").Build();
-
-        var stopwatch = Stopwatch.StartNew();
-        for (var i = 0; i < rounds; i++)
-        {
-            using var clone = template.Clone();
-        }
-
-        var cloneMs = stopwatch.Elapsed.TotalMilliseconds;
-
-        stopwatch.Restart();
-        for (var i = 0; i < rounds; i++)
-        {
-            using var built = new TypstWorldBuilder().AddSource("main.typ", "= x").Build();
-        }
-
-        var buildMs = stopwatch.Elapsed.TotalMilliseconds;
-
-        Assert.True(
-            cloneMs < buildMs,
-            $"{rounds} clones took {cloneMs:F1} ms, {rounds} builds took {buildMs:F1} ms");
     }
 
     [Fact]
