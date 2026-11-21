@@ -69,7 +69,18 @@ internal sealed class PdfObjectWriter
     public PdfValue? Get(int number) => _objects.TryGetValue(number, out var value) ? value : null;
 
     /// <summary>Builds the file, with <paramref name="rootNumber"/> as the trailer's <c>/Root</c>.</summary>
-    public byte[] Build(int rootNumber, int major = 1, int minor = 7)
+    /// <param name="rootNumber">The catalog's object number.</param>
+    /// <param name="major">The major version of the header.</param>
+    /// <param name="minor">The minor version of the header.</param>
+    /// <param name="trailerEntries">
+    /// Entries to write in the trailer besides <c>/Size</c> and <c>/Root</c>, such as <c>/Info</c>,
+    /// <c>/ID</c> or <c>/Encrypt</c>. They are written in ordinal order of their keys.
+    /// </param>
+    public byte[] Build(
+        int rootNumber,
+        int major = 1,
+        int minor = 7,
+        IReadOnlyDictionary<string, PdfValue>? trailerEntries = null)
     {
         using var output = new MemoryStream();
 
@@ -107,9 +118,30 @@ internal sealed class PdfObjectWriter
 
         WriteAscii(output, string.Create(
             CultureInfo.InvariantCulture,
-            $"trailer\n<</Size {size}/Root {rootNumber} 0 R>>\nstartxref\n{xref}\n%%EOF\n"));
+            $"trailer\n<</Size {size}/Root {rootNumber} 0 R"));
+
+        if (trailerEntries is not null)
+        {
+            foreach (var key in SortedKeys(trailerEntries))
+            {
+                WriteAscii(output, "/" + EscapeName(key) + " ");
+                WriteValue(output, trailerEntries[key], 0);
+            }
+        }
+
+        WriteAscii(output, string.Create(
+            CultureInfo.InvariantCulture,
+            $">>\nstartxref\n{xref}\n%%EOF\n"));
 
         return output.ToArray();
+    }
+
+    private static List<string> SortedKeys(IReadOnlyDictionary<string, PdfValue> dictionary)
+    {
+        var keys = new List<string>(dictionary.Keys);
+        keys.Sort(StringComparer.Ordinal);
+
+        return keys;
     }
 
     private static void WriteAscii(Stream output, string text)
