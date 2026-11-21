@@ -22,6 +22,7 @@
 - [Signing](Pdf-Signing)
 - [Checking conformance](Pdf-Conformance)
 - [Pages and forms](Pdf-Pages-and-Forms)
+- [Reading text](Pdf-Text)
 
 **MCP** — render from a model
 

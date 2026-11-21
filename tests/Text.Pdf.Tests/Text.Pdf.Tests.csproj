@@ -16,6 +16,7 @@
       fixtures/pdfua/README.md for how each one was produced.
     -->
     <None Update="fixtures\pdfua\**\*" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="fixtures\text\**\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

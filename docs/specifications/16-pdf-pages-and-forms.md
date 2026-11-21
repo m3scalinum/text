@@ -22,7 +22,7 @@ appearances into page content and removing the fields that were drawn.
 | Not done | Why |
 | --- | --- |
 | Encryption and decryption | An encrypted document is refused, not half-rewritten. |
-| Text extraction | Another package owns it; the tests use a probe, not a public API. |
+| Text extraction | `PdfText` owns it (see document 18); a page operation rebuilds bytes and never interprets characters. |
 | Redaction, OCR | Not a page operation; both need interpretation of the page. |
 | Rebuilding tagging, outlines or named destinations after a page change | A structure tree spans pages and has no meaning once pages are renumbered out of it. |
 | Regenerating an appearance a field does not have | The value is written; the viewer draws it. A field the writer cannot draw is reported, not guessed. |
@@ -210,5 +210,5 @@ tests use, with two pages, compressed content streams, subset fonts and `/ToUnic
 - **Refusals** are asserted on an encrypted trailer, on bytes that are not a PDF, on a page that
   does not exist, and on an angle that is not a quarter turn.
 
-The probe is test code, not a package entry point: text extraction belongs to a separate deliverable
-and is not added here.
+The probe is test code, not a package entry point. Reading a received document is a separate
+deliverable, `PdfText`, specified in [18-pdf-text.md](18-pdf-text.md).
