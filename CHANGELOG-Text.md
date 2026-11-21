@@ -19,6 +19,22 @@ Not yet published.
 
 ### Added
 
+- `M3scalinum.Text.Pdf.FactureX` and the national syntaxes: `FatturaPaReader` / `FatturaPaWriter` read
+  and write FatturaPA 1.2.2 (`FatturaElettronica` — `DatiTrasmissione` with the `CodiceDestinatario` or
+  the PEC address, `CedentePrestatore` and `CessionarioCommittente`, `DatiGeneraliDocumento`,
+  `DatiBeniServizi` with the lines and the `DatiRiepilogo`, and `DatiPagamento`), and `FacturaeReader` /
+  `FacturaeWriter` read and write Facturae 3.2.2 (`FileHeader`, `Parties`, `Invoices` with
+  `InvoiceHeader`, `InvoiceIssueData`, `TaxesOutputs`, `InvoiceTotals`, `Items` and `PaymentDetails`).
+  Both map to and from `FacturXInvoice`, both round-trip, and `FacturXReader.Read` and `PeekSyntax`
+  dispatch on the root element, so a caller does not have to know which syntax arrived. Two code
+  bridges carry what the national lists say differently: `Natura` (`N1` to `N7`) to the nine EN 16931
+  VAT categories, and `MP01` to `MP23` to UNTDID 4461. The document type codes map to `BT-3` (`TD01`,
+  `TD04`, `TD05` in Italy; the rectificative `InvoiceClass` in Spain), and a credit note is written as
+  `TD04` in Italy and as a rectificative `OR` with negative amounts in Spain, which reads back as
+  `384`. What neither schema states — a contract, a project, a delivery address, an exemption reason,
+  a per-line tax amount in FatturaPA, a unit code outside Facturae's numeric list — stays out of the
+  document rather than being invented. New fixtures under `tests/fixtures/national` are constructed
+  from the published schemas.
 - `M3scalinum.Text.Mcp`: a Model Context Protocol server over stdio, exposing `render_document`
   (Typst source, or a layout of `M3scalinum.Text.Templates` with its parameters), `render_invoice`
   (a `FacturXInvoice`-shaped JSON payload, validated and rendered as Factur-X PDF/A-3) and

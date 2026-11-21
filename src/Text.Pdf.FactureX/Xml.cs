@@ -1,20 +1,52 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
+using System.Xml;
 using System.Xml.Linq;
 using M3scalinum.Text.SharpTypst;
 
 namespace M3scalinum.Text.Pdf.FactureX;
 
-/// <summary>Namespace-agnostic navigation over a CII or UBL document.</summary>
+/// <summary>Namespace-agnostic navigation over a CII, UBL, FatturaPA or Facturae document.</summary>
 /// <remarks>
-/// Both syntaxes are namespace-heavy and the prefixes differ between producers (and between
+/// The syntaxes are namespace-heavy and the prefixes differ between producers (and between
 /// versions of the same producer). Matching on the local name is what makes one reader work on
 /// every file the standard allows; the element names themselves are fixed by the schemas.
+/// FatturaPA is the other extreme: only its root is in the namespace the schema declares, so the
+/// children carry none.
 /// </remarks>
 internal static class Xml
 {
+    private const long MaxDocumentBytes = 16 * 1024 * 1024;
+
+    /// <summary>Parses XML text defensively: no DTD, no resolver, and a bound on the size.</summary>
+    /// <exception cref="FacturXFormatException">The text is not well-formed XML.</exception>
+    public static XElement Parse(string xml)
+    {
+        var settings = new XmlReaderSettings
+        {
+            DtdProcessing = DtdProcessing.Prohibit,
+            XmlResolver = null,
+            IgnoreComments = true,
+            IgnoreWhitespace = true,
+            MaxCharactersInDocument = MaxDocumentBytes,
+            CloseInput = false,
+        };
+
+        try
+        {
+            using var reader = XmlReader.Create(new StringReader(xml), settings);
+            return XElement.Load(reader);
+        }
+        catch (XmlException exception)
+        {
+            throw new FacturXFormatException(
+                $"the document is not well-formed XML: {exception.Message}", exception);
+        }
+    }
+
     public static XElement? Child(this XElement? parent, string localName)
         => parent?.Elements().FirstOrDefault(element => element.Name.LocalName == localName);
 
@@ -87,6 +119,13 @@ internal static class Xml
     /// </summary>
     public static string Rate(decimal value)
         => value.ToString(value == decimal.Truncate(value) ? "0" : "0.00", CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// A quantity FatturaPA accepts: at least two decimals and at most eight, always with a dot.
+    /// The schema states every number with a pattern, not as a plain decimal, so `2` is refused
+    /// where `2.00` is accepted.
+    /// </summary>
+    public static string TwoToEightDecimals(decimal value) => value.ToString("0.00######", CultureInfo.InvariantCulture);
 
     /// <summary>A quantity, up to four decimals.</summary>
     public static string Quantity(decimal value) => value.ToString("0.####", CultureInfo.InvariantCulture);
