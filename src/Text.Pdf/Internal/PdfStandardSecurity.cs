@@ -566,17 +566,20 @@ internal sealed class PdfStandardSecurity
         return transform.TransformFinalBlock(data, 0, data.Length);
     }
 
-    /// <summary>AES in ECB mode without padding, for <c>/Perms</c>.</summary>
+    /// <summary>
+    /// AES in ECB mode without padding, for <c>/Perms</c>.
+    /// </summary>
+    /// <remarks>
+    /// ISO 32000-2, Algorithm 10 mandates ECB for this one value: <c>/Perms</c> is a single 16-byte
+    /// block, so there is no block repetition for ECB to leak. The dedicated <c>EncryptEcb</c> API
+    /// says that at the call site instead of configuring a cipher mode.
+    /// </remarks>
     private static byte[] AesEcbWithoutPadding(byte[] key, byte[] data)
     {
         using var aes = Aes.Create();
         aes.Key = key;
-        aes.Mode = CipherMode.ECB;
-        aes.Padding = PaddingMode.None;
 
-        using var encryptor = aes.CreateEncryptor();
-
-        return encryptor.TransformFinalBlock(data, 0, data.Length);
+        return aes.EncryptEcb(data, PaddingMode.None);
     }
 
     /// <summary>RC4, which R4 still uses for the <c>/O</c> and <c>/U</c> entries.</summary>
