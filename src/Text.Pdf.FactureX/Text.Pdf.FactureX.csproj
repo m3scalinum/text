@@ -14,11 +14,11 @@
     <InformationalVersion>$(Version)</InformationalVersion>
     <IsPackable>true</IsPackable>
     <PackageId>M3scalinum.Text.Pdf.FactureX</PackageId>
-    <Description>Factur-X / ZUGFeRD invoices for M3scalinum.Text.SharpTypst: read a CII or UBL invoice, validate it against the EN 16931 rules, and render a PDF/A-3 with the XML attached and the Factur-X XMP metadata.</Description>
+    <Description>Factur-X / ZUGFeRD invoices for M3scalinum.Text.Typst: read a CII or UBL invoice, validate it against the EN 16931 rules, and render a PDF/A-3 with the XML attached and the Factur-X XMP metadata.</Description>
     <PackageTags>typst;pdf;facturx;zugferd;e-invoicing;en16931;invoice;pdfa</PackageTags>
     <TargetFrameworks>net8.0;net9.0;net10.0;net11.0</TargetFrameworks>
     <TargetFramework />
-    <!-- Same build-time SourceLink warning as M3scalinum.Text.SharpTypst; see that project. -->
+    <!-- Same build-time SourceLink warning as M3scalinum.Text.Typst; see that project. -->
     <SuppressTfmSupportBuildWarnings>true</SuppressTfmSupportBuildWarnings>
   </PropertyGroup>
 
@@ -30,13 +30,13 @@
       published version: a release of this package must name a core version that exists on NuGet,
       not one from a build that never left the machine. Set by the workflow through CoreVersion.
     -->
-    <ProjectReference Include="..\Text.SharpTypst\Text.SharpTypst.csproj" Condition="'$(CoreVersion)' == ''" />
-    <PackageReference Include="M3scalinum.Text.SharpTypst" Condition="'$(CoreVersion)' != ''" />
+    <ProjectReference Include="..\Text.Typst\Text.Typst.csproj" Condition="'$(CoreVersion)' == ''" />
+    <PackageReference Include="M3scalinum.Text.Typst" Condition="'$(CoreVersion)' != ''" />
   </ItemGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="M3scalinum.Text.Pdf.FactureX.Tests" />
-    <InternalsVisibleTo Include="M3scalinum.Text.SharpTypst.Integration.Tests" />
+    <InternalsVisibleTo Include="M3scalinum.Text.Typst.Integration.Tests" />
   </ItemGroup>
 
   <ItemGroup>

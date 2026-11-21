@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!--
+      This package follows the compiler train, not the suite: its public surface is the Typst document
+      vocabulary (TypstDocument, TypstContent, TypstColor), which moves with the embedded compiler and
+      changes when the compiler does. It therefore keeps the default versioning from
+      Directory.Build.props — 0.15.1.<revision> — and ci-sharptypst.yml packs it before
+      M3scalinum.Text.Typst, which depends on it.
+    -->
+    <TargetFrameworks>net8.0;net9.0;net10.0;net11.0</TargetFrameworks>
+    <!-- Clears the single-TFM default Directory.Build.props sets, as the other multi-targeted
+         projects do; without it only net11.0 is built and pack fails on the missing assemblies. -->
+    <TargetFramework />
+    <SuppressTfmSupportBuildWarnings>true</SuppressTfmSupportBuildWarnings>
+    <IsPackable>true</IsPackable>
+    <IsAotCompatible>true</IsAotCompatible>
+    <PackageId>M3scalinum.Text.Documents</PackageId>
+    <Description>The document model the suite builds: typed content, inline styles, tables, figures, lists and page setup, plus the HTML and Markdown importers. No dependency, no native code, no compiler.</Description>
+    <PackageTags>documents;document-model;typst;markdown;html;templates</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="M3scalinum.Text.Typst" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="/" />
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="/" />
+    <None Include="..\..\NOTICE" Pack="true" PackagePath="/" />
+    <None Include="..\..\THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="/" Condition="Exists('..\..\THIRD-PARTY-NOTICES.md')" />
+  </ItemGroup>
+
+</Project>

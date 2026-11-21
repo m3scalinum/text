@@ -20,7 +20,7 @@
     <Nullable>enable</Nullable>
     <IsPackable>true</IsPackable>
     <PackageId>M3scalinum.Text.Pdf</PackageId>
-    <Description>Sign a PDF with PAdES, and post-process the documents M3scalinum.Text.SharpTypst produces.</Description>
+    <Description>Sign a PDF with PAdES, and post-process the documents M3scalinum.Text.Typst produces.</Description>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
 
     <PkcsVersion Condition="'$(TargetFramework)' == 'net8.0'">8.0.2</PkcsVersion>

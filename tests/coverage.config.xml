@@ -7,8 +7,9 @@
   <CodeCoverage>
     <ModulePaths>
       <Include>
-        <ModulePath>.*SharpTypst\.dll$</ModulePath>
-        <ModulePath>.*SharpTypst\.DependencyInjection\.dll$</ModulePath>
+        <ModulePath>.*M3scalinum\.Text\.Typst\.dll$</ModulePath>
+        <ModulePath>.*M3scalinum\.Text\.Typst\.DependencyInjection\.dll$</ModulePath>
+        <ModulePath>.*M3scalinum\.Text\.Documents\.dll$</ModulePath>
       </Include>
       <Exclude>
         <ModulePath>.*Tests\.dll$</ModulePath>

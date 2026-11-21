@@ -6,7 +6,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using M3scalinum.Text.Mcp;
-using M3scalinum.Text.SharpTypst.Templates;
+using M3scalinum.Text.Templates;
 using Xunit;
 
 namespace M3scalinum.Text.Mcp.Tests;

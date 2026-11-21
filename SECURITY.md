@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-M3scalinum.Text.SharpTypst is pre-1.0. Security fixes land on the latest published version only; there are no
+M3scalinum.Text.Typst is pre-1.0. Security fixes land on the latest published version only; there are no
 maintained release branches.
 
 | Version | Supported |
@@ -22,7 +22,7 @@ is given in the advisory unless you ask otherwise.
 
 ## Scope
 
-M3scalinum.Text.SharpTypst loads a native library into the host process and compiles documents that may come from
+M3scalinum.Text.Typst loads a native library into the host process and compiles documents that may come from
 untrusted input. The following are in scope:
 
 - **Memory safety in the C ABI.** A malformed or hostile input that causes a crash, a use-after-free
@@ -43,7 +43,7 @@ untrusted input. The following are in scope:
   bump.
 - Denial of service from input you already control and chose to compile, when the limits are
   configured to allow it.
-- Vulnerabilities in a dependency that has no exploitable path through M3scalinum.Text.SharpTypst — report those
+- Vulnerabilities in a dependency that has no exploitable path through M3scalinum.Text.Typst — report those
   upstream.
 
 ## Disclosure

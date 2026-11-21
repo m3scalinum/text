@@ -1,4 +1,4 @@
-name: release (SharpTypst)
+name: release (Typst)
 
 on:
   push:
@@ -147,12 +147,12 @@ jobs:
           import pathlib, re, sys
 
           version = sys.argv[1].removeprefix("sharptypst-v")
-          text = pathlib.Path("CHANGELOG-SharpTypst.md").read_text(encoding="utf-8")
+          text = pathlib.Path("CHANGELOG-Typst.md").read_text(encoding="utf-8")
           section = re.search(
               rf"^## \[{re.escape(version)}\][^\n]*\n(.*?)(?=^## \[|\Z)", text, re.M | re.S
           )
           if not section or not section.group(1).strip():
-              sys.exit(f"CHANGELOG-SharpTypst.md has no '## [{version}]' section with content: write it before tagging")
+              sys.exit(f"CHANGELOG-Typst.md has no '## [{version}]' section with content: write it before tagging")
           PY
       - name: Pack
         run: |
@@ -174,11 +174,12 @@ jobs:
               exit 1
             fi
           fi
-          dotnet pack src/Text.SharpTypst -c Release -o artifacts/packages -p:BuildRevision="$revision"
-          dotnet pack src/Text.SharpTypst.DependencyInjection -c Release -o artifacts/packages -p:BuildRevision="$revision"
-          dotnet pack src/Text.SharpTypst.Templates.Generator -c Release -o artifacts/packages -p:BuildRevision="$revision"
+          dotnet pack src/Text.Documents -c Release -o artifacts/packages -p:BuildRevision="$revision"
+          dotnet pack src/Text.Typst -c Release -o artifacts/packages -p:BuildRevision="$revision"
+          dotnet pack src/Text.Typst.DependencyInjection -c Release -o artifacts/packages -p:BuildRevision="$revision"
+          dotnet pack src/Text.Templates.Generator -c Release -o artifacts/packages -p:BuildRevision="$revision"
       - name: Verify the packages
-        # Never publish a package with no runtimes/ entry or a dependency on M3scalinum.Text.SharpTypst.Native.
+        # Never publish a package with no runtimes/ entry or a dependency on M3scalinum.Text.Typst.Native.
         run: |
           for package in artifacts/packages/*.nupkg; do
             python3 tests/verify-package.py "$package"
@@ -204,15 +205,15 @@ jobs:
       - run: dotnet restore
       - run: dotnet build -c Release --no-restore
       - name: Unit tests
-        run: dotnet test tests/Text.SharpTypst.Tests -c Release --no-build
+        run: dotnet test tests/Text.Typst.Tests -c Release --no-build
       - name: Factur-X tests
         run: dotnet test tests/Text.Pdf.FactureX.Tests -c Release --no-build
       - name: Generator tests
-        run: dotnet test tests/Text.SharpTypst.Templates.Generator.Tests -c Release --no-build
+        run: dotnet test tests/Text.Templates.Generator.Tests -c Release --no-build
       - name: Integration tests
         env:
           SHARPTYPST_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/linux-x64/libsharp_typst.so
-        run: dotnet test tests/Text.SharpTypst.Integration.Tests -c Release --no-build
+        run: dotnet test tests/Text.Typst.Integration.Tests -c Release --no-build
       - name: Factur-X conformance
         # A release is where a claim becomes a promise: the embedded XML is validated against the
         # official schema with the FNFE-MPE reference library before anything is pushed.
@@ -329,14 +330,14 @@ jobs:
           python3 - "$version" > notes.md <<'PY'
           import re, sys
           version = sys.argv[1]
-          text = open("CHANGELOG-SharpTypst.md", encoding="utf-8").read()
+          text = open("CHANGELOG-Typst.md", encoding="utf-8").read()
           match = re.search(rf"^## \[{re.escape(version)}\][^\n]*\n(.*?)(?=^## \[|\Z)", text, re.M | re.S)
           body = match.group(1).strip() if match else ""
           # A missing section used to fall back to a one-line page, which publishes a release with no
           # notes and nobody notices. The changelog is not written by CI: renaming [Unreleased] to
           # the version being tagged is part of preparing the release, so its absence is an error.
           if not body:
-              sys.exit("CHANGELOG-SharpTypst.md has no '## [%s]' section with content: write the release entry before tagging" % version)
+              sys.exit("CHANGELOG-Typst.md has no '## [%s]' section with content: write the release entry before tagging" % version)
           print(body)
           PY
           # The generator package ships no symbols, so the snupkg list is built rather than globbed.
@@ -350,5 +351,5 @@ jobs:
             gh release upload "$TAG" "${assets[@]}" --clobber
           else
             gh release create "$TAG" "${assets[@]}" \
-              --title "M3scalinum.Text.SharpTypst $version" --notes-file notes.md --verify-tag
+              --title "M3scalinum.Text.Typst $version" --notes-file notes.md --verify-tag
           fi

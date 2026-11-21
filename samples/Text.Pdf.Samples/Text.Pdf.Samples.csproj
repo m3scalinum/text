@@ -9,7 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Text.SharpTypst\Text.SharpTypst.csproj" />
+    <ProjectReference Include="..\..\src\Text.Typst\Text.Typst.csproj" />
     <ProjectReference Include="..\..\src\Text.Pdf\Text.Pdf.csproj" />
   </ItemGroup>
 

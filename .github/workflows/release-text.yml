@@ -148,21 +148,21 @@ jobs:
           set -o pipefail
           core="$(curl -sSf https://api.nuget.org/v3-flatcontainer/m3scalinum.text.sharptypst/index.json \
             | python3 -c 'import json,sys; v=[x for x in json.load(sys.stdin)["versions"] if "-" not in x]; print(v[-1])')" \
-            || { echo "M3scalinum.Text.SharpTypst is not on nuget.org: publish the compiler train first" >&2; exit 1; }
+            || { echo "M3scalinum.Text.Typst is not on nuget.org: publish the compiler train first" >&2; exit 1; }
           if [[ -z "$core" ]]; then
-            echo "no stable M3scalinum.Text.SharpTypst on nuget.org: publish the compiler train first" >&2
+            echo "no stable M3scalinum.Text.Typst on nuget.org: publish the compiler train first" >&2
             exit 1
           fi
-          echo "packing against M3scalinum.Text.SharpTypst $core"
+          echo "packing against M3scalinum.Text.Typst $core"
 
           dotnet restore src/Text.Pdf.FactureX -p:CoreVersion="$core"
-          dotnet restore src/Text.SharpTypst.Templates -p:CoreVersion="$core"
+          dotnet restore src/Text.Templates -p:CoreVersion="$core"
           dotnet restore src/Text.Mcp -p:CoreVersion="$core"
           dotnet restore src/Text.Docx -p:CoreVersion="$core"
           dotnet pack src/Text.Pdf -c Release -o artifacts/packages "${version_args[@]}"
           dotnet pack src/Text.Pdf.FactureX -c Release --no-restore \
             -o artifacts/packages -p:CoreVersion="$core" "${version_args[@]}"
-          dotnet pack src/Text.SharpTypst.Templates -c Release --no-restore \
+          dotnet pack src/Text.Templates -c Release --no-restore \
             -o artifacts/packages -p:CoreVersion="$core" "${version_args[@]}"
           # The MCP server sits on both the e-invoicing package and the layout pack, so it is packed
           # after them: all three are this train's, and the tag is their version.

@@ -7,9 +7,9 @@ Open XML SDK?
 
 Yes, for the parts listed below. Bytes in, a document out:
 
-```text
+```csharp
 using M3scalinum.Text.Docx;
-using M3scalinum.Text.SharpTypst.Compilation;
+using M3scalinum.Text.Typst.Compilation;
 
 DocxDocument document = DocxReader.Read(File.ReadAllBytes("received.docx"));
 
@@ -84,7 +84,7 @@ that cannot be opened throws — not a zip (`MalformedPackage`), a missing `word
 
 ## Options
 
-```text
+```csharp
 var options = new DocxOptions
 {
     ExtractImages = false,               // no media is copied out at all

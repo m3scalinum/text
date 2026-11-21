@@ -1,4 +1,4 @@
-# Contributing to M3scalinum.Text.SharpTypst
+# Contributing to M3scalinum.Text.Typst
 
 Thanks for taking the time to contribute. This document covers what you need to build the project,
 what CI will check, and what a pull request is expected to contain.
@@ -32,19 +32,19 @@ with `DllNotFoundException`.
 ## Test
 
 ```bash
-dotnet test tests/Text.SharpTypst.Tests -c Release
-dotnet test tests/Text.SharpTypst.Templates.Generator.Tests -c Release
-dotnet test tests/Text.SharpTypst.Integration.Tests -c Release
+dotnet test tests/Text.Typst.Tests -c Release
+dotnet test tests/Text.Templates.Generator.Tests -c Release
+dotnet test tests/Text.Typst.Integration.Tests -c Release
 ```
 
 | Suite | What it covers |
 | --- | --- |
-| `M3scalinum.Text.SharpTypst.Tests` | The managed layer against a fake native. Fast, no Rust needed. |
-| `M3scalinum.Text.SharpTypst.Templates.Generator.Tests` | The Roslyn generator. |
-| `M3scalinum.Text.SharpTypst.Integration.Tests` | The real compiler: formats, templates, conformance, limits, leaks, DI. |
+| `M3scalinum.Text.Typst.Tests` | The managed layer against a fake native. Fast, no Rust needed. |
+| `M3scalinum.Text.Templates.Generator.Tests` | The Roslyn generator. |
+| `M3scalinum.Text.Typst.Integration.Tests` | The real compiler: formats, templates, conformance, limits, leaks, DI. |
 
 The leak tests take about 50 seconds. The full sequence, including the coverage commands, is in
-[Building from Source](wiki/SharpTypst-Building-from-Source.md).
+[Building from Source](wiki/Typst-Building-from-Source.md).
 
 ## Gates
 
@@ -54,7 +54,7 @@ CI runs these on every pull request, and a pull request is not merged until they
 cargo fmt --check --manifest-path native/sharp-typst/Cargo.toml
 cargo clippy --manifest-path native/sharp-typst/Cargo.toml --all-targets -- -D warnings
 dotnet build -c Release
-dotnet test tests/Text.SharpTypst.Tests -c Release
+dotnet test tests/Text.Typst.Tests -c Release
 ```
 
 Plus, on the platforms that can run them: the integration suite against the real compiler, a 90 %
@@ -76,8 +76,8 @@ line-coverage floor, a Native AOT publish, and a benchmark comparison against
 | --- | --- |
 | User-facing behaviour | `wiki/` |
 | A contract the implementation is held to | `docs/specifications/` |
-| Anything a consumer can observe | `CHANGELOG-SharpTypst.md` for the compiler packages, `CHANGELOG-Text.md` for the suite, both under `[Unreleased]`. `CHANGELOG.md` summarises the project when a change crosses both |
-| The C ABI | `docs/specifications/02-native-abi.md` **and** the Rust crate **and** `M3scalinum.Text.SharpTypst.Native` |
+| Anything a consumer can observe | `CHANGELOG-Typst.md` for the compiler packages, `CHANGELOG-Text.md` for the suite, both under `[Unreleased]`. `CHANGELOG.md` summarises the project when a change crosses both |
+| The C ABI | `docs/specifications/02-native-abi.md` **and** the Rust crate **and** `M3scalinum.Text.Typst.Native` |
 
 A change to the native ABI is the one that needs the most care: the Rust side, the P/Invoke
 declarations and the specification must move together, and the integration suite must cover the new
@@ -96,10 +96,10 @@ Commit messages are free-form but should say what changed and why. There is no r
 
 ## Versioning
 
-Two families, two versions. The packages that embed the compiler — `M3scalinum.Text.SharpTypst`,
+Two families, two versions. The packages that embed the compiler — `M3scalinum.Text.Typst`,
 `.DependencyInjection`, `.Templates.Generator` — version themselves after Typst:
 `0.15.1.<revision>`. A change that requires a newer Typst is a version bump, not a patch, and it goes
-in `CHANGELOG-SharpTypst.md`.
+in `CHANGELOG-Typst.md`.
 
 `M3scalinum.Text.Pdf` and `M3scalinum.Text.Pdf.FactureX` embed nothing and follow `TextVersion`
 instead, `0.1.<revision>` for now. Their entries go in `CHANGELOG-Text.md`. A change that crosses
@@ -111,7 +111,7 @@ The two trains tag independently:
 
 | Train | Tag | Workflow | Changelog |
 | --- | --- | --- | --- |
-| Compiler | `sharptypst-v0.15.1.42` | `release-sharptypst.yml` | `CHANGELOG-SharpTypst.md` |
+| Compiler | `sharptypst-v0.15.1.42` | `release-sharptypst.yml` | `CHANGELOG-Typst.md` |
 | Suite | `v0.51.2` | `release-text.yml` | `CHANGELOG-Text.md` |
 
 Nothing writes the changelogs on your behalf. Before pushing a tag:

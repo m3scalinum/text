@@ -2,7 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
-using M3scalinum.Text.SharpTypst.Templates;
+using M3scalinum.Text.Templates;
+using M3scalinum.Text.Typst.Templates;
 using Xunit;
 
 namespace M3scalinum.Text.Templates.Tests;

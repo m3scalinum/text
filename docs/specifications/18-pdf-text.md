@@ -199,7 +199,7 @@ The tests in `tests/Text.Pdf.Tests/PdfTextTests.cs` read real files and hand-wri
 each states something the other cannot.
 
 - **Compiler output** — `fixtures/text/extract.pdf`, produced by `typst-pdf 0.15.1` through
-  `M3scalinum.Text.SharpTypst` from `fixtures/text/extract.typ`: two pages, a marker on each, a
+  `M3scalinum.Text.Typst` from `fixtures/text/extract.typ`: two pages, a marker on each, a
   three-column table, a two-column table and a footnote. The tests assert that each marker is on its
   own page and absent from the other, that a table row reads as words separated by spaces, that the
   footnote is on the page that draws it, that the text ends with exactly one newline, and that no

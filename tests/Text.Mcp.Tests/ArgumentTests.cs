@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 using M3scalinum.Text.Mcp;
 using M3scalinum.Text.Mcp.Internal;
 using M3scalinum.Text.Pdf.FactureX;
-using M3scalinum.Text.SharpTypst.Templates;
+using M3scalinum.Text.Templates;
 using Xunit;
 
 namespace M3scalinum.Text.Mcp.Tests;

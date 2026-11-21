@@ -18,7 +18,7 @@ without string concatenation and without knowing Typst's escaping rules.
 ## 2. Shape
 
 ```csharp
-using M3scalinum.Text.SharpTypst.Documents;
+using M3scalinum.Text.Documents;
 
 var doc = TypstDocument.Create()
     .Metadata(m => m
@@ -288,7 +288,7 @@ application that already holds HTML does not have to go through Typst source by 
 `TypstHtmlImporter` directly when the elements that were dropped matter:
 
 ```csharp
-using M3scalinum.Text.SharpTypst.Documents;
+using M3scalinum.Text.Documents;
 
 var importer = new TypstHtmlImporter(new TypstHtmlImportOptions
 {
@@ -408,7 +408,7 @@ conversion step outside the library. Call `MarkdownImporter` directly when the c
 dropped matter:
 
 ```csharp
-using M3scalinum.Text.SharpTypst.Documents;
+using M3scalinum.Text.Documents;
 
 var importer = new MarkdownImporter(new TypstMarkdownImportOptions
 {

@@ -1,4 +1,4 @@
-# Pdf — getting started
+# Getting started
 
 `M3scalinum.Text.Pdf` signs a PDF you already have. It takes bytes and returns bytes: it does not
 render, it does not depend on the compiler, and it has no native library to load.

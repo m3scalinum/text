@@ -5,7 +5,7 @@ namespace M3scalinum.Text.Pdf;
 /// The values mirror the standards the compiler can enforce, so a caller reads the same names on both
 /// sides. The two enums are deliberately separate: this package has no reference on the compiler, and
 /// the compiler has none on this package. The name differs from
-/// <c>M3scalinum.Text.SharpTypst.Export.PdfStandard</c> because the suite forbids two public types
+/// <c>M3scalinum.Text.Typst.Export.PdfStandard</c> because the suite forbids two public types
 /// with the same name in different namespaces — a caller importing both would get CS0104.
 /// <c>PdfConformanceStandard.PdfUa1</c> here is <c>PdfStandard.PdfUa1</c> there.
 /// </remarks>

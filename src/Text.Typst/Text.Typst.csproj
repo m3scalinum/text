@@ -1,0 +1,73 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <IsAotCompatible>true</IsAotCompatible>
+    <PackageId>M3scalinum.Text.Typst</PackageId>
+    <Description>Hosts the Typst typesetting compiler in-process: compile Typst source to PDF, SVG, PNG, HTML, Markdown and plain text from .NET.</Description>
+    <PackageTags>typst;pdf;typesetting;documents;report</PackageTags>
+    <TargetFrameworks>net8.0;net9.0;net10.0;net11.0</TargetFrameworks>
+    <TargetFramework />
+    <SuppressTfmSupportBuildWarnings>true</SuppressTfmSupportBuildWarnings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Text.Documents\Text.Documents.csproj" />
+    <ProjectReference Include="..\Text.Typst.Native\Text.Typst.Native.csproj" PrivateAssets="all" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetsForTfmSpecificBuildOutput>$(TargetsForTfmSpecificBuildOutput);IncludeNativeAssembly</TargetsForTfmSpecificBuildOutput>
+  </PropertyGroup>
+
+  <Target Name="IncludeNativeAssembly" DependsOnTargets="ResolveReferences">
+    <ItemGroup>
+      <BuildOutputInPackage Include="$(OutputPath)M3scalinum.Text.Typst.Native.dll" />
+    </ItemGroup>
+  </Target>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="M3scalinum.Text.Typst.Tests" />
+    <InternalsVisibleTo Include="M3scalinum.Text.Typst.Integration.Tests" />
+    <InternalsVisibleTo Include="M3scalinum.Text.Templates.Generator" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="/" />
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="/" />
+    <None Include="..\..\NOTICE" Pack="true" PackagePath="/" />
+    <None Include="..\..\THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="/" Condition="Exists('..\..\THIRD-PARTY-NOTICES.md')" />
+  </ItemGroup>
+
+  <!--
+    Natives are packed under the standard runtimes/<rid>/native/ layout, so no
+    buildTransitive targets are needed. The files are produced by the CI matrix.
+  -->
+  <ItemGroup>
+    <None Include="$(NativeArtifactsDir)\win-x64\sharp_typst.dll"
+          Pack="true" PackagePath="runtimes/win-x64/native/" Visible="false"
+          Condition="Exists('$(NativeArtifactsDir)\win-x64\sharp_typst.dll')" />
+    <None Include="$(NativeArtifactsDir)\win-arm64\sharp_typst.dll"
+          Pack="true" PackagePath="runtimes/win-arm64/native/" Visible="false"
+          Condition="Exists('$(NativeArtifactsDir)\win-arm64\sharp_typst.dll')" />
+    <None Include="$(NativeArtifactsDir)\linux-x64\libsharp_typst.so"
+          Pack="true" PackagePath="runtimes/linux-x64/native/" Visible="false"
+          Condition="Exists('$(NativeArtifactsDir)\linux-x64\libsharp_typst.so')" />
+    <None Include="$(NativeArtifactsDir)\linux-arm64\libsharp_typst.so"
+          Pack="true" PackagePath="runtimes/linux-arm64/native/" Visible="false"
+          Condition="Exists('$(NativeArtifactsDir)\linux-arm64\libsharp_typst.so')" />
+    <!--
+      The musl build is linked by hand from the staticlib (Rust cannot emit a cdylib for musl) and
+      weighs ~75 MB. It ships here rather than in a satellite package: NuGet downloads the whole
+      .nupkg, so a separate package would only move the cost onto the Alpine users who must
+      discover it, and the resolver already probes runtimes/linux-musl-x64/ first on a musl host.
+    -->
+    <None Include="$(NativeArtifactsDir)\linux-musl-x64\libsharp_typst.so"
+          Pack="true" PackagePath="runtimes/linux-musl-x64/native/" Visible="false"
+          Condition="Exists('$(NativeArtifactsDir)\linux-musl-x64\libsharp_typst.so')" />
+    <None Include="$(NativeArtifactsDir)\osx\libsharp_typst.dylib"
+          Pack="true" PackagePath="runtimes/osx/native/" Visible="false"
+          Condition="Exists('$(NativeArtifactsDir)\osx\libsharp_typst.dylib')" />
+  </ItemGroup>
+
+</Project>

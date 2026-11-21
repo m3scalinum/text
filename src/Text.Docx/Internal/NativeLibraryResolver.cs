@@ -10,7 +10,7 @@ namespace M3scalinum.Text.Docx.Internal;
 /// application directory, or an explicit override.
 /// </summary>
 /// <remarks>
-/// The same probing order as <c>M3scalinum.Text.SharpTypst.Native</c>, for the same reason: a
+/// The same probing order as <c>M3scalinum.Text.Typst.Native</c>, for the same reason: a
 /// framework-dependent application cannot rely on the runtime to find a library the package puts
 /// under a RID folder. The override variable is separate (<c>SHARPTEXTDOCX_NATIVE_PATH</c>) because
 /// this library and the compiler are two different files.

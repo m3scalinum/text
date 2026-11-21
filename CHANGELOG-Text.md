@@ -5,7 +5,7 @@ file: `M3scalinum.Text.Pdf`, `M3scalinum.Text.Pdf.FactureX`, `M3scalinum.Text.Te
 `M3scalinum.Text.Mcp`. They are released from `v*` tags
 by `.github/workflows/release-text.yml`, and that workflow takes its release page from here.
 
-The compiler packages have their own file, [CHANGELOG-SharpTypst.md](CHANGELOG-SharpTypst.md); what
+The compiler packages have their own file, [CHANGELOG-Typst.md](CHANGELOG-Typst.md); what
 the project gains as a whole is in [CHANGELOG.md](CHANGELOG.md).
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and these packages

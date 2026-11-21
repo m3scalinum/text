@@ -1,4 +1,4 @@
-# FactureX — reading
+# Reading
 
 ## From XML
 

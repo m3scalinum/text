@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>M3scalinum.Text.Typst.DependencyInjection</PackageId>
+    <Description>Microsoft.Extensions.DependencyInjection integration for M3scalinum.Text.Typst: register the compiler, a pre-configured world builder and the package resolver from configuration.</Description>
+    <PackageTags>typst;pdf;typesetting;dependency-injection;di</PackageTags>
+    <TargetFrameworks>net8.0;net9.0;net10.0;net11.0</TargetFrameworks>
+    <TargetFramework />
+    <SuppressTfmSupportBuildWarnings>true</SuppressTfmSupportBuildWarnings>
+
+    <!--
+      The abstractions ship inside the shared framework above net10, so the package reference below
+      does not exist there; on net8, net9 and net10 it must match the runtime's own major, or the
+      assembly the host loads is a downgrade of the one the app was compiled against.
+    -->
+    <ExtensionsVersion Condition="'$(TargetFramework)' == 'net8.0'">8.0.2</ExtensionsVersion>
+    <ExtensionsVersion Condition="'$(TargetFramework)' == 'net9.0'">9.0.23</ExtensionsVersion>
+    <ExtensionsVersion Condition="'$(TargetFramework)' == 'net10.0'">10.0.15</ExtensionsVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Text.Typst\Text.Typst.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' != 'net11.0'">
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" VersionOverride="$(ExtensionsVersion)" />
+    <PackageReference Include="Microsoft.Extensions.Options" VersionOverride="$(ExtensionsVersion)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="M3scalinum.Text.Typst.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="/" />
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="/" />
+    <None Include="..\..\NOTICE" Pack="true" PackagePath="/" />
+    <None Include="..\..\THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="/" Condition="Exists('..\..\THIRD-PARTY-NOTICES.md')" />
+  </ItemGroup>
+
+</Project>

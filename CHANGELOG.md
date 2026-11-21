@@ -5,7 +5,7 @@ its own version number, its own tag namespace and its own changelog:
 
 | Train | Packages | Version | Detail |
 | --- | --- | --- | --- |
-| Compiler | `M3scalinum.Text.SharpTypst`, `.DependencyInjection`, `.Templates.Generator` | follows the embedded Typst, `0.15.1.N` | [CHANGELOG-SharpTypst.md](CHANGELOG-SharpTypst.md) |
+| Compiler | `M3scalinum.Text.Typst`, `.Documents`, `.DependencyInjection`, `.Templates.Generator` | follows the embedded Typst, `0.15.1.N` | [CHANGELOG-Typst.md](CHANGELOG-Typst.md) |
 | Suite | `M3scalinum.Text.Pdf`, `M3scalinum.Text.Pdf.FactureX` | follows `TextVersion`, `0.1.N` | [CHANGELOG-Text.md](CHANGELOG-Text.md) |
 
 This file records what the project gains as a whole. The per-package detail — every type, every rule

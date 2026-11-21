@@ -23,11 +23,11 @@ body:
     id: package
     attributes:
       label: Package
-      description: The package the problem is in. Pick the outermost one — a Factur-X render goes through SharpTypst as well.
+      description: The package the problem is in. Pick the outermost one — a Factur-X render goes through Typst as well.
       options:
-        - M3scalinum.Text.SharpTypst
-        - M3scalinum.Text.SharpTypst.DependencyInjection
-        - M3scalinum.Text.SharpTypst.Templates.Generator
+        - M3scalinum.Text.Typst
+        - M3scalinum.Text.Typst.DependencyInjection
+        - M3scalinum.Text.Templates.Generator
         - M3scalinum.Text.Pdf
         - M3scalinum.Text.Pdf.FactureX
     validations:

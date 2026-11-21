@@ -56,7 +56,7 @@ const char* tn_typst_version(void);      /* "0.15.1" — the compiler the librar
 const char* tn_build_info(void);         /* JSON: { "target": "x86_64-pc-windows-msvc", "profile": "release", "commit": "…" } */
 ```
 
-`M3scalinum.Text.SharpTypst.Native` MUST call `tn_abi_version` once at load. If it is less than the version the
+`M3scalinum.Text.Typst.Native` MUST call `tn_abi_version` once at load. If it is less than the version the
 managed assembly was compiled against, loading fails with `TypstNativeException`
 (`TN_ERR_ABI_MISMATCH`). A greater version is accepted if all symbols used are present.
 
@@ -224,7 +224,7 @@ The `pdf` object mirrors `typst_pdf::PdfOptions`:
     "pageRanges": "1-3,5",
     "tagged": true,
     "ident": "invoice-2026-0042",
-    "creator": "M3scalinum.Text.SharpTypst",
+    "creator": "M3scalinum.Text.Typst",
     "pretty": false,
     "timestamp": { "year": 2026, "month": 1, "day": 1, "hour": 0, "minute": 0, "second": 0 }
   }
@@ -372,7 +372,7 @@ Rust allocates ──► TnBuffer{ptr,len} ──► .NET copies into byte[] ─
 ```
 
 - The returned buffer is valid until `tn_buffer_free`.
-- `M3scalinum.Text.SharpTypst.Native` copies with `Marshal.Copy` / `new ReadOnlySpan<byte>(ptr, len).ToArray()`
+- `M3scalinum.Text.Typst.Native` copies with `Marshal.Copy` / `new ReadOnlySpan<byte>(ptr, len).ToArray()`
   immediately, then frees, in a `finally`.
 - An empty result is `ptr = NULL, len = 0` and is a success, never an error.
 - `tn_buffer_free` tolerates `{ NULL, 0 }`.
@@ -442,13 +442,13 @@ Rules:
 3. Strings cross as UTF-8 (`StringMarshalling.Utf8`); binary data crosses as `ReadOnlySpan<byte>`
    or a pinned `byte*` with an explicit length.
 4. `out IntPtr error` is converted to an `Exception` by a single helper and never escapes
-   `M3scalinum.Text.SharpTypst.Native`.
+   `M3scalinum.Text.Typst.Native`.
 5. The library name passed to `LibraryImport` is the constant `"sharp_typst"`; resolution is
    customised (§9).
 
 ## 9. Native library resolution
 
-`M3scalinum.Text.SharpTypst.Native` installs a `NativeLibrary.SetDllImportResolver` in a module initializer:
+`M3scalinum.Text.Typst.Native` installs a `NativeLibrary.SetDllImportResolver` in a module initializer:
 
 1. If `SHARPTYPST_NATIVE_PATH` is set, load that exact file.
 2. Otherwise probe, in order: `runtimes/<rid>/native/`, the application base directory, and the
@@ -474,7 +474,7 @@ The ABI is tested from both sides:
 - Rust integration tests (`cargo test`) call every symbol through the C ABI, including
   double-free avoidance, `NULL` arguments, a deliberately panicking input (a corrupted font) and
   a 0-byte source.
-- Managed tests (`tests/Text.SharpTypst.Integration.Tests`) assert:
+- Managed tests (`tests/Text.Typst.Integration.Tests`) assert:
   `tn_abi_version` matches the constant compiled into the managed layer; every status code is
   reachable; `TnBuffer` of size 0 is handled; a panic becomes a `TypstNativeException` and leaves
   the process alive; 10 000 create/compile/export/free cycles leave the handle count flat.

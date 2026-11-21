@@ -6,8 +6,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Text.SharpTypst.Templates\Text.SharpTypst.Templates.csproj" />
-    <ProjectReference Include="..\..\src\Text.SharpTypst.Native\Text.SharpTypst.Native.csproj" />
+    <ProjectReference Include="..\..\src\Text.Templates\Text.Templates.csproj" />
+    <ProjectReference Include="..\..\src\Text.Typst.Native\Text.Typst.Native.csproj" />
   </ItemGroup>
 
   <!--
@@ -15,7 +15,7 @@
     are the same files, copied beside the test binary, so the two loading paths can be compared.
   -->
   <ItemGroup>
-    <Content Include="..\..\src\Text.SharpTypst.Templates\layouts\**\*"
+    <Content Include="..\..\src\Text.Templates\layouts\**\*"
              Link="templates\%(RecursiveDir)%(Filename)%(Extension)"
              CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

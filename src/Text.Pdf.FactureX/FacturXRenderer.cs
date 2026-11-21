@@ -3,10 +3,10 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
-using M3scalinum.Text.SharpTypst.Compilation;
-using M3scalinum.Text.SharpTypst.Documents;
-using M3scalinum.Text.SharpTypst.Export;
-using M3scalinum.Text.SharpTypst;
+using M3scalinum.Text.Typst.Compilation;
+using M3scalinum.Text.Documents;
+using M3scalinum.Text.Typst.Export;
+using M3scalinum.Text.Typst;
 
 namespace M3scalinum.Text.Pdf.FactureX;
 
@@ -107,7 +107,7 @@ public static class FacturXRenderer
         var document = TypstDocument.Create()
             .Metadata(metadata => metadata
                 .Title($"{kind} {invoice.Number}")
-                .Author(invoice.Seller.Name ?? "M3scalinum.Text.SharpTypst")
+                .Author(invoice.Seller.Name ?? "M3scalinum.Text.Typst")
                 .Keywords("factur-x", invoice.Currency))
             .Page(page => page
                 .Paper("a4")

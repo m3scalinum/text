@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Xml.Linq;
-using M3scalinum.Text.SharpTypst;
+using M3scalinum.Text.Typst;
 
 namespace M3scalinum.Text.Pdf.FactureX;
 

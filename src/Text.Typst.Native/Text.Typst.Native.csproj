@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsAotCompatible>true</IsAotCompatible>
+    <IsPackable>false</IsPackable>
+    <TargetFrameworks>net8.0;net9.0;net10.0;net11.0</TargetFrameworks>
+    <TargetFramework />
+    <PackageId>M3scalinum.Text.Typst.Native</PackageId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="M3scalinum.Text.Typst" />
+    <InternalsVisibleTo Include="M3scalinum.Text.Typst.Tests" />
+    <InternalsVisibleTo Include="M3scalinum.Text.Typst.Integration.Tests" />
+  </ItemGroup>
+
+</Project>

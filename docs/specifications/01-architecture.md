@@ -8,13 +8,20 @@
 └──────────────────────────────────────────────────────────────────────┘
                                  │  public managed API
 ┌──────────────────────────────────────────────────────────────────────┐
-│ M3scalinum.Text.SharpTypst.dll                       (net8.0+, managed, public)      │
-│   M3scalinum.Text.SharpTypst.Compilation  M3scalinum.Text.SharpTypst.Documents  M3scalinum.Text.SharpTypst.Templates │
-│   M3scalinum.Text.SharpTypst.Export       M3scalinum.Text.SharpTypst.Diagnostics                     │
+│ M3scalinum.Text.Documents.dll                   (net8.0+, managed, public)      │
+│   M3scalinum.Text.Documents  M3scalinum.Text.Documents.Html  .Documents.Markdown│
+│   the document model: content, styles, tables, figures, page setup,  │
+│   importers — no compiler, no native code                            │
+└──────────────────────────────────────────────────────────────────────┘
+                                 │  public managed API
+┌──────────────────────────────────────────────────────────────────────┐
+│ M3scalinum.Text.Typst.dll                       (net8.0+, managed, public)      │
+│   M3scalinum.Text.Typst.Compilation  M3scalinum.Text.Typst.Templates           │
+│   M3scalinum.Text.Typst.Export       M3scalinum.Text.Typst.Diagnostics         │
 └──────────────────────────────────────────────────────────────────────┘
                                  │  internal interface ITypstNative
 ┌──────────────────────────────────────────────────────────────────────┐
-│ M3scalinum.Text.SharpTypst.Native.dll                (net8.0+, internal, unsafe)     │
+│ M3scalinum.Text.Typst.Native.dll                (net8.0+, internal, unsafe)     │
 │   LibraryImport declarations, marshalling, handle lifetime,          │
 │   buffer ownership, JSON payload (de)serialization                   │
 └──────────────────────────────────────────────────────────────────────┘
@@ -38,28 +45,33 @@ Each layer may only call the layer below it. The managed public API never sees a
 | Project | Kind | Responsibility | May reference |
 | --- | --- | --- | --- |
 | `native/sharp-typst` | Rust `cdylib` + `staticlib` | Own the Typst world, run compilation, export bytes, translate panics into error codes | Typst crates only |
-| `src/Text.SharpTypst.Native` | C# library, `internal` | P/Invoke surface, marshalling, handle ownership, payload DTOs | BCL only |
-| `src/Text.SharpTypst` | C# library, public | Public API: compiler, world builder, document model, templates, diagnostics | `M3scalinum.Text.SharpTypst.Native` |
-| `tests/Text.SharpTypst.Tests` | xUnit v3 | Unit tests that do not need the native library (writer, escaping, template binding, diagnostic mapping) | `M3scalinum.Text.SharpTypst` |
-| `tests/Text.SharpTypst.Integration.Tests` | xUnit v3 | Tests that compile real documents through the native library | `M3scalinum.Text.SharpTypst` |
-| `samples/Text.SharpTypst.Samples` | console app | Executable documentation: invoice, report, template, HTML+Markdown | `M3scalinum.Text.SharpTypst` |
+| `src/Text.Typst.Native` | C# library, `internal` | P/Invoke surface, marshalling, handle ownership, payload DTOs | BCL only |
+| `src/Text.Documents` | C# library, public | The document model: typed content, inline styles, tables, figures, lists, page setup, and the HTML and Markdown importers | BCL only |
+| `src/Text.Typst` | C# library, public | Public API: compiler, world builder, templates, diagnostics | `M3scalinum.Text.Typst.Native`, `M3scalinum.Text.Documents` |
+| `tests/Text.Typst.Tests` | xUnit v3 | Unit tests that do not need the native library (writer, escaping, template binding, diagnostic mapping) | `M3scalinum.Text.Typst` |
+| `tests/Text.Typst.Integration.Tests` | xUnit v3 | Tests that compile real documents through the native library | `M3scalinum.Text.Typst` |
+| `samples/Text.Typst.Samples` | console app | Executable documentation: invoice, report, template, HTML+Markdown | `M3scalinum.Text.Typst` |
 
 **Decision — two managed assemblies, not one.** The P/Invoke layer is `internal` and lives in its
-own assembly so that `M3scalinum.Text.SharpTypst` can be reasoned about (and unit-tested) without loading native
+own assembly so that `M3scalinum.Text.Typst` can be reasoned about (and unit-tested) without loading native
 code, and so that the marshalling surface can be replaced (for example by a WASM host) without
 touching the public API. Rejected: a single assembly with `internal` P/Invoke (untestable without
 natives) and a public native package (leaks `IntPtr` into user code).
 
-**Decision — the document model does not depend on the compiler.** `M3scalinum.Text.SharpTypst.Documents` produces a
-`string`. It can be unit-tested, diffed and snapshotted with no native library present.
+**Decision — the document model does not depend on the compiler.** It is a package of its own,
+`M3scalinum.Text.Documents`, and it produces a `string`. It can be restored, unit-tested, diffed and
+snapshotted with no native library and no compiler present — which is what lets a format package such
+as `M3scalinum.Text.Docx` build a document without pulling in the compiler.
 
 ## 3. Dependency rules
 
-1. `M3scalinum.Text.SharpTypst` MUST NOT reference `System.Drawing`, `SkiaSharp`, `PdfSharp`, `iText` or any other
+1. `M3scalinum.Text.Typst` MUST NOT reference `System.Drawing`, `SkiaSharp`, `PdfSharp`, `iText` or any other
    rendering/PDF library. Rendering is Typst's job.
-2. `M3scalinum.Text.SharpTypst.Native` MUST NOT expose public types. Everything is `internal`; `InternalsVisibleTo`
-   grants access to `M3scalinum.Text.SharpTypst` and to the test assemblies.
-3. No project may reference `M3scalinum.Text.SharpTypst` from `M3scalinum.Text.SharpTypst.Native` (no cycles).
+2. `M3scalinum.Text.Typst.Native` MUST NOT expose public types. Everything is `internal`; `InternalsVisibleTo`
+   grants access to `M3scalinum.Text.Typst` and to the test assemblies.
+3. No project may reference `M3scalinum.Text.Typst` from `M3scalinum.Text.Typst.Native` (no cycles).
+   `M3scalinum.Text.Documents` MUST NOT reference `M3scalinum.Text.Typst` nor
+   `M3scalinum.Text.Typst.Native`: the model is what the compiler consumes, never the reverse.
 4. The Rust crate MUST NOT depend on anything outside the Typst crate family plus `serde`,
    `serde_json`, `thiserror` and `libc`/`windows-sys` where unavoidable.
 5. Public API types MUST be in the `Typst` namespace tree and MUST NOT be generic over native
@@ -170,8 +182,8 @@ Rules:
 Rust panic / typst error
    → catch_unwind at the FFI boundary
    → tn_status code + JSON error payload on the handle
-   → M3scalinum.Text.SharpTypst.Native maps to NativeResult
-   → M3scalinum.Text.SharpTypst throws TypstCompilationException / TypstNativeException
+   → M3scalinum.Text.Typst.Native maps to NativeResult
+   → M3scalinum.Text.Typst throws TypstCompilationException / TypstNativeException
 ```
 
 No `abort`, no `longjmp`, no exception crossing the ABI. Details in

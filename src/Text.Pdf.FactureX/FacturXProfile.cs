@@ -1,4 +1,4 @@
-using M3scalinum.Text.SharpTypst;
+using M3scalinum.Text.Typst;
 
 namespace M3scalinum.Text.Pdf.FactureX;
 

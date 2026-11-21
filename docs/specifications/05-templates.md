@@ -101,7 +101,7 @@ error pointing at the appended call.
 ### 3.1 Untyped
 
 ```csharp
-using M3scalinum.Text.SharpTypst.Templates;
+using M3scalinum.Text.Typst.Templates;
 
 var template = TypstTemplate.Load("templates/invoice");   // directory
 using var compiler = new TypstCompiler();
@@ -163,7 +163,7 @@ to implement `ITypstTemplateOptions`, and the generator writes that implementati
 
 ### 3.3 The generator
 
-`M3scalinum.Text.SharpTypst.Templates.Generator` is a Roslyn incremental generator, shipped as an analyzer. Its
+`M3scalinum.Text.Templates.Generator` is a Roslyn incremental generator, shipped as an analyzer. Its
 package adds every `template.toml` in the project to `AdditionalFiles`, so a consumer wires nothing
 up beyond the package reference.
 

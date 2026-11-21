@@ -3,7 +3,7 @@
 ## 1. Model
 
 ```csharp
-namespace M3scalinum.Text.SharpTypst.Diagnostics;
+namespace M3scalinum.Text.Typst.Diagnostics;
 
 public enum TypstSeverity { Error, Warning, Hint }
 
@@ -124,7 +124,7 @@ main.typ:12:8: error: unknown variable: `totl`
 The snippet comes from `TypstDiagnostic.SourceLine`, which the native layer fills from the source it
 already holds. Pass `includeSnippet: false` for a one-line-per-diagnostic log format.
 
-M3scalinum.Text.SharpTypst does not print anything by itself. There is no logging dependency and no console output
+M3scalinum.Text.Typst does not print anything by itself. There is no logging dependency and no console output
 from the library, ever.
 
 ## 6. Limits
@@ -160,8 +160,8 @@ also bound wall-clock time (see [03 §9](03-compilation.md#9-cancellation-and-ti
 
 Compilation diagnostics tell a caller what went wrong in one document. Instrumentation tells an
 operator what the library is doing in production. Both are published from
-`M3scalinum.Text.SharpTypst.Diagnostics.TypstInstrumentation`, which owns one `ActivitySource` and one `Meter`, both
-named `M3scalinum.Text.SharpTypst`:
+`M3scalinum.Text.Typst.Diagnostics.TypstInstrumentation`, which owns one `ActivitySource` and one `Meter`, both
+named `M3scalinum.Text.Typst`:
 
 ```csharp
 builder.Services.AddOpenTelemetry()

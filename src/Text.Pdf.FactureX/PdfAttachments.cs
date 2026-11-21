@@ -5,7 +5,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Text;
 using System.Text.RegularExpressions;
-using M3scalinum.Text.SharpTypst;
+using M3scalinum.Text.Typst;
 
 namespace M3scalinum.Text.Pdf.FactureX;
 

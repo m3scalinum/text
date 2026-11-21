@@ -2,13 +2,13 @@
 
 The Typst reference (`https://typst.app/docs/reference`) is the specification of the language and
 its standard library. This document states, item by item, how each part of it is reachable from
-M3scalinum.Text.SharpTypst, and what is deliberately not given a C# surface.
+M3scalinum.Text.Typst, and what is deliberately not given a C# surface.
 
 ## 1. Two different questions
 
 | Question | Answer |
 | --- | --- |
-| Is the whole Typst language available? | **Yes, by construction.** M3scalinum.Text.SharpTypst embeds the real compiler (0.15.1). No function is reimplemented, filtered, sandboxed or re-exported. Any valid Typst source compiles. |
+| Is the whole Typst language available? | **Yes, by construction.** M3scalinum.Text.Typst embeds the real compiler (0.15.1). No function is reimplemented, filtered, sandboxed or re-exported. Any valid Typst source compiles. |
 | Does every function have a typed C# API? | **Yes.** All 151 reference entries are reachable from C#: 145 as first-class types, 6 as typed properties on options objects. |
 
 Confusing the two is the usual failure mode of a binding: either it re-implements the language
@@ -21,8 +21,8 @@ it, so that the typed API is a convenience over the real thing rather than a rep
 | Level | Meaning | Where it lives |
 | --- | --- | --- |
 | **L0** | Available in any source; no API needed | the compiler |
-| **L1** | First-class C# type in `M3scalinum.Text.SharpTypst.Documents` | `M3scalinum.Text.SharpTypst` |
-| **L2** | Typed property on an options object (page, text, table, metadata) | `M3scalinum.Text.SharpTypst` |
+| **L1** | First-class C# type in `M3scalinum.Text.Documents` | `M3scalinum.Text.Typst` |
+| **L2** | Typed property on an options object (page, text, table, metadata) | `M3scalinum.Text.Typst` |
 | **L3** | Reachable only by writing Typst: `Raw` node, template, or hand-written source | the caller |
 | **L4** | Not reachable in v1, with a stated reason | — |
 

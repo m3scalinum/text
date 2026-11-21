@@ -1,6 +1,6 @@
 # 06 — Markdown and plain-text export
 
-Typst has no Markdown exporter. This document specifies the one M3scalinum.Text.SharpTypst provides, and — more
+Typst has no Markdown exporter. This document specifies the one M3scalinum.Text.Typst provides, and — more
 importantly — what it guarantees and what it does not.
 
 ## 1. Why not walk the paged document

@@ -3,7 +3,7 @@
 ## 1. Repository layout
 
 ```
-M3scalinum.Text.SharpTypst/
+M3scalinum.Text.Typst/
 ├── .editorconfig
 ├── .gitattributes
 ├── .gitignore
@@ -11,10 +11,10 @@ M3scalinum.Text.SharpTypst/
 ├── Directory.Build.props
 ├── Directory.Build.targets
 ├── Directory.Packages.props
-├── M3scalinum.Text.SharpTypst.slnx
+├── M3scalinum.Text.Typst.slnx
 ├── README.md
 ├── CHANGELOG.md              (the project as a whole)
-├── CHANGELOG-SharpTypst.md   (the compiler packages)
+├── CHANGELOG-Typst.md   (the compiler packages)
 ├── CHANGELOG-Text.md         (the suite packages)
 ├── THIRD-PARTY-NOTICES.md
 ├── docs/
@@ -31,21 +31,22 @@ M3scalinum.Text.SharpTypst/
 │           ├── compile.rs
 │           └── export/{pdf,svg,png,html,markdown,text}.rs
 ├── src/
-│   ├── M3scalinum.Text.SharpTypst/                  (public managed API)
-│   ├── M3scalinum.Text.SharpTypst.DependencyInjection/  (AddSharpTypst, options, validation)
-│   ├── M3scalinum.Text.SharpTypst.Native/           (P/Invoke, internal)
-│   └── M3scalinum.Text.SharpTypst.Templates.Generator/  (Roslyn generator, netstandard2.0)
+│   ├── M3scalinum.Text.Typst/                  (public managed API)
+│   ├── M3scalinum.Text.Documents/              (the document model, no compiler)
+│   ├── M3scalinum.Text.Typst.DependencyInjection/  (AddTypst, options, validation)
+│   ├── M3scalinum.Text.Typst.Native/           (P/Invoke, internal)
+│   └── M3scalinum.Text.Templates.Generator/  (Roslyn generator, netstandard2.0)
 ├── tests/
-│   ├── M3scalinum.Text.SharpTypst.Tests/
-│   ├── M3scalinum.Text.SharpTypst.Integration.Tests/
+│   ├── M3scalinum.Text.Typst.Tests/
+│   ├── M3scalinum.Text.Typst.Integration.Tests/
 │   └── fixtures/                   (typ, fonts, images, golden files)
 ├── samples/
-│   └── M3scalinum.Text.SharpTypst.Samples/
+│   └── M3scalinum.Text.Typst.Samples/
 └── templates/
     └── invoice/                    (reference template)
 ```
 
-`M3scalinum.Text.SharpTypst.slnx` is the solution format (XML, no GUIDs). `dotnet build` at the root builds the
+`M3scalinum.Text.Typst.slnx` is the solution format (XML, no GUIDs). `dotnet build` at the root builds the
 managed projects only; the Rust crate is built by an explicit target (§5).
 
 ## 2. `global.json`
@@ -97,7 +98,7 @@ which cannot run a Microsoft.Testing.Platform project.
     <IsPackable>false</IsPackable>
     <Authors>m3scalinum</Authors>
     <Company>m3scalinum</Company>
-    <Product>M3scalinum.Text.SharpTypst</Product>
+    <Product>M3scalinum.Text.Typst</Product>
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <RepositoryType>git</RepositoryType>
@@ -202,14 +203,14 @@ dotnet build -p:BuildNative=true
 
 ## 6. Native asset packaging
 
-`src/Text.SharpTypst/M3scalinum.Text.SharpTypst.csproj` packs the natives under the standard `runtimes/<rid>/native/`
+`src/Text.Typst/M3scalinum.Text.Typst.csproj` packs the natives under the standard `runtimes/<rid>/native/`
 layout, so no `buildTransitive` targets are needed:
 
 ```xml
 <PropertyGroup>
   <IsPackable>true</IsPackable>
-  <PackageId>M3scalinum.Text.SharpTypst</PackageId>
-  <RootNamespace>M3scalinum.Text.SharpTypst</RootNamespace>
+  <PackageId>M3scalinum.Text.Typst</PackageId>
+  <RootNamespace>M3scalinum.Text.Typst</RootNamespace>
   <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
   <IsAotCompatible>true</IsAotCompatible>
   <IsTrimmable>true</IsTrimmable>
@@ -233,7 +234,7 @@ where the matrix jobs dropped their binaries.
 **Decision — one package with six RIDs, not six runtime packages.** The natives are 43–100 MB each;
 a single package is simpler to version, and NuGet downloads the whole `.nupkg` either way — the RID
 filters what is copied into the output, not what is downloaded. Rejected:
-`M3scalinum.Text.SharpTypst.Native.win-x64` style split packages (six versions to keep in lockstep, six publish
+`M3scalinum.Text.Typst.Native.win-x64` style split packages (six versions to keep in lockstep, six publish
 steps).
 
 **Decision — `linux-musl-x64` ships in the main package.** NuGet resolves `linux-musl-x64` to the
@@ -252,7 +253,7 @@ strip --strip-all libsharp_typst.so
 The `-u` flags are what keep the `tn_*` entry points: nothing in the archive references them, so a
 plain link would produce an empty library. The result is ~75 MB, which takes the package from 135 MB
 to ~170 MB compressed — a 26 % download increase for every consumer, Windows and macOS included. A
-satellite `M3scalinum.Text.SharpTypst.Native.LinuxMusl` package was rejected: it saves no download, since NuGet
+satellite `M3scalinum.Text.Typst.Native.LinuxMusl` package was rejected: it saves no download, since NuGet
 fetches the whole `.nupkg` regardless, and it moves the cost onto the Alpine users, who have to
 discover the package — without it the resolver finds the glibc build and fails with a
 `DllNotFoundException` that names nothing. The asset sits under `runtimes/linux-musl-x64/native/`,
@@ -261,7 +262,7 @@ which `NativeLibraryResolver` probes first on a musl host (Spec 02 §9).
 `typst-kit`'s downloader links OpenSSL, which no musl host provides, so `Cargo.toml` vendors it for
 that triple alone; every other target keeps the system library.
 
-**Decision — `M3scalinum.Text.SharpTypst.Native` is merged, not published.** Every type in that assembly is
+**Decision — `M3scalinum.Text.Typst.Native` is merged, not published.** Every type in that assembly is
 `internal`, so it is an implementation detail. The project reference carries `PrivateAssets="all"`
 and the assembly is added to the package through `TargetsForTfmSpecificBuildOutput`, so the
 `.nuspec` has no dependencies and a consumer installs exactly one package. Rejected: publishing it
@@ -271,9 +272,10 @@ as a second package, which would expose nothing and add a version to keep in loc
 
 Two families, two versions.
 
-**The packages that embed the compiler** — `M3scalinum.Text.SharpTypst` and its two satellites —
-version themselves **after Typst**: the package version *is* the Typst version, plus a build
-revision.
+**The packages that embed the compiler** — `M3scalinum.Text.Typst` and its two satellites — and the
+document model it compiles, `M3scalinum.Text.Documents`, version themselves **after Typst**: the
+package version *is* the Typst version, plus a build revision. The model belongs to this train because
+its public surface is the Typst document vocabulary and moves with the compiler.
 
 ```
 0.15.1.42
@@ -289,7 +291,7 @@ revision.
 | `Version` | `0.15.1.42` | The package version |
 | `AssemblyVersion` | `0.15.1.0` | **Stable across builds**: a rebuild must not change the assembly identity, or every consumer needs a binding redirect for a patch-level change |
 | `FileVersion` | `0.15.1.42` | What the file system and the diagnostics report |
-| `InformationalVersion` | `0.15.1.42 (Typst 0.15.1)+<commit>` | What `TypstEnvironment.SharpTypstVersion` returns; the SDK appends the source commit |
+| `InformationalVersion` | `0.15.1.42 (Typst 0.15.1)+<commit>` | What `TypstEnvironment.LibraryVersion` returns; the SDK appends the source commit |
 
 A consumer can therefore tell which compiler a package carries from its version alone, and a
 `0.15.1.*` → `0.15.2.*` bump is unambiguously a Typst upgrade.
@@ -319,47 +321,47 @@ developer packing locally, or the `pack` job of `ci-text.yml`. Bump it to the la
 after tagging, so a local build never claims to be older than what shipped. Neither package is
 published yet, so starting at `0.1.0` costs nothing.
 
-Two packages share the compiler-derived version: `M3scalinum.Text.SharpTypst` (the library) and
-`M3scalinum.Text.SharpTypst.DependencyInjection` (the container integration, §12 of this document
+Two packages share the compiler-derived version: `M3scalinum.Text.Typst` (the library) and
+`M3scalinum.Text.Typst.DependencyInjection` (the container integration, §12 of this document
 set). The second depends on the first, and NuGet stamps the referenced project's `PackageVersion` as
-the dependency version — so the satellite can never name a `M3scalinum.Text.SharpTypst` that was not
+the dependency version — so the satellite can never name a `M3scalinum.Text.Typst` that was not
 built from the same commit.
 
 **Decision — the compiler train packs its satellites in one job.** NuGet derives `>= <version>`
 from a project reference, and no `ProjectReference` metadata overrides it; an exact range would need
 a `PackageReference` to a package that does not exist yet at restore time. What protects the family
 is not the range but the build: the three compiler packages are packed in one job from one revision,
-and `tests/verify-package.py` fails the release when a satellite's `M3scalinum.Text.SharpTypst`
+and `tests/verify-package.py` fails the release when a satellite's `M3scalinum.Text.Typst`
 dependency is not the version being packed.
 
 **Decision — the Pdf train packs against a published core.** `M3scalinum.Text.Pdf.FactureX` renders
-through `M3scalinum.Text.SharpTypst`, but it releases on its own schedule. A project reference would
+through `M3scalinum.Text.Typst`, but it releases on its own schedule. A project reference would
 stamp it with whatever version this checkout happens to build, which on a Pdf release is a core
 version nobody published. Its project file therefore switches on `CoreVersion`: empty, it uses the
 project reference and a change to the wrapper flows in immediately; set, it uses a package reference
 to that exact published version. `release-text.yml` resolves the newest stable
-`M3scalinum.Text.SharpTypst` from NuGet's flat-container index and sets it, so a Pdf release always
+`M3scalinum.Text.Typst` from NuGet's flat-container index and sets it, so a Pdf release always
 names a core a consumer can actually restore.
 
-A third package, `M3scalinum.Text.SharpTypst.Templates.Generator`, is an analyzer: it ships no `lib/` output, only
+A third package, `M3scalinum.Text.Templates.Generator`, is an analyzer: it ships no `lib/` output, only
 `analyzers/dotnet/cs/` and a `build/` props file that adds every `template.toml` to
-`AdditionalFiles`. It shares the same version and has no runtime dependency on `M3scalinum.Text.SharpTypst`.
+`AdditionalFiles`. It shares the same version and has no runtime dependency on `M3scalinum.Text.Typst`.
 
 `M3scalinum.Text.Pdf.FactureX` is the e-invoicing layer ([13](13-facturx.md)): it carries no native
-asset, and depends on `M3scalinum.Text.SharpTypst` for rendering only.
+asset, and depends on `M3scalinum.Text.Typst` for rendering only.
 
 `VersioningTests` enforces the link: the assembly version must start with the version the native
 library reports, so bumping the Rust crate without bumping `TypstVersion` fails the build.
 
 - Three changelogs, because the project releases twice and does not release both halves at the
   same time. `CHANGELOG.md` records what the project gains as a whole and indexes the two others;
-  `CHANGELOG-SharpTypst.md` carries the compiler train, `CHANGELOG-Text.md` the suite train. Each
+  `CHANGELOG-Typst.md` carries the compiler train, `CHANGELOG-Text.md` the suite train. Each
   release workflow takes its page body from its own train file, so a release page can never quote
   the other train, and a compiler entry names the Typst version it bundles.
-- A Typst upgrade is a **minor** version of `M3scalinum.Text.SharpTypst` unless it changes emitted
+- A Typst upgrade is a **minor** version of `M3scalinum.Text.Typst` unless it changes emitted
   output, in which case it is a major (golden files change).
 
-`EnablePackageValidation` is on for the twelve packable projects. With no
+`EnablePackageValidation` is on for the thirteen packable projects. With no
 `PackageValidationBaselineVersion` it still does real work: it compares the API surface of
 `net8.0`, `net9.0` and `net10.0` against `net11.0`, which is exactly where a conditional
 `PackageReference` or an `#if` would quietly drop a type. Once 1.0 is on nuget.org, set the baseline
@@ -377,10 +379,10 @@ nine packages that do not.
 | Job | Runner | Steps |
 | --- | --- | --- |
 | `native` | `windows-latest`, `windows-11-arm`, `ubuntu-latest`, `ubuntu-24.04-arm`, `macos-15-intel` | `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, `cargo build --release`, upload artifact. The `linux-musl-x64` entry installs `musl-tools`, builds for `x86_64-unknown-linux-musl` with `-C linker=musl-gcc`, and uploads the same `libsharp_typst.so` name |
-| `managed` | `ubuntu-latest` | `dotnet restore`, `dotnet build -c Release`, `dotnet test tests/Text.SharpTypst.Tests` (no natives needed) |
-| `integration` | matrix over the five host RIDs | download the matching native artifact, `dotnet restore`, `dotnet build`, `dotnet test tests/Text.SharpTypst.Integration.Tests` against the real compiler |
+| `managed` | `ubuntu-latest` | `dotnet restore`, `dotnet build -c Release`, `dotnet test tests/Text.Typst.Tests` (no natives needed) |
+| `integration` | matrix over the five host RIDs | download the matching native artifact, `dotnet restore`, `dotnet build`, `dotnet test tests/Text.Typst.Integration.Tests` against the real compiler |
 | `musl` | `ubuntu-latest` | publish the sample for `linux-musl-x64` self-contained and run it inside `mcr.microsoft.com/dotnet/runtime-deps:*-alpine`: the glibc build loads on the runner and fails there, which is the failure that matters |
-| `aot` | `ubuntu-latest` | publish `samples/Text.SharpTypst.Samples` with `PublishAot=true` and run it |
+| `aot` | `ubuntu-latest` | publish `samples/Text.Typst.Samples` with `PublishAot=true` and run it |
 | `benchmarks` | `ubuntu-latest` | `--check benchmarks/baseline.json`, 1.5× gate on the minimum |
 | `coverage` | `ubuntu-latest` | `dotnet-coverage` over the four suites, merge, `tests/coverage-gate.py` fails below 90 % of production lines |
 | `pack` | `ubuntu-latest` | download all six artifacts, `dotnet pack -c Release` for the three compiler packages, `tests/verify-package.py` on each, upload `.nupkg`/`.snupkg` |
@@ -401,7 +403,7 @@ The render validation needs the compiler, which is why `facturx` builds one here
 self-contained costs twelve minutes of Rust in one job instead of coupling the two workflows.
 
 `tests/verify-package.py` is the guard that would have caught two shipped defects: a package with no
-`runtimes/` entry (the native job had not run) and a dependency on `M3scalinum.Text.SharpTypst.Native`, which is never
+`runtimes/` entry (the native job had not run) and a dependency on `M3scalinum.Text.Typst.Native`, which is never
 published and made every consumer fail with `NU1101`. It also asserts the four licence files are
 inside, which is an Apache-2.0 obligation.
 
@@ -420,7 +422,7 @@ Two release workflows, one per tag namespace:
 | Workflow | Tag | Packs |
 | --- | --- | --- |
 | `release-sharptypst.yml` | `sharptypst-v0.15.1.42` | the three compiler packages, revision taken from the tag's fourth component |
-| `release-text.yml` | `v0.51.2` | `M3scalinum.Text.Pdf` and `M3scalinum.Text.Pdf.FactureX`, revision from the fourth component, core pinned to the newest published `M3scalinum.Text.SharpTypst` |
+| `release-text.yml` | `v0.51.2` | `M3scalinum.Text.Pdf` and `M3scalinum.Text.Pdf.FactureX`, revision from the fourth component, core pinned to the newest published `M3scalinum.Text.Typst` |
 
 Each validates its tag against its own version property and refuses a tag that does not start with
 it, so `sharptypst-v0.16.0.1` cannot silently publish a suite package, and a bare `v0.16.0.1`
@@ -443,7 +445,7 @@ nuget.org before its first release.
 
 `release` needs `publish`, so the GitHub release page is created only once the packages are on
 nuget.org, and only for a tag: it titles the page with the version, takes its body from that
-build's own changelog section — `CHANGELOG-SharpTypst.md` or `CHANGELOG-Text.md` — and attaches the
+build's own changelog section — `CHANGELOG-Typst.md` or `CHANGELOG-Text.md` — and attaches the
 same `.nupkg` and `.snupkg` files that were pushed.
 
 **Decision — the release fails rather than inventing notes.** No job writes a changelog: renaming
@@ -465,14 +467,14 @@ Rules:
 | Command | Effect |
 | --- | --- |
 | `dotnet build` | Managed projects only; fails fast if the native library is missing at test time |
-| `dotnet test tests/Text.SharpTypst.Tests` | Unit tests, no native dependency |
+| `dotnet test tests/Text.Typst.Tests` | Unit tests, no native dependency |
 | `cargo test --manifest-path native/sharp-typst/Cargo.toml` | ABI and exporter tests |
 | `dotnet test -p:BuildNative=true` | Full build including Cargo, then all tests |
-| `dotnet run --project samples/Text.SharpTypst.Samples` | Generates the sample outputs into `artifacts/samples/` |
+| `dotnet run --project samples/Text.Typst.Samples` | Generates the sample outputs into `artifacts/samples/` |
 
 ## 10. Third-party notices
 
-M3scalinum.Text.SharpTypst is Apache-2.0, the same licence as Typst. Sharing it is the simplest correct choice: the
+M3scalinum.Text.Typst is Apache-2.0, the same licence as Typst. Sharing it is the simplest correct choice: the
 library embeds the compiler, so a different licence would mean tracking two sets of obligations for
 one binary. Apache-2.0 also carries a patent grant (section 3) and a trademark clause (section 6),
 both of which matter for a binding that ships someone else's compiler.
@@ -482,7 +484,7 @@ Three files travel with the source and inside the NuGet package:
 | File | Contents |
 | --- | --- |
 | `LICENSE` | The Apache License, Version 2.0, verbatim |
-| `NOTICE` | The M3scalinum.Text.SharpTypst copyright, and the statement that the product includes Typst |
+| `NOTICE` | The M3scalinum.Text.Typst copyright, and the statement that the product includes Typst |
 | `THIRD-PARTY-NOTICES.md` | The notices Typst itself carries for the components it embeds, reproduced verbatim — required by section 4(d) |
 
 `THIRD-PARTY-NOTICES.md` is not generated: it is Typst's own `NOTICE`, copied at each Typst upgrade.
