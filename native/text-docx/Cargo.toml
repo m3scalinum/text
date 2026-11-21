@@ -20,7 +20,7 @@ docx-rs = { version = "0.4.22", default-features = false }
 # The package is opened here before docx-rs sees it, so "not a zip" and "no word/document.xml" are
 # told apart instead of collapsing into one reader error. Cargo shares the `zip` 8.6 build with
 # docx-rs, so this is not a second copy of the crate.
-zip = { version = "8.6", default-features = false, features = ["deflate"] }
+zip = { version = "9.0", default-features = false, features = ["deflate"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
