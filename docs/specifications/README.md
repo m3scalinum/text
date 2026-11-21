@@ -43,7 +43,7 @@ them is a bug.
 | `src/Text.Pdf` | PAdES-B signatures as an incremental update, page merge/extract/split/rotate/remove, AcroForm fill and flatten, AES-256 and AES-128 encryption, structural PDF/A and PDF/UA conformance checks, text extraction from a received PDF; no dependency on the compiler |
 | `src/Text.Pdf.FactureX` | CII/UBL reader, EN 16931 checks, CII writer, Factur-X renderer and XMP patch |
 | `src/Text.Mcp` | JSON-RPC 2.0 over stdio: `render_document`, `render_invoice`, `list_templates`, with limits and no ambient file access |
-| Tests | 389 unit (fake native) + 314 Pdf + 229 Factur-X + 14 generator + 80 templates + 58 mcp + 7 suite + 247 integration (real compiler) |
+| Tests | 389 unit (fake native) + 314 Pdf + 364 Factur-X + 14 generator + 111 templates + 75 mcp + 7 suite + 247 integration (real compiler) |
 | Benchmarks | `benchmarks/Text.SharpTypst.Benchmarks`, baseline stored, `--check` gate in CI |
 | Build & packaging | Build files in place; native packaging wired in CI |
 

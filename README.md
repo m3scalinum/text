@@ -371,8 +371,8 @@ Not yet on nuget.org. Everything below passes on the current tree:
 | Suite | Tests |
 | --- | --- |
 | `Text.SharpTypst.Tests` | 389 |
-| `Text.Pdf.Tests` | 279 |
-| `Text.Pdf.FactureX.Tests` | 229 |
+| `Text.Pdf.Tests` | 314 |
+| `Text.Pdf.FactureX.Tests` | 364 |
 | `Text.SharpTypst.Templates.Generator.Tests` | 14 |
 | `Text.Templates.Tests` | 111 |
 | `Text.Mcp.Tests` | 75 |

@@ -10,8 +10,8 @@ This document is normative for that package. The main library is described in
 
 | In scope | Detail |
 | --- | --- |
-| Reading | CII (`rsm:CrossIndustryInvoice`) and UBL (`Invoice`, `CreditNote`) into one model |
-| Writing | CII and UBL 2.1, from an invoice built in C# or read from either syntax |
+| Reading | CII (`rsm:CrossIndustryInvoice`), UBL (`Invoice`, `CreditNote`), FatturaPA (`FatturaElettronica`) and Facturae (`Facturae`) into one model |
+| Writing | CII, UBL 2.1, FatturaPA 1.2.2 and Facturae 3.2.2, from an invoice built in C# or read from any of them |
 | Validation | The EN 16931 rules decidable from the document — mandatory terms and arithmetic — and the rules of the CIUS the document declares: Peppol BIS 3.0, XRechnung or the French profile |
 | Rendering | A4 layout through the document model, PDF/A-3b, XML attached, XMP patched |
 | XMP | The `fx:` description and its `pdfaExtension:schemas` entry |
@@ -438,7 +438,140 @@ documents that break a single rule are built from the model, because a mutation 
 a caller actually does wrong. The rule codes and the EAS list were read from the Schematron of the
 same publication. The fixtures are not validated against it here: that needs an XSLT 2.0 processor.
 
-## 11. The XRechnung CIUS
+## 11. The national syntaxes — FatturaPA and Facturae
+
+Italy and Spain do not apply EN 16931 bare, but they differ from France and Peppol in a way that
+decides what this package does with them. A CIUS is a rule overlay on the European semantic model: the
+document stays CII or UBL, and `BT-23` / `BT-24` say whose rules apply. FatturaPA (`FatturaElettronica`,
+Italy, 1.2.2) and Facturae (`Facturae`, Spain, 3.2.2) are **syntaxes**: their own element trees, their
+own code lists, their own document type vocabulary, bound to the same semantic model.
+
+**Decision — a reader and a writer for each, and no validator.** A national schema that states the
+invoice differently is a mapping problem, not a rule problem: `IInvoiceValidator` is the seam for a
+Schematron, and neither of these publishes one that applies to a CII or UBL document. What a caller
+needs is to read an Italian or a Spanish document into `FacturXInvoice`, and to produce one from it.
+
+```csharp
+var italian  = FatturaPaReader.Read(xml);              // FatturaElettronica
+string fatturaPa = FatturaPaWriter.Write(invoice);     // bytes: FatturaPaWriter.WriteBytes
+
+var spanish  = FacturaeReader.Read(xml);               // Facturae
+string facturae = FacturaeWriter.Write(invoice);       // bytes: FacturaeWriter.WriteBytes
+```
+
+Both are reached from `FacturXReader.Read` as well: the root element decides, so a caller who does not
+know which syntax arrived still gets the invoice, and `FacturXReader.PeekSyntax` answers `"FatturaPA"`
+or `"Facturae"` without loading the tree. The two are otherwise ordinary EN 16931 terms — the model,
+the validator and the renderer see the same `FacturXInvoice` a CII document produces.
+
+### FatturaPA
+
+`FatturaElettronicaHeader` names the transmitter and the two parties; each `FatturaElettronicaBody` is a
+complete invoice. The reader takes the first body, which is what a document that is not a batch
+carries.
+
+| Model | FatturaPA 1.2.2 |
+| --- | --- |
+| `Number`, `IssueDate`, `Currency` | `DatiGeneraliDocumento/Numero`, `Data`, `Divisa` |
+| `TypeCode` (`BT-3`) | `TipoDocumento`: `TD01` ↔ `380`, `TD04` ↔ `381`, `TD05` ↔ `383`, `TD02`/`TD03` ↔ `386` |
+| `Seller` / `Buyer` | `CedentePrestatore` / `CessionarioCommittente`, with `IdFiscaleIVA` as `VatId` (`IT` + number), `CodiceFiscale` as `LegalId` and `Sede` as the address |
+| `Buyer.ElectronicAddress` (`BT-49`) | `DatiTrasmissione/CodiceDestinatario`, scheme `0201`, or `PECDestinatario`, scheme `EM` |
+| `Lines` | `DettaglioLinee`: `Descrizione`, `Quantita`, `UnitaMisura`, `PrezzoUnitario`, `PrezzoTotale`, `AliquotaIVA`, `Natura` |
+| `FacturXLine.SellerAssignedId` / `Classifications` | `CodiceArticolo` with `CodiceTipo` `INT` for the seller's number, and `CPV`, `EER`, `TARIC`, `EAN` or `GTIN` for a classification |
+| `TaxBreakdown` (`BG-23`) | `DatiRiepilogo`: `AliquotaIVA`, `Natura`, `ImponibileImporto`, `Imposta`, `RiferimentoNormativo` |
+| `AllowancesCharges` (`BG-20` / `BG-21`) | `ScontoMaggiorazione`: `SC` is an allowance, `MG` a charge |
+| `Iban`, `Bic`, `PaymentReference`, `DueDate` | `DatiPagamento/DettaglioPagamento`: `IBAN`, `BIC`, `CodicePagamento`, `DataScadenzaPagamento` |
+| `PaymentMeansCode` (`BT-81`) | `DettaglioPagamento/ModalitaPagamento`, translated through the table below |
+
+The root is `p:FatturaElettronica` in `http://ivaservizi.agenziaentrate.gov.it/docs/xsd/fatture/v1.2`
+and its children are unqualified, which is what the published schema says: it declares a
+`targetNamespace` and no `elementFormDefault`. `versione` is `FPR12`, the private format; `FPA12`
+addresses a public administration, whose recipient code grammar the model does not state, so it is not
+produced. Every numeric field is a pattern, not a plain decimal: `22.00` is accepted where `22` is
+refused, so the writer states rates, prices and amounts with two decimals and quantities with two to
+eight. `Quantita` refuses a negative number, so a credit note carries the absolute quantity and the
+direction lives in the document type and the negative amounts.
+
+**What does not map.** FatturaPA states no per-line tax total (the line states a rate and the
+`DatiRiepilogo` states the amounts), no document-level due date (only installment dates), no contract,
+project, delivery address, mandate or prepaid amount, and no buyer contact. `ImportoTotaleDocumento` is
+the only total it states, so the reader sums `LineTotal`, `TaxBasisTotal` and `TaxTotal` from the lines
+and the `DatiRiepilogo`. `RegimeFiscale` is required by the schema and has no term in the model: the
+writer states `RF01` (the ordinary regime) and the reader ignores it. `NumeroCivico` is its own element
+and the model has one address line, so the reader appends it to the street. `UnitaMisura` is free text
+where the model wants a UN/ECE code, so it is carried verbatim in both directions.
+
+**The two code bridges.** FatturaPA classifies a zero rate with `Natura` (`N1` to `N7`) where EN 16931
+states one of nine categories, and numbers payment means `MP01` to `MP23` where EN 16931 states UNTDID
+4461. `FatturaPaNature` and `FatturaPaPaymentMeans` hold both directions:
+
+| `Natura` | Category | Category | `Natura` |
+| --- | --- | --- | --- |
+| `N1`, `N4`, `N5` | `E` | `E` | `N1` |
+| `N2` | `O` | `O` | `N2` |
+| `N3.1`, `N3.3`, `N3.4` | `G` | `G` | `N3.1` |
+| `N3.2` | `K` | `K` | `N3.2` |
+| `N3.5`, `N3.6` | `E` | `AE` | `N6.1` |
+| `N6`, `N7` | `AE` | `Z` | `N4` |
+
+`Z` — zero-rated with no exemption reason — has no Italian spelling: the schema refuses a zero rate
+without a `Natura`, so it is written as `N4` and reads back as `E`. The payment means table translates
+the five modalities both lists name unambiguously (cash, cheque, credit transfer, credit card, direct
+debit); a code outside it is carried verbatim rather than turned into a different instruction, and a
+SEPA credit transfer (`58`) and a credit transfer (`30`) are the same `MP05`, so `58` reads back as
+`30`.
+
+### Facturae
+
+`FileHeader` describes the batch, `Parties` holds the two parties and `Invoices` holds one or more
+invoices; the reader takes the first.
+
+| Model | Facturae 3.2.2 |
+| --- | --- |
+| `Number` | `InvoiceHeader/InvoiceNumber` |
+| `TypeCode` (`BT-3`) | `InvoiceClass`: `OO`/`OC` ↔ `380`, `OR`/`CR` with a negative total ↔ `381`, with a positive one ↔ `384` |
+| `IssueDate`, `Currency` | `InvoiceIssueData/IssueDate`, `InvoiceCurrencyCode` |
+| `Period` (`BG-14`) | `InvoiceIssueData/InvoicingPeriod` |
+| `Note` (`BT-22`) | `InvoiceIssueData/InvoiceDescription` |
+| `Seller` / `Buyer` | `SellerParty` / `BuyerParty`: `TaxIdentificationNumber` as `VatId` (`ES` + NIF), `CorporateName` as the name, `AddressInSpain` or `OverseasAddress` |
+| `Lines` | `Items/InvoiceLine`: `ItemDescription`, `Quantity`, `UnitOfMeasure`, `UnitPriceWithoutTax`, `TotalCost`, `GrossAmount`, `DiscountsAndRebates` / `Charges` |
+| `TaxBreakdown` (`BG-23`) | `TaxesOutputs/Tax`: `TaxTypeCode` `01`, `TaxRate`, `TaxableBase`, `TaxAmount` |
+| `AllowancesCharges` (`BG-20` / `BG-21`) | `InvoiceTotals/GeneralDiscounts` and `GeneralSurcharges` |
+| `Iban`, `Bic`, `PaymentReference`, `DueDate` | `PaymentDetails/Installment`: `AccountToBeCredited/IBAN` and `BIC`, `PaymentReconciliationReference`, `InstallmentDueDate` |
+
+The `FileHeader` is derived: the batch identifier is the seller's tax number and the invoice number,
+and the three batch amounts are the invoice total, what is still due and what is executable.
+
+**What does not map.** Facturae has no credit-note class: a correction is a rectificative invoice
+(`InvoiceClass` `OR`) with negative amounts that names the invoice it corrects, so a model credit note
+(`381`) is written that way and reads back as `384` — the same document under the name Spanish
+receivers use. It has no term for an exemption reason, a contract, a project, a supporting document, a
+mandate, a delivery address, a second note or a due date per installment. Its `ExchangeRateDetails`
+exists for a tax currency that is not the invoice currency, and the model carries the code but not the
+rate, so the writer states the invoice currency for both rather than inventing one. `UnitOfMeasure` is a
+two-digit numeric list of its own where the model wants a UN/ECE code: the unit is written only when it
+already is one of those codes. `Province` has no term in the model and the writer states the town there,
+which is what a Spanish receiver expects of a domestic address in the absence of anything else.
+
+### The round trip and the fixtures
+
+Each writer's output is read back by the same reader, and the semantic values — number, dates, parties
+and their identifiers, lines, rates, adjustments, breakdown and totals — survive. The tests in
+`FatturaPaTests` and `FacturaeTests` assert that, plus a document with several VAT rates, a credit note
+under each schema, a document with a general allowance, the schema element order, and the dispatch from
+`FacturXReader` and `PeekSyntax`.
+
+**The fixtures are constructed, not official.** `tests/fixtures/national/fattura-pa.xml` and
+`facturae.xml` were written against the published schemas — the sequence of every element, the
+cardinalities, the totals — because no sample from the Agenzia delle Entrate or the Facturae
+publication is redistributable here. They, and the documents the two writers emit, were checked with a
+schema-validating XML reader against the official FatturaPA 1.2.2 schema (from `fatturapa.gov.it`) and
+the Facturae 3.2 schema: a valid document, a credit note, a document with several rates and a Natura
+code, a general allowance, a PEC recipient and a foreign party all validate. The Facturae 3.2.2 schema
+file itself was not obtainable, so what 3.2.2 adds over 3.2 is unchecked. The schema files are not
+vendored and no test validates against them, so the element orders are pinned by tests instead, the
+same way the UBL writer's are.
+## 12. The XRechnung CIUS
 
 XRechnung is Germany's CIUS of EN 16931, published by KoSIT for both UBL and CII. An invoice to a
 public authority has to be one; since 2025 a German receiver also accepts it as the B2B syntax.
@@ -566,6 +699,7 @@ held to neither the Peppol nor the French rules.
 
 | Level | What it pins |
 | --- | --- |
+| Unit, `tests/Text.Pdf.FactureX.Tests` | reading all four syntaxes, the validation rules including the allowance arithmetic, every writer's round trip (CII→CII, UBL→UBL, CII→UBL, UBL→CII, FatturaPA→FatturaPA, Facturae→Facturae, FatturaPA→Facturae), the encoding declaration, the schema orderings, the DTD refusal, and the Peppol CIUS: one document per rule, the conformant model, and the OpenPEPPOL samples |
 | Unit, `tests/Text.Pdf.FactureX.Tests` | reading both syntaxes, the validation rules including the allowance arithmetic, both writers' round trips (CII→CII, UBL→UBL, CII→UBL, UBL→CII), the encoding declaration, the schema orderings, the DTD refusal, the Peppol CIUS (one document per rule, the conformant model, the OpenPEPPOL samples), and the XRechnung CIUS (one document per rule, the conformant model, and the selection of each overlay by declaration) |
 | Integration, `FacturXRenderTests` | PDF/A-3 marker, `/EmbeddedFiles`, the `fx:` block and its values, the profile carried into the XMP, a refused invalid invoice |
 | Unit, `PdfExtractionTests` | the attachment is found through the name tree, inflated, and read back; a hex name, an uncompressed stream, a second attachment, and every refusal |
