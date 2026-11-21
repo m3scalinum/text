@@ -55,8 +55,12 @@ internal sealed class FakeTypstNative : ITypstNative
 
     public NativeCallException? ExportFailure { get; set; }
 
+    /// <summary>Worlds built through <see cref="CreateWorld"/>, so a test can assert a clone adds none.</summary>
+    public int CreateWorldCalls { get; private set; }
+
     public TypstWorldHandle CreateWorld(string? configJson)
     {
+        CreateWorldCalls++;
         WorldConfigJson = configJson;
         return new TypstWorldHandle();
     }
@@ -100,8 +104,16 @@ internal sealed class FakeTypstNative : ITypstNative
     /// </summary>
     public Barrier? CompileBarrier { get; set; }
 
+    private readonly object _recording = new();
+    private int _compiles;
+
+    /// <summary>Compilations that reached this boundary, counted without a race.</summary>
+    public int CompileCount => Volatile.Read(ref _compiles);
+
     public TypstDocumentHandle Compile(TypstWorldHandle world, string optionsJson, out string diagnosticsJson)
     {
+        Interlocked.Increment(ref _compiles);
+
         if (CompileBarrier is not null && !CompileBarrier.SignalAndWait(TimeSpan.FromSeconds(10)))
         {
             throw new InvalidOperationException(
@@ -113,8 +125,12 @@ internal sealed class FakeTypstNative : ITypstNative
             Thread.Sleep(CompileDelay);
         }
 
-        CompileOptionsJson = optionsJson;
-        CompileOptions.Add(optionsJson);
+        // Two uncapped compilations reach here at the same time: a bare List.Add loses entries.
+        lock (_recording)
+        {
+            CompileOptionsJson = optionsJson;
+            CompileOptions.Add(optionsJson);
+        }
 
         if (CompileFailure is not null)
         {
@@ -197,9 +213,17 @@ internal sealed class FakeTypstNative : ITypstNative
     public byte[] FontFamilies(TypstWorldHandle world)
         => Encoding.UTF8.GetBytes(FontFamiliesJson);
 
+    /// <summary>
+    /// The world the last clone was taken from. A clone must be derived from its original's
+    /// handle — that is the call that shares the library, the font book and the fonts — so a test
+    /// asserts on it by reference instead of measuring how long cloning took.
+    /// </summary>
+    public TypstWorldHandle? ClonedFrom { get; private set; }
+
     public TypstWorldHandle CloneWorld(TypstWorldHandle world)
     {
         CloneCount++;
+        ClonedFrom = world;
         return new TypstWorldHandle(IntPtr.Zero);
     }
 
