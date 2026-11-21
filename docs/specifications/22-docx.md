@@ -31,29 +31,33 @@ lists with their level, embedded images, and the section's page setup.
 
 **Out of scope, deliberately.** Table 1 in §7 lists what is dropped and why.
 
-## 2. Why `docx-rs`, and not the Open XML SDK
+## 2. Why the OOXML is read here, and not by a crate
 
-The suite's rule is a Rust dependency where one is proven; here it also happens to be the smaller
-package.
+The suite's rule is a Rust dependency where one is proven. `docx-rs` 0.4.22 satisfied it until it
+could not be kept: that release pins `zip ^8.6.0`, and `zip` 8.6.0 is the subject of a **critical**
+advisory — a parser differential, so that a package one reader renders is not the package another
+reader sees — three high ones (decoder denial of service in the Shrink/Reduce/Implode paths,
+unbounded symlink handling, a write outside the extraction directory) and a medium one (an AES HMAC
+bypass on premature EOF). The fix is the `zip` 9.x line, which `docx-rs` cannot take: 0.4.22 is the
+latest release and its constraint is `^8.6.0`. A reader that sits on a crate that cannot move is a
+reader that ships the advisory.
 
-| | `docx-rs` 0.4.22 | DocumentFormat.OpenXml |
+**Decision — the reader is ours.** `native/text-docx` opens the package with `zip` 9.8 and reads the
+XML with `roxmltree`. Nothing between this package and the container can pin a vulnerable decoder
+again. The C ABI and the JSON AST are unchanged, so `M3scalinum.Text.Docx` and its tests are
+unmodified by the change (§4, §9): the rewrite is entirely behind the `td_` symbols.
+
+| | before | after |
 | --- | --- | --- |
-| Language | Rust, in the same cdylib as everything else this suite ships native | .NET, a second managed dependency tree |
-| Size | one crate, 62 transitive crates, no `image` (see below) | `DocumentFormat.OpenXml` plus `DocumentFormat.OpenXml.Framework` |
-| Reading | `read_docx(&[u8])` returns a document tree, and its serde form is that crate's documented JSON API | `WordprocessingDocument.Open` over a stream, then a walk of typed elements |
-| Writing | also a writer, which this package does not use | also a writer |
-| Licence | MIT | MIT |
+| Container | `zip` 8.6.0, reached through `docx-rs` | `zip` 9.8.1, a direct dependency |
+| XML | `quick-xml` through `docx-rs`'s tree, read via its serde form | `roxmltree` 0.21.2, read as a tree here |
+| Parts this crate names | the three a package must carry | the same three, plus `styles.xml`, `numbering.xml`, the document relationships and the media, each through its relationship (§3) |
+| `Cargo.lock` entries | 32, including `quick-xml`, `encoding_rs`, `smallvec`, `thiserror`, `base64` | 44, including `roxmltree`, and `zip` 9.8's own `getrandom`, `zeroize`, `constant_time_eq` |
+| Licence | MIT (`docx-rs`) | MIT (`zip`), MIT OR Apache-2.0 (`roxmltree`) |
 
-**Decision — the reader goes through `docx-rs`'s serde form.** The run properties a caller cares about
-(`w:b`, `w:i`, `w:u`, `w:color`, `w:sz`, `w:vertAlign`, `w:strike`) sit behind private fields in that
-crate, but every one of them is part of its `Serialize` implementation — the JSON contract its
-WebAssembly build publishes. Reading that JSON is therefore a supported surface, and it keeps this
-crate from depending on a struct layout that a patch release may rearrange.
-
-**Decision — `default-features = false`.** `docx-rs`'s default features pull the `image` crate to
-decode a picture into a PNG preview. This reader never decodes an image: it hands the original part
-back byte for byte. Turning the feature off drops `image`, `png`, `jpeg-decoder`, `tiff`, `fax`,
-`zopfli` and their licences from the dependency graph, and the preview field is simply empty.
+`roxmltree` was chosen for what it refuses as much as for what it does: it builds a read-only tree,
+it does not expand external entities, and it has no DTD handling by default. A part is parsed into a
+tree the walker can bound (§3), not streamed into a visitor that has to hold its own state.
 
 ## 3. The native crate
 
@@ -82,21 +86,67 @@ crate's own:
 | 1 | `invalid_argument` | A null pointer, an unreadable options payload, an index past the media table |
 | 2 | `invalid_handle` | A handle this library does not own |
 | 3 | `panic` | A panic caught at the boundary; the bug is here |
-| 9 | `limit` | The document is over the byte ceiling |
+| 9 | `limit` | Over the byte ceiling, over a part's cap, deeper than the reader goes, or past a count cap |
 | 10 | `unsupported` | Reserved: a part outside what the reader implements |
-| **11** | **`malformed_package`** | Not a zip package, or a part of it does not parse |
-| **12** | **`missing_part`** | A zip package that lacks `[Content_Types].xml`, `_rels/.rels` or `word/document.xml` |
+| **11** | **`malformed_package`** | Not a zip package, a part that does not parse, or a part name the rules below refuse |
+| **12** | **`missing_part`** | A package that lacks `[Content_Types].xml`, `_rels/.rels` or `word/document.xml` |
 | 13 | `internal` | A failure this library does not classify |
 
-**Decision — the package is checked before `docx-rs` sees it.** That crate reports both "not a zip"
-and "no `word/document.xml`" as one `ZipError`, and a host needs to tell them apart: the first is a
-file that was never a document, the second is a truncated or rewritten one. The crate therefore opens
-the archive itself (the `zip` 8.6 build is already in the graph, so this is not a second copy) and
-names the missing part before handing the bytes on.
+### 3.1 Which parts are read, and how a name is found
 
-**Options.** `td_document_parse`'s third argument is `{"images": bool, "maxBytes": number}`, or null
-for the defaults — images extracted, a 64 MiB ceiling. The ceiling is checked before the archive is
-opened, so an accidental 3 GB upload fails in microseconds instead of allocating.
+| Part | Why |
+| --- | --- |
+| `word/document.xml` | The body |
+| `word/_rels/document.xml.rels` | The relationships that name the media, and the styles and numbering parts |
+| `word/styles.xml` | Only for a heading style whose `w:name` or `w:outlineLvl` supplies a level |
+| `word/numbering.xml` | Only for whether a `numId`'s level counts |
+| each media part | The picture bytes, stored as they arrived |
+
+**Decision — every part name comes from the package's own relationships, and is then checked.** A
+relationship target is a relative URI, and it is resolved against the directory of the part that owns
+the relationship — `word/` for the document — by joining segments. The result is refused when a
+segment is `..`, empty or `.`, when the target is absolute, when it carries a drive letter or a URI
+scheme, or when it does not land under the directory the relationship kind is allowed to name
+(`word/media/` for an image). This is the rule the EPUB writer already enforces on asset names
+(Spec 25), and it is the rule the old dependency did not enforce: an image relationship is attacker
+input like any other part of the file.
+
+`word/styles.xml` and `word/numbering.xml` are optional by specification, so their absence is not an
+error: a document with no styles still reads, and a heading whose style id already names its level
+(`Heading2`) needs neither part.
+
+### 3.2 The bounds, and why they exist
+
+This reader opens documents a sender supplies. Four bounds sit in front of the parse, and every one of
+them fails with `limit` rather than allocating:
+
+| Bound | Value | What it stops |
+| --- | --- | --- |
+| Whole document | `Options::max_bytes`, 64 MiB by default | A range request gone wrong, a 3 GB upload |
+| One part, declared | 32 MiB | A header that promises an allocation |
+| One part, decoded | 32 MiB | A header that understates its payload — the "Zip Cloaking" differential |
+| Nesting | 64 levels of block | A nesting bomb looking for a stack |
+| Runs / cells / media | 200 000 / 50 000 / 2 048 | A body that is large rather than deep |
+
+**Decision — a size is measured, not believed.** The zip central directory states an uncompressed
+size, and a reader that trusts it reads a different part from the one the next reader would. Every
+part is therefore refused when the header declares more than the cap *and* refused again when the
+decoded bytes pass it, and the local file header is compared with its central directory entry before
+anything is decoded (`ZipReadOptions::enforce_header_consistency`). That is the class of bug the old
+`zip` 8.6.0 carried, and it is closed by construction here rather than by a patch release.
+
+**No file system is touched.** Nothing is extracted to disk: a part is a `Vec<u8>` and a name, never
+a path. The arbitrary-write advisory that made the old dependency dangerous cannot apply to a reader
+that never writes.
+
+**No `unwrap` on the file.** Everything derived from the package goes through `Option`/`Result`;
+the only `unwrap`s in the crate are in its own tests.
+
+### 3.3 Options
+
+`td_document_parse`'s third argument is `{"images": bool, "maxBytes": number}`, or null for the
+defaults — images extracted, a 64 MiB ceiling. The ceiling is checked before the archive is opened,
+so an accidental 3 GB upload fails in microseconds instead of allocating.
 
 ## 4. The AST
 
@@ -201,11 +251,13 @@ restarts the merge and one empty continuation cell per row below. Typst writes o
 `rowspan`, and a row below simply provides fewer cells. The reader counts the continuations, sets the
 row span, and drops the cells, which is exactly the shape the model's table expects.
 
-**Page setup is reported only when the file states it.** `docx-rs` fills Word's defaults — A4,
-2.54 cm top and bottom, 3 cm left and right — whether the document states them or not, so a reader
-cannot tell an unstated default from a stated one that equals it. A section equal to that default is
-therefore reported as "no page setup", and the Typst document gets no `#set page` rule; anything else
-is reported and applied. A host that wants Word's page for every document can set it itself.
+**Page setup is reported only when the file states it.** A section is read as stated values with
+Word's defaults filled in for whatever the section omits — A4, 2.54 cm top and bottom, 3 cm left and
+right — so a reader cannot tell an unstated default from a stated one that equals it. A section equal
+to that default is therefore reported as "no page setup", and the Typst document gets no `#set page`
+rule; anything else is reported and applied. A host that wants Word's page for every document can set
+it itself. This is the behaviour `docx-rs` supplied by filling the defaults into its own section
+property, kept rather than changed, because a managed test asserts it.
 
 ## 7. What is lost
 
@@ -222,7 +274,8 @@ is reported and applied. A host that wants Word's page for every document can se
 | Headers, footers, comments | Not read at all. |
 | Tables inside cells | Dropped: Typst's cell holds content, and a nested table would need a block the model does not have. |
 | Tabs, `w:tab` | Dropped: honouring them means reproducing Word's tab stops. |
-| Images that are not pictures | Shapes, charts, text boxes and SmartArt are drawings this reader skips; only `pic` drawings become image runs. EMF and WMF are kept as bytes with their MIME type, but Typst cannot rasterise them, so a compile of such a document fails at the image, not at the read. |
+| Images that are not pictures | Shapes, charts, text boxes and SmartArt are drawings this reader skips; a DrawingML `a:blip` or a VML `v:imagedata` that names a relationship becomes an image run. EMF and WMF are kept as bytes with their MIME type, but Typst cannot rasterise them, so a compile of such a document fails at the image, not at the read. |
+| Content controls | `w:sdt` is descended into at body level, so its blocks are read; the control's own properties are not. A content control inside a paragraph contributes no runs. |
 
 The rule behind the table: **nothing that is not read throws.** A document with footnotes reads, and
 the footnote is lost. Only a package that cannot be opened — not a zip, a missing part, over the size
@@ -230,19 +283,28 @@ limit — is an exception, because there is then nothing to hand back.
 
 ## 8. Licence
 
-`docx-rs` 0.4.22 is MIT, © 2020 bokuweb (`https://github.com/bokuweb/docx-rs`). Its `Cargo.toml`
-declares `license = "MIT"` and the crate ships no separate licence file, so the text below is the
-licence of the repository it is published from.
+The two crates this reader now depends on:
+
+| Crate | Version | Licence | Copyright |
+| --- | --- | --- | --- |
+| `zip` | 9.8.1 | MIT | © 2014 Mathijs van de Nes (`https://github.com/zip-rs/zip2`) |
+| `roxmltree` | 0.21.2 | MIT OR Apache-2.0 | © 2018 Yevhenii Reizner (`https://github.com/RazrFalcon/roxmltree`) |
+
+Both were checked against their published `Cargo.toml` and their shipped licence files: `zip` 9.8.1
+declares `license = "MIT"` and ships `LICENSE`; `roxmltree` 0.21.2 declares
+`license = "MIT OR Apache-2.0"` and ships `LICENSE-MIT` and `LICENSE-APACHE`. This crate takes
+`roxmltree` under the MIT half, which keeps the whole graph MIT or MIT-or-Apache — the same position
+`docx-rs` occupied.
 
 `THIRD-PARTY-NOTICES.md` at the repository root is the file a release ships, and it is maintained by
-the release, not by this specification. The block to add to it, once this package ships:
+the release, not by this specification. The blocks to add to it, once this package ships, are:
 
 ```
-docx-rs 0.4.22 — https://github.com/bokuweb/docx-rs
+zip 9.8.1 — https://github.com/zip-rs/zip2
 
-MIT License
+The MIT License (MIT)
 
-Copyright (c) 2020 bokuweb
+Copyright (c) 2014 Mathijs van de Nes
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -263,13 +325,42 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-The crate graph `docx-rs` brings in — `zip`, `quick-xml`, `serde`, `serde_json`, `smallvec`,
-`thiserror`, `base64`, `crc32fast` and their own dependencies — is MIT or Apache-2.0 throughout;
-`default-features = false` keeps the `image` family, and its wider licence surface, out.
+```
+roxmltree 0.21.2 — https://github.com/RazrFalcon/roxmltree
+
+The MIT License (MIT)
+
+Copyright (c) 2018 Yevhenii Reizner
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+The rest of the graph — `serde`, `serde_json`, `memchr`, `crc32fast`, `flate2`/`zlib-rs`, `indexmap`,
+`typed-path`, `getrandom`, `zeroize`, `constant_time_eq`, `zopfli` and their dependencies — is MIT,
+Apache-2.0 or MIT-or-Apache throughout. `zip` is taken with `default-features = false`: the AES,
+bzip2, lzma, zstd and deflate64 decoders, and their advisories, are not compiled, because a `.docx`
+is stored or deflated and those are the only two methods a package may use here.
 
 ## 9. Tests and fixtures
 
-`tests/Text.Docx.Tests` holds the fixture and the assertions:
+`tests/Text.Docx.Tests` holds the fixture and the assertions. None of it changed with the rewrite:
+the AST it reads is the same AST, byte for byte, and that is what the change was held to.
 
 - `fixtures/report.docx` — a committed package built from raw OOXML by `DocxFixture` in the test
   project. `fixtures/README.md` says how it was made and how to regenerate it. The test that compares
@@ -281,9 +372,26 @@ The crate graph `docx-rs` brings in — `zip`, `quick-xml`, `serde`, `serde_json
 - Three failure tests assert the typed errors: bytes that are not a package (`MalformedPackage`), a
   package without `word/document.xml` (`MissingPart`), and a document over the limit (`Limit`).
 - The end-to-end test reads the committed fixture, converts it, registers its images as world assets,
-  compiles it with the real compiler, and asserts the text through `ExportText`.
+  compiles it with the real compiler, and asserts the text through `ExportText`. **26 tests, all
+  passing, unmodified.**
 
-**Not verified here.** `cargo test` for the native crate is not run on the build host the fixture was
-made on (the crate's own unit tests compile under `cargo clippy --all-targets` but were not executed),
-and no CI job builds this crate yet: `.github/workflows` is outside this change. A release therefore
-packs the native library only from `native/artifacts`, which no job currently fills for this crate.
+The native crate carries its own unit tests, and they are run with `cargo test --lib`, which builds
+the library as a test binary and does not need the cdylib the host cannot link in a debug profile:
+
+- `parse` — a package written in memory with `zip`'s writer, read back: a heading run and every run
+  property, a style supplying an outline level, a bulleted level, a table with `gridSpan` and
+  `vMerge`, an image through its relationship, images turned off, the page setup, a section equal to
+  Word's defaults, the two typed failures, the whole-document ceiling, a part that decodes past its
+  cap, and a nesting bomb one level past the depth cap.
+- `package` — the part-name rules: a traversal, an absolute name, a drive letter, a scheme, an empty
+  or `.` segment, a part outside `word/media/`, and a `.rels` part read with its modes.
+- `ffi` — the buffer and error shapes.
+
+**Verified here.** `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`,
+`cargo build --release`, `cargo test --lib` (34 tests) and `dotnet test tests/Text.Docx.Tests
+-c Release` (26 tests) all ran on the build host for this change. The same fixture was also read by
+the pre-change build: the AST JSON and every image byte were identical, which is the claim §2 makes.
+
+**Not verified here.** No CI job builds this crate yet: `.github/workflows` is outside this change.
+A release therefore packs the native library only from `native/artifacts`, which no job currently
+fills for this crate.
