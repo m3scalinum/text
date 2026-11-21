@@ -323,13 +323,13 @@ Not yet on nuget.org. Everything below passes on the current tree:
 
 | Suite | Tests |
 | --- | --- |
-| `Text.SharpTypst.Tests` | 281 |
-| `Text.Pdf.Tests` | 8 |
-| `Text.Pdf.FactureX.Tests` | 125 |
+| `Text.SharpTypst.Tests` | 384 |
+| `Text.Pdf.Tests` | 257 |
+| `Text.Pdf.FactureX.Tests` | 170 |
 | `Text.SharpTypst.Templates.Generator.Tests` | 14 |
 | `Text.Templates.Tests` | 80 |
 | `Text.Suite.Tests` (public surface and documentation) | 7 |
-| `Text.SharpTypst.Integration.Tests` (real compiler) | 229 |
+| `Text.SharpTypst.Integration.Tests` (real compiler) | 235 |
 
 The `coverage` job fails below 90 % of production lines. Native AOT publish, a 10 000-cycle leak test
 and a benchmark regression gate are in place. The public API of `M3scalinum.Text.SharpTypst` is the
