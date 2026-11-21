@@ -116,6 +116,91 @@ public static class TemplateLabels
         ("date_format", "[month repr:long] [day], [year]", "[day]/[month]/[year]"),
     ];
 
+    private static readonly (string Key, string English, string French)[] Contract =
+    [
+        ("document", "CONTRACT", "CONTRAT"),
+        ("contract_number", "Contract no.", "N° de contrat"),
+        ("issue_date", "Issue date", "Date d'émission"),
+        ("effective_date", "Effective date", "Date d'effet"),
+        ("party_a", "First party", "Première partie"),
+        ("party_b", "Second party", "Seconde partie"),
+        ("between", "Between", "Entre"),
+        ("registration", "Registration", "Immatriculation"),
+        ("representative", "Represented by", "Représentée par"),
+        ("clauses", "Clauses", "Clauses"),
+        ("article", "Article", "Article"),
+        ("signature", "Signature", "Signature"),
+        ("signed_at", "Signed at", "Fait à"),
+        ("on", ", on", ", le"),
+        ("notes", "Notes", "Remarques"),
+        ("page", "Page", "Page"),
+        ("of_page", "of", "sur"),
+        ("date_format", "[month repr:long] [day], [year]", "[day]/[month]/[year]"),
+    ];
+
+    private static readonly (string Key, string English, string French)[] Payslip =
+    [
+        ("document", "PAYSLIP", "BULLETIN DE PAIE"),
+        ("payslip_number", "Payslip no.", "N° de bulletin"),
+        ("issue_date", "Issue date", "Date d'émission"),
+        ("period", "Period", "Période"),
+        ("employer", "Employer", "Employeur"),
+        ("employee", "Employee", "Salarié"),
+        ("employee_number", "Employee no.", "Matricule"),
+        ("start_date", "Employed since", "Entrée le"),
+        ("registration", "Registration", "Immatriculation"),
+        ("earnings", "Gross earnings", "Éléments de rémunération"),
+        ("contributions", "Contributions", "Cotisations"),
+        ("description", "Description", "Libellé"),
+        ("base", "Base", "Base"),
+        ("rate", "Rate", "Taux"),
+        ("amount", "Amount", "Montant"),
+        ("gross_pay", "Gross pay", "Salaire brut"),
+        ("total_contributions", "Total contributions", "Total des cotisations"),
+        ("net_pay", "Net pay", "Net à payer"),
+        ("payment", "Payment", "Règlement"),
+        ("bank_transfer", "Bank transfer", "Virement bancaire"),
+        ("notes", "Notes", "Remarques"),
+        ("retain_copy", "Keep this payslip.", "Conservez ce bulletin."),
+        ("page", "Page", "Page"),
+        ("of_page", "of", "sur"),
+        ("date_format", "[month repr:long] [day], [year]", "[day]/[month]/[year]"),
+        ("thousand_separator", ",", " "),
+        ("decimal_separator", ".", ","),
+    ];
+
+    private static readonly (string Key, string English, string French)[] PurchaseOrder =
+    [
+        ("document", "PURCHASE ORDER", "BON DE COMMANDE"),
+        ("order_number", "Order no.", "N° de commande"),
+        ("issue_date", "Issue date", "Date d'émission"),
+        ("currency", "Currency", "Devise"),
+        ("buyer", "Buyer", "Acheteur"),
+        ("supplier", "Supplier", "Fournisseur"),
+        ("delivery_address", "Delivery address", "Adresse de livraison"),
+        ("delivery_date", "Required by", "Livraison souhaitée"),
+        ("vat_id", "VAT ID", "N° de TVA"),
+        ("supplier_account", "Supplier account", "Compte fournisseur"),
+        ("description", "Description", "Désignation"),
+        ("quantity", "Qty", "Qté"),
+        ("unit_price", "Unit price", "Prix unitaire"),
+        ("amount", "Amount", "Montant"),
+        ("subtotal", "Subtotal", "Sous-total"),
+        ("tax", "VAT", "TVA"),
+        ("total", "Total", "Total"),
+        ("terms", "Terms", "Conditions"),
+        ("standard_terms", "Payment on delivery.", "Paiement à réception."),
+        ("notes", "Notes", "Remarques"),
+        ("no_notes", "None.", "Néant."),
+        ("authorised_by", "Authorised by", "Émis par"),
+        ("acknowledged_by", "Acknowledged by", "Accepté par"),
+        ("page", "Page", "Page"),
+        ("of_page", "of", "sur"),
+        ("date_format", "[month repr:long] [day], [year]", "[day]/[month]/[year]"),
+        ("thousand_separator", ",", " "),
+        ("decimal_separator", ".", ","),
+    ];
+
     /// <summary>Returns the labels a layout needs, in one language.</summary>
     /// <param name="templateId">Catalog id, for example <see cref="TemplateIds.Invoice"/>.</param>
     /// <param name="language">Language of the returned labels.</param>
@@ -162,6 +247,21 @@ public static class TemplateLabels
         if (string.Equals(templateId, TemplateIds.Attestation, StringComparison.OrdinalIgnoreCase))
         {
             return Attestation;
+        }
+
+        if (string.Equals(templateId, TemplateIds.Contract, StringComparison.OrdinalIgnoreCase))
+        {
+            return Contract;
+        }
+
+        if (string.Equals(templateId, TemplateIds.Payslip, StringComparison.OrdinalIgnoreCase))
+        {
+            return Payslip;
+        }
+
+        if (string.Equals(templateId, TemplateIds.PurchaseOrder, StringComparison.OrdinalIgnoreCase))
+        {
+            return PurchaseOrder;
         }
 
         throw new TypstTemplateException($"no label set for template '{templateId}'", templateId);

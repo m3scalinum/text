@@ -100,6 +100,86 @@ public sealed class TemplateRenderTests
         Assert.Contains("depuis le 01/09/2021", text, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void The_contract_renders_one_page_from_a_minimal_dataset()
+    {
+        var (pages, text, pdf) = RenderPaged(TemplateIds.Contract, Samples.MinimalContract());
+
+        Assert.Equal(1, pages);
+        Assert.Equal("%PDF"u8.ToArray(), pdf[..4]);
+        Assert.Contains("CONTRAT", text, StringComparison.Ordinal);
+        Assert.Contains("Atelier Dupont SAS", text, StringComparison.Ordinal);
+        Assert.Contains("Objet", text, StringComparison.Ordinal);
+        Assert.Contains("02/03/2026", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_contract_breaks_across_pages_for_a_realistic_dataset()
+    {
+        var (pages, text, _) = RenderPaged(TemplateIds.Contract, Samples.RealisticContract());
+
+        Assert.Equal(2, pages);
+        Assert.Contains("Clause 12", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_payslip_renders_one_page_from_a_minimal_dataset()
+    {
+        var (pages, text, pdf) = RenderPaged(TemplateIds.Payslip, Samples.MinimalPayslip());
+
+        Assert.Equal(1, pages);
+        Assert.Equal("%PDF"u8.ToArray(), pdf[..4]);
+        Assert.Contains("BULLETIN DE PAIE", text, StringComparison.Ordinal);
+        Assert.Contains("Salaire de base", text, StringComparison.Ordinal);
+        Assert.Contains("Net à payer", text, StringComparison.Ordinal);
+        Assert.Contains("4 939,05", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_payslip_breaks_across_pages_for_a_realistic_dataset()
+    {
+        var (pages, text, _) = RenderPaged(TemplateIds.Payslip, Samples.RealisticPayslip());
+
+        Assert.Equal(2, pages);
+        Assert.Contains("Cotisation 30", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_purchase_order_renders_one_page_from_a_minimal_dataset()
+    {
+        var (pages, text, pdf) = RenderPaged(TemplateIds.PurchaseOrder, Samples.MinimalPurchaseOrder());
+
+        Assert.Equal(1, pages);
+        Assert.Equal("%PDF"u8.ToArray(), pdf[..4]);
+        Assert.Contains("BON DE COMMANDE", text, StringComparison.Ordinal);
+        Assert.Contains("Bureau assis-debout", text, StringComparison.Ordinal);
+        Assert.Contains("ADRESSE DE LIVRAISON", text, StringComparison.Ordinal);
+        Assert.Contains("Entrepôt de Vitry", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_purchase_order_breaks_across_pages_for_a_realistic_dataset()
+    {
+        var (pages, text, _) = RenderPaged(TemplateIds.PurchaseOrder, Samples.RealisticPurchaseOrder());
+
+        Assert.Equal(2, pages);
+        Assert.Contains("Fourniture 30", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_english_purchase_order_reads_as_english()
+    {
+        var parameters = Samples.MinimalPurchaseOrder();
+        parameters["labels"] = TemplateLabels.For(TemplateIds.PurchaseOrder, TemplateLanguage.English);
+
+        var (_, text, _) = RenderPaged(TemplateIds.PurchaseOrder, parameters);
+
+        Assert.Contains("PURCHASE ORDER", text, StringComparison.Ordinal);
+        Assert.Contains("SUPPLIER", text, StringComparison.Ordinal);
+        Assert.Contains("DELIVERY ADDRESS", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("FOURNISSEUR", text, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData(TemplateIds.Invoice, TemplateLanguage.English)]
     [InlineData(TemplateIds.Invoice, TemplateLanguage.French)]
@@ -109,6 +189,12 @@ public sealed class TemplateRenderTests
     [InlineData(TemplateIds.Statement, TemplateLanguage.French)]
     [InlineData(TemplateIds.Attestation, TemplateLanguage.English)]
     [InlineData(TemplateIds.Attestation, TemplateLanguage.French)]
+    [InlineData(TemplateIds.Contract, TemplateLanguage.English)]
+    [InlineData(TemplateIds.Contract, TemplateLanguage.French)]
+    [InlineData(TemplateIds.Payslip, TemplateLanguage.English)]
+    [InlineData(TemplateIds.Payslip, TemplateLanguage.French)]
+    [InlineData(TemplateIds.PurchaseOrder, TemplateLanguage.English)]
+    [InlineData(TemplateIds.PurchaseOrder, TemplateLanguage.French)]
     public void Every_layout_renders_in_both_languages(string id, TemplateLanguage language)
     {
         var parameters = Minimal(id);
@@ -164,6 +250,9 @@ public sealed class TemplateRenderTests
     [InlineData(TemplateIds.Quotation, "valid_until")]
     [InlineData(TemplateIds.Statement, "transactions")]
     [InlineData(TemplateIds.Attestation, "employee")]
+    [InlineData(TemplateIds.Contract, "party_b")]
+    [InlineData(TemplateIds.Payslip, "earnings")]
+    [InlineData(TemplateIds.PurchaseOrder, "delivery")]
     public void A_missing_required_parameter_raises_the_typed_template_exception(string id, string parameter)
     {
         var parameters = Minimal(id);
@@ -250,8 +339,30 @@ public sealed class TemplateRenderTests
         TemplateIds.Invoice => Samples.MinimalInvoice(),
         TemplateIds.Quotation => Samples.MinimalQuotation(),
         TemplateIds.Statement => Samples.MinimalStatement(),
+        TemplateIds.Contract => Samples.MinimalContract(),
+        TemplateIds.Payslip => Samples.MinimalPayslip(),
+        TemplateIds.PurchaseOrder => Samples.MinimalPurchaseOrder(),
         _ => Samples.MinimalAttestation(),
     };
+
+    /// <summary>
+    /// Renders a layout and reads back the text the PDF itself draws, page by page: the words a
+    /// reader sees, rather than the HTML export's approximation of them.
+    /// </summary>
+    private static (int Pages, string Text, byte[] Pdf) RenderPaged(
+        string id,
+        IReadOnlyDictionary<string, object?> parameters)
+    {
+        var descriptor = TemplateCatalog.Default.Get(id);
+
+        using var paged = descriptor.Template.RenderDocument(Compiler, parameters);
+        var pdf = paged.ExportPdf();
+
+        // The page text carries a line break per text run, so the assertions are about words.
+        var text = Regex.Replace(string.Join("\n", paged.ExtractTextPages()), @"\s+", " ");
+
+        return (paged.PageCount, text, pdf);
+    }
 
     private static (int Pages, string Text, byte[] Pdf) Render(
         string id,

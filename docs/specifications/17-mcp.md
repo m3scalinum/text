@@ -2,9 +2,10 @@
 
 `M3scalinum.Text.Mcp` serves the suite over the Model Context Protocol: a client — an editor, an
 agent, anything that speaks MCP — asks for a document and gets the PDF back over stdio. It depends on
-the compiler wrapper, the layout pack and the e-invoicing package, so it follows the suite train
-(`TextVersion`), like `M3scalinum.Text.Pdf` and `M3scalinum.Text.Pdf.FactureX`: a package that follows
-the Typst version cannot depend on one that does not.
+the compiler wrapper, the layout pack, the e-invoicing package and the PDF post-processing package, so
+it follows the suite train (`TextVersion`), like `M3scalinum.Text.Pdf` and
+`M3scalinum.Text.Pdf.FactureX`: a package that follows the Typst version cannot depend on one that
+does not.
 
 ## 1. Scope
 
@@ -13,7 +14,7 @@ the Typst version cannot depend on one that does not.
 | Transport | stdio: one UTF-8 JSON-RPC 2.0 message per line, no headers, no length prefix |
 | Lifecycle | `initialize`, notifications, `ping`, end of input as shutdown |
 | Discovery | `tools/list` with a JSON Schema per tool |
-| Tools | `render_document`, `render_invoice`, `list_templates` |
+| Tools | `render_document`, `render_invoice`, `list_templates`, `sign_document`, `merge_documents`, `extract_text` |
 | Limits | document size, message size, allowed template ids, wall clock, file output |
 
 | Out of scope | Why |
@@ -28,7 +29,7 @@ the Typst version cannot depend on one that does not.
 (`Microsoft.Extensions.Hosting`, dependency injection, logging) the suite does not otherwise use, and
 it is not verified here to be trim- and AOT-clean. This repository forbids reflection-based JSON and
 requires `PublishAot` to keep working, so the surface a client can reach is small and fixed: four
-methods, three tools, one transport. It is written directly against `Utf8JsonWriter` and a
+methods, six tools, one transport. It is written directly against `Utf8JsonWriter` and a
 source-generated serialization context, which keeps `IsAotCompatible` meaningful — an analyzer failure
 here is a publish failure in a consumer. If the SDK becomes the right answer, the protocol methods
 below are the contract to keep.
@@ -65,7 +66,7 @@ Every response is `{"jsonrpc":"2.0","id":…}` plus either `result` or `error`.
 | `initialize` | request | `protocolVersion`, `capabilities.tools`, `serverInfo` |
 | `notifications/initialized` | notification | none — a notification is never answered |
 | `ping` | request | `{}` |
-| `tools/list` | request | the three tools, each with `inputSchema` |
+| `tools/list` | request | the six tools, each with `inputSchema` |
 | `tools/call` | request | `content`, and `isError` when the work failed |
 
 `initialize` answers with the revision the client asked for when the server knows it — `2024-11-05`,
@@ -130,6 +131,52 @@ No arguments. Returns `{"templates":[…]}` as one text block: each layout's `id
 `description`, `languages` (`en`, `fr`) and declared `parameters` with their `type` and `required`
 flag. Only the ids the host allows are listed.
 
+### `sign_document`
+
+| Argument | Type | Meaning |
+| --- | --- | --- |
+| `pdf` | string | The PDF to sign, base64. Mutually exclusive with `pdfPath` |
+| `pdfPath` | string | Absolute path of the PDF; refused unless the host enabled file output |
+| `certificate` | string | The PKCS#12 (`.p12`/`.pfx`) with its private key, base64. Mutually exclusive with `certificatePath` |
+| `certificatePath` | string | Absolute path of the certificate; refused unless the host enabled file output |
+| `password` | string | Password of the PKCS#12; required, and an empty string is a valid one |
+| `reason` | string | Why the document is signed, as the signature declares it |
+| `location` | string | Where the signature was made |
+| `outputPath` | string | As above |
+
+The result is a PAdES-B signature written as an incremental update: nothing before the appended
+block changes, so a document that was PDF/A stays PDF/A and an earlier signature stays valid. The
+certificate is loaded into memory only — the private key is never written to a key store — and no
+timestamp authority is consulted, so a call needs no network. A certificate that will not open with
+the password given is `-32602`: it is an argument, not a failure of the work.
+
+### `merge_documents`
+
+| Argument | Type | Meaning |
+| --- | --- | --- |
+| `documents` | array of string | The PDFs, base64, in the order they are to appear. Mutually exclusive with `documentPaths` |
+| `documentPaths` | array of string | Absolute paths, in order; refused unless the host enabled file output |
+| `outputPath` | string | As above |
+
+Two documents is the minimum: merging one is a copy, and refusing it names the count the call
+carried. The merge rebuilds the file — objects renumbered, a fresh cross-reference table — so each
+page keeps its content, fonts, images and annotations; document-level structures a page tree cannot
+carry, such as tagging and outlines, are dropped as `PdfPages.Merge` documents.
+
+### `extract_text`
+
+| Argument | Type | Meaning |
+| --- | --- | --- |
+| `pdf` | string | The PDF to read, base64. Mutually exclusive with `pdfPath` |
+| `pdfPath` | string | Absolute path; refused unless the host enabled file output |
+
+Returns one text block holding `{"pageCount":N,"pages":[{"page":1,"text":"…"}]}`, pages counted from
+one as a reader numbers them. The text is read from the content streams and decoded through each
+font's `/ToUnicode` map, with a simple font without one read as single-byte WinAnsi; words are
+separated by the positioning the run carries, so a sentence reads as a sentence and a row of a table
+as a row. An encrypted document, or one using a stream filter this reader does not implement, is a
+tool error naming the reason rather than an empty page.
+
 ### What a render returns
 
 The PDF is binary, and MCP carries binary as an embedded resource — a URL, a MIME type and base64:
@@ -153,7 +200,11 @@ options are the whole of what a host can relax.
 - **No ambient file access.** `render_document` compiles the source it was given; it reads no file,
   no font directory, no package cache. `outputPath` is refused — not ignored — unless
   `AllowFileOutput` is set, so a caller that asked for a file never believes one exists. Templates
-  come from the assembly's embedded layouts, never from a path.
+  come from the assembly's embedded layouts, never from a path. The three PDF tools take their input
+  the same way: `pdf`, `documents` and `certificate` are bytes the call carries, and a `pdfPath`,
+  `documentPaths` or `certificatePath` is refused with the same `-32602` while file access is
+  disabled — a read a model chose is ambient access just as much as a write. A path that is allowed
+  is bounded by `MaxDocumentSize` before it is read.
 - **No network.** No socket is opened, no package is fetched, no TSA or OCSP is consulted. The
   compiler's package resolution is not reachable from a tool call.
 - **Bounded work.** `MaxDocumentSize` caps one document in UTF-8 bytes before it is parsed or
@@ -170,6 +221,10 @@ options are the whole of what a host can relax.
 `tests/Text.Mcp.Tests` drives the server over an in-memory pair of streams with real frames:
 `initialize`, `tools/list`, `list_templates`, a successful render asserting the `%PDF` header, an
 unknown method, an unknown tool, malformed JSON, a batch, a message over the limit, end of input, and
-file output refused and allowed. The protocol tests need no native library; the five that compile
-read `SHARPTYPST_NATIVE_PATH` and skip with the path to set when it is absent, so a change to the
-JSON-RPC layer is testable without a Rust build.
+file output refused and allowed. The PDF tools are exercised on documents the server rendered in the
+same session: `sign_document` returns a file whose signature `PdfSignatureVerifier` reads back as
+intact, `merge_documents` a file with both pages in the order given, `extract_text` the page count
+and a marker each page draws, plus the refusal a path earns while file output is disabled. The
+protocol and argument tests need no native library; the ones that compile or render read
+`SHARPTYPST_NATIVE_PATH` and skip with the path to set when it is absent, so a change to the JSON-RPC
+layer is testable without a Rust build.

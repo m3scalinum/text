@@ -13,8 +13,8 @@
     <InformationalVersion>$(Version)</InformationalVersion>
     <IsPackable>true</IsPackable>
     <PackageId>M3scalinum.Text.Templates</PackageId>
-    <Description>Typed business-document layouts for M3scalinum.Text.SharpTypst: invoice (facture), quotation (devis), account statement (relevé) and attestation, with English and French labels supplied as data.</Description>
-    <PackageTags>typst;templates;invoice;facture;quotation;devis;statement;attestation;pdf</PackageTags>
+    <Description>Typed business-document layouts for M3scalinum.Text.SharpTypst: invoice (facture), quotation (devis), account statement (relevé), attestation, contract (contrat), payslip (bulletin de paie) and purchase order (bon de commande), with English and French labels supplied as data.</Description>
+    <PackageTags>typst;templates;invoice;facture;quotation;devis;statement;attestation;contract;contrat;payslip;bulletin-de-paie;purchase-order;bon-de-commande;pdf</PackageTags>
     <TargetFrameworks>net8.0;net9.0;net10.0;net11.0</TargetFrameworks>
     <TargetFramework />
     <SuppressTfmSupportBuildWarnings>true</SuppressTfmSupportBuildWarnings>
@@ -55,6 +55,18 @@
                       LogicalName="M3scalinum.Text.SharpTypst.Templates.templates.attestation.template.toml" />
     <EmbeddedResource Include="layouts\attestation\template.typ"
                       LogicalName="M3scalinum.Text.SharpTypst.Templates.templates.attestation.template.typ" />
+    <EmbeddedResource Include="layouts\contract\template.toml"
+                      LogicalName="M3scalinum.Text.SharpTypst.Templates.templates.contract.template.toml" />
+    <EmbeddedResource Include="layouts\contract\template.typ"
+                      LogicalName="M3scalinum.Text.SharpTypst.Templates.templates.contract.template.typ" />
+    <EmbeddedResource Include="layouts\payslip\template.toml"
+                      LogicalName="M3scalinum.Text.SharpTypst.Templates.templates.payslip.template.toml" />
+    <EmbeddedResource Include="layouts\payslip\template.typ"
+                      LogicalName="M3scalinum.Text.SharpTypst.Templates.templates.payslip.template.typ" />
+    <EmbeddedResource Include="layouts\purchase-order\template.toml"
+                      LogicalName="M3scalinum.Text.SharpTypst.Templates.templates.purchase-order.template.toml" />
+    <EmbeddedResource Include="layouts\purchase-order\template.typ"
+                      LogicalName="M3scalinum.Text.SharpTypst.Templates.templates.purchase-order.template.typ" />
   </ItemGroup>
 
   <ItemGroup>

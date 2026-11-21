@@ -47,8 +47,8 @@ byte[] pdf = TypstCompiler.CompileToPdf("""
 | `M3scalinum.Text.SharpTypst.Templates.Generator` | Roslyn generator: a `template.toml` becomes a typed options record | — |
 | `M3scalinum.Text.Pdf` | PAdES-B signatures, written as incremental updates | — |
 | `M3scalinum.Text.Pdf.FactureX` | Factur-X / ZUGFeRD invoices: read, validate, render, read back | SharpTypst |
-| `M3scalinum.Text.Templates` | Four business-document layouts — invoice, quotation, account statement, attestation — with typed options and English or French labels | SharpTypst |
-| `M3scalinum.Text.Mcp` | A Model Context Protocol server over stdio: render a document or a Factur-X invoice, list the layouts | SharpTypst, Templates, FactureX |
+| `M3scalinum.Text.Templates` | Seven business-document layouts — invoice, quotation, account statement, attestation, contract, payslip, purchase order — with typed options and English or French labels | SharpTypst |
+| `M3scalinum.Text.Mcp` | A Model Context Protocol server over stdio: render a document or a Factur-X invoice, list the layouts, sign, merge and read PDFs | SharpTypst, Templates, FactureX, Pdf |
 
 The third and fourth answer a question the first does not: a document that has to be signed, and an
 invoice that has to be booked. They are separate packages rather than features of the compiler
@@ -199,7 +199,7 @@ three mandatory notes, the place of delivery and cascade invoicing.
 
 ## M3scalinum.Text.Templates
 
-Four business-document layouts, each a Typst source and a `template.toml` manifest embedded in the
+Seven business-document layouts, each a Typst source and a `template.toml` manifest embedded in the
 package, so a document renders without shipping a template directory:
 
 | Id | Document |
@@ -208,6 +208,9 @@ package, so a document renders without shipping a template directory:
 | `quotation` | Quotation (devis): what is offered, until when, with the acceptance block |
 | `statement` | Account statement (relevé de compte): dated movements with the balance after each |
 | `attestation` | Attestation: an employer certifying a fact about an employee |
+| `contract` | Contract (contrat): two parties, numbered clauses and a signature block |
+| `payslip` | Payslip (bulletin de paie): employer, employee, period, gross lines, contributions and net |
+| `purchase-order` | Purchase order (bon de commande): buyer, supplier, lines, delivery address and terms |
 
 ```bash
 dotnet add package M3scalinum.Text.Templates
@@ -271,6 +274,9 @@ await McpServer.RunStdioAsync(options);
 | `render_document` | Renders Typst source, or a layout from `M3scalinum.Text.Templates` with its parameters |
 | `render_invoice` | Renders a Factur-X PDF/A-3 from an invoice payload, validated against the EN 16931 rules |
 | `list_templates` | Lists the layouts this server serves: ids, versions, languages, parameters |
+| `sign_document` | Signs a PDF with a PKCS#12 certificate, as a PAdES signature, with an optional reason and location |
+| `merge_documents` | Merges two or more PDFs into one, in the order given |
+| `extract_text` | Reads the text each page of a PDF draws, one entry per page |
 
 The PDF comes back as an MCP embedded resource — `application/pdf`, base64 — unless the host allowed
 file output and the call named a path. The protocol is JSON-RPC 2.0 over stdio, hand-written on a
@@ -279,7 +285,8 @@ dependency.
 
 A tool call is written by a model, so the defaults are the restrictive ones: no file is read, no file
 is written unless `AllowFileOutput` is set, no socket is opened, and a document, a message and a
-compilation are each capped. See [the specification](docs/specifications/17-mcp.md).
+compilation are each capped. The PDF tools take their documents as base64 and refuse a `pdfPath`,
+`documentPaths` or `certificatePath` while file output is disabled. See [the specification](docs/specifications/17-mcp.md).
 
 ## Versioning
 
@@ -367,8 +374,8 @@ Not yet on nuget.org. Everything below passes on the current tree:
 | `Text.Pdf.Tests` | 279 |
 | `Text.Pdf.FactureX.Tests` | 229 |
 | `Text.SharpTypst.Templates.Generator.Tests` | 14 |
-| `Text.Templates.Tests` | 80 |
-| `Text.Mcp.Tests` | 58 |
+| `Text.Templates.Tests` | 111 |
+| `Text.Mcp.Tests` | 75 |
 | `Text.Suite.Tests` (public surface and documentation) | 7 |
 | `Text.SharpTypst.Integration.Tests` (real compiler) | 247 |
 
