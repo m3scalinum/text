@@ -19,15 +19,17 @@ namespace M3scalinum.Text.Mcp;
 
 /// <summary>
 /// A Model Context Protocol server that renders documents and invoices, and post-processes PDFs,
-/// speaking JSON-RPC 2.0 over a pair of streams.
+/// speaking JSON-RPC 2.0 over a transport the host chooses.
 /// </summary>
 /// <remarks>
 /// <para>
-/// The server is transport-agnostic in the way a test needs it to be: <see cref="RunAsync"/> takes the
-/// two streams, and <see cref="RunStdioAsync"/> is the same loop bound to the standard input and
-/// output. It serves six tools — <c>render_document</c>, <c>render_invoice</c>,
-/// <c>list_templates</c>, <c>sign_document</c>, <c>merge_documents</c> and <c>extract_text</c> — and
-/// it holds no state between messages.
+/// The server is the protocol core: <see cref="HandleMessageAsync"/> takes one message and returns one
+/// answer, and it never sees a stream, a header or a socket. <see cref="IMcpTransport"/> is the
+/// framing — <see cref="StdioTransport"/> (one message per line, bound to the process's pipes by
+/// <see cref="RunStdioAsync"/>) or <see cref="McpHttpServer"/> (the streamable-HTTP shape). It serves
+/// six tools — <c>render_document</c>, <c>render_invoice</c>, <c>list_templates</c>,
+/// <c>sign_document</c>, <c>merge_documents</c> and <c>extract_text</c> — and it holds no state between
+/// messages.
 /// </para>
 /// <para>
 /// The security posture is the point of the package. A tool call is authored by a model, so it can
@@ -37,15 +39,15 @@ namespace M3scalinum.Text.Mcp;
 /// it compiles anything.
 /// </para>
 /// </remarks>
-public sealed class McpServer
+public sealed class McpServer : IMcpMessageHandler
 {
     /// <summary>The newest protocol revision this server speaks.</summary>
     public const string ProtocolVersion = "2025-06-18";
 
-    private const int ParseError = -32700;
-    private const int InvalidRequest = -32600;
-    private const int MethodNotFound = -32601;
-    private const int InvalidParams = -32602;
+    internal const int ParseError = -32700;
+    internal const int InvalidRequest = -32600;
+    internal const int MethodNotFound = -32601;
+    internal const int InvalidParams = -32602;
 
     private static readonly string[] KnownProtocolVersions = ["2024-11-05", "2025-03-26", ProtocolVersion];
 
@@ -104,7 +106,7 @@ public sealed class McpServer
     /// transport implies. End of input is a clean shutdown — the method returns, and the host exits.
     /// </remarks>
     /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
-    public async Task RunAsync(
+    public Task RunAsync(
         Stream input,
         Stream output,
         CancellationToken cancellationToken = default)
@@ -112,34 +114,46 @@ public sealed class McpServer
         ArgumentNullException.ThrowIfNull(input);
         ArgumentNullException.ThrowIfNull(output);
 
-        var reader = new JsonLineReader(input, _options.MaxRequestSize);
+        return RunAsync(new StdioTransport(input, output, _options.MaxRequestSize), cancellationToken);
+    }
 
-        while (true)
-        {
-            var (status, line) = await reader.ReadAsync(cancellationToken).ConfigureAwait(false);
+    /// <summary>Serves the protocol over a transport the host chose.</summary>
+    /// <param name="transport">The framing: stdio, streamable HTTP, or one the host wrote.</param>
+    /// <param name="cancellationToken">Stops the transport.</param>
+    /// <remarks>
+    /// This is the whole of the hosting model: the protocol core never sees a stream, so a transport
+    /// can be added without touching dispatch. <see cref="McpServer"/> is the
+    /// <see cref="IMcpMessageHandler"/> the transport drives.
+    /// </remarks>
+    public Task RunAsync(IMcpTransport transport, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(transport);
 
-            switch (status)
-            {
-                case LineStatus.End:
-                    return;
+        return transport.RunAsync(this, cancellationToken);
+    }
 
-                case LineStatus.TooLong:
-                    await WriteErrorAsync(
-                        output,
-                        null,
-                        ParseError,
-                        $"parse error: the message exceeds the {_options.MaxRequestSize} byte limit",
-                        cancellationToken).ConfigureAwait(false);
-                    continue;
-            }
+    /// <summary>
+    /// Handles one JSON-RPC message and answers it, without knowing how it arrived.
+    /// </summary>
+    /// <param name="message">One complete JSON-RPC message.</param>
+    /// <param name="cancellationToken">Ends the work when the transport is closing.</param>
+    /// <returns>
+    /// The response as UTF-8 JSON, or <see langword="null"/> when the message is a notification or is
+    /// otherwise not to be answered.
+    /// </returns>
+    /// <remarks>
+    /// The bytes carry the message only: framing — the newline of stdio, the headers and status of
+    /// HTTP — belongs to the transport.
+    /// </remarks>
+    public async Task<byte[]?> HandleMessageAsync(string message, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(message);
 
-            if (line.Length == 0)
-            {
-                continue;
-            }
+        using var buffer = new MemoryStream(256);
 
-            await HandleAsync(line, output, cancellationToken).ConfigureAwait(false);
-        }
+        var answered = await HandleAsync(message, buffer, cancellationToken).ConfigureAwait(false);
+
+        return answered ? buffer.ToArray() : null;
     }
 
     /// <summary>Serves the protocol on the process's standard input and output.</summary>
@@ -158,7 +172,7 @@ public sealed class McpServer
             cancellationToken);
 
     /// <summary>Handles one message: a request is answered, a notification is not.</summary>
-    private async Task HandleAsync(string line, Stream output, CancellationToken cancellationToken)
+    private async Task<bool> HandleAsync(string line, Stream output, CancellationToken cancellationToken)
     {
         JsonDocument document;
 
@@ -171,7 +185,7 @@ public sealed class McpServer
             await WriteErrorAsync(
                 output, null, ParseError, "parse error: the message is not valid JSON", cancellationToken)
                 .ConfigureAwait(false);
-            return;
+            return true;
         }
 
         using (document)
@@ -186,7 +200,7 @@ public sealed class McpServer
                     InvalidRequest,
                     "invalid request: MCP has no batch requests",
                     cancellationToken).ConfigureAwait(false);
-                return;
+                return true;
             }
 
             if (root.ValueKind != JsonValueKind.Object)
@@ -197,7 +211,7 @@ public sealed class McpServer
                     InvalidRequest,
                     "invalid request: a JSON-RPC message is an object",
                     cancellationToken).ConfigureAwait(false);
-                return;
+                return true;
             }
 
             var hasId = root.TryGetProperty("id", out var idElement)
@@ -216,7 +230,7 @@ public sealed class McpServer
                         .ConfigureAwait(false);
                 }
 
-                return;
+                return isRequest;
             }
 
             if (!root.TryGetProperty("method", out var methodElement)
@@ -229,7 +243,7 @@ public sealed class McpServer
                         .ConfigureAwait(false);
                 }
 
-                return;
+                return isRequest;
             }
 
             var method = methodElement.GetString() ?? string.Empty;
@@ -242,7 +256,7 @@ public sealed class McpServer
             // writes a message when there is nothing to answer.
             if (!isRequest)
             {
-                return;
+                return false;
             }
 
             switch (method)
@@ -254,7 +268,7 @@ public sealed class McpServer
                         Initialize(Negotiate(parameters)),
                         McpJsonContext.Default.InitializeResultDto,
                         cancellationToken).ConfigureAwait(false);
-                    return;
+                    return true;
 
                 case "ping":
                     await WriteResultAsync(
@@ -263,7 +277,7 @@ public sealed class McpServer
                         new EmptyResultDto(),
                         McpJsonContext.Default.EmptyResultDto,
                         cancellationToken).ConfigureAwait(false);
-                    return;
+                    return true;
 
                 case "tools/list":
                     await WriteResultAsync(
@@ -272,11 +286,11 @@ public sealed class McpServer
                         ListTools(),
                         McpJsonContext.Default.ToolsListResultDto,
                         cancellationToken).ConfigureAwait(false);
-                    return;
+                    return true;
 
                 case "tools/call":
                     await CallToolAsync(output, id, parameters, cancellationToken).ConfigureAwait(false);
-                    return;
+                    return true;
 
                 // Lifecycle notifications never reach here: a message without an id is dropped
                 // before the dispatch, as the protocol requires.
@@ -287,7 +301,7 @@ public sealed class McpServer
                         MethodNotFound,
                         $"method not found: '{method}'",
                         cancellationToken).ConfigureAwait(false);
-                    return;
+                    return true;
             }
         }
     }
@@ -1027,11 +1041,19 @@ public sealed class McpServer
         }
     }
 
-    /// <summary>Frames and writes one message, one line, flushed.</summary>
+    /// <summary>Writes one message into the output, unframed and unflushed.</summary>
     private static async Task WriteMessageAsync(
         Stream output,
         Action<Utf8JsonWriter> writeBody,
         CancellationToken cancellationToken)
+    {
+        await output
+            .WriteAsync(BuildMessage(writeBody), cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>Builds one JSON-RPC message as UTF-8 bytes, without any framing.</summary>
+    private static byte[] BuildMessage(Action<Utf8JsonWriter> writeBody)
     {
         using var buffer = new MemoryStream(1024);
 
@@ -1042,11 +1064,21 @@ public sealed class McpServer
             writer.WriteEndObject();
         }
 
-        buffer.WriteByte((byte)'\n');
-
-        await output
-            .WriteAsync(buffer.GetBuffer().AsMemory(0, (int)buffer.Length), cancellationToken)
-            .ConfigureAwait(false);
-        await output.FlushAsync(cancellationToken).ConfigureAwait(false);
+        return buffer.ToArray();
     }
+
+    /// <summary>
+    /// Builds a JSON-RPC error message for a transport that must answer before the core sees the
+    /// message — an oversized line, a body the server refused to read.
+    /// </summary>
+    internal static byte[] FrameError(JsonElement? id, int code, string message)
+        => BuildMessage(writer =>
+        {
+            WritePrologue(writer, id);
+            writer.WritePropertyName("error");
+            writer.WriteStartObject();
+            writer.WriteNumber("code", code);
+            writer.WriteString("message", message);
+            writer.WriteEndObject();
+        });
 }

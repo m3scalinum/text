@@ -1,7 +1,7 @@
 M3scalinum.Text.Mcp serves the suite over the Model Context Protocol: an MCP client asks for a
-document or an invoice and gets a PDF back, over standard input and output. The compiler, the layout
-pack and the e-invoicing package are all inside the process — nothing is spawned and nothing is
-downloaded.
+document or an invoice and gets a PDF back, over standard input and output, or over HTTP on a loopback
+port when more than one client needs it. The compiler, the layout pack and the e-invoicing package are
+all inside the process — nothing is spawned and nothing is downloaded.
 
 ## Start the server
 
@@ -20,7 +20,60 @@ await McpServer.RunStdioAsync(options);
 A host that owns its own pipes calls `RunAsync(input, output, cancellationToken)` instead; the loop is
 the same. End of input is a clean shutdown: the method returns.
 
-`McpServerOptions` is the whole of what a host configures:
+For a document service — more than one client, a network the host already operates — serve the same
+server over HTTP:
+
+```csharp
+var options = new McpServerOptions { MaxDocumentSize = 512 * 1024 };
+var http = new McpHttpServerOptions { BearerToken = token };   // token is the host's to mint and keep
+
+await using var server = new McpHttpServer(options, http);
+
+await server.StartAsync(new McpServer(options));
+
+Console.WriteLine(server.Endpoint);   // http://127.0.0.1:54321/mcp — the port is the OS's choice
+```
+
+## Over HTTP
+
+`McpHttpServer` speaks the MCP streamable-HTTP shape of protocol revision **2025-06-18** — `POST` one
+JSON-RPC message to `/mcp`, receive one JSON-RPC message back as `application/json`, or `202` with an
+empty body when the message was a notification. A client that sends `Accept: text/event-stream` (and
+not `application/json`) gets the same message as a single SSE event. There is no stream behind it:
+`GET` is `405`, and the render either finishes inside the timeout or fails.
+
+```text
+POST /mcp              Authorization: Bearer <token>
+{"jsonrpc":"2.0","id":1,"method":"initialize",...}
+→ 200  Mcp-Session-Id: 3f2a…   {"jsonrpc":"2.0","id":1,"result":{...}}
+
+POST /mcp              Authorization: Bearer <token>   Mcp-Session-Id: 3f2a…
+{"jsonrpc":"2.0","id":2,"method":"tools/list"}
+→ 200  {"jsonrpc":"2.0","id":2,"result":{...}}
+
+DELETE /mcp            Authorization: Bearer <token>   Mcp-Session-Id: 3f2a…
+→ 204
+```
+
+What the surface enforces:
+
+| Rule | Answer |
+| --- | --- |
+| No `Authorization: Bearer <token>`, or the wrong token (compared in constant time) | `401` |
+| No session id, or one the server did not issue, or one closed by `DELETE` or idle too long | `404` |
+| A path other than the endpoint | `404` |
+| A method other than `POST` and `DELETE` | `405`, with `Allow` |
+| A body over `MaxRequestSize`, decided on its declared length before it is read | `413` |
+| No `Content-Length`, or a chunked body | `411` |
+| A body that is not `application/json` | `415` |
+| More sessions than `MaxSessions` | `503` |
+
+The listener binds `127.0.0.1` and port `0` — the operating system assigns one — unless the host says
+otherwise, and TLS is not terminated here: put a proxy in front of it if the port is exposed. The
+token has no default, because a network surface with no credential is not a default this package will
+pick. `MaxSessions` (16), `SessionIdleTimeout` (1 h) and `RequestTimeout` (30 s) bound the rest.
+
+`McpServerOptions` is the whole of what a host configures for both transports:
 
 | Option | Default | Effect |
 | --- | --- | --- |
@@ -132,17 +185,29 @@ invoice breaks a rule, the PDF is encrypted — is a result with `"isError": tru
 
 ## Security posture
 
-A tool call is written by a model. The server reads no file it was not given, writes nothing unless
-the host enabled file output, opens no socket, fetches no package, and caps the size of a document,
-the length of a message and the time a compilation may take. A path in any argument — `outputPath`,
-`pdfPath`, `documentPaths`, `certificatePath` — is refused with `-32602` while `AllowFileOutput` is
-`false`; the PDF tools take their input as base64 bytes instead. The signing key is loaded into
-memory, never into a key store, and the private key never leaves the process.
+A tool call is written by a model. The server reads no file it was not given, writes nothing unless the
+host enabled file output, fetches no package, and caps the size of a document, the length of a message
+and the time a compilation may take. A path in any argument — `outputPath`, `pdfPath`,
+`documentPaths`, `certificatePath` — is refused with `-32602` while `AllowFileOutput` is `false`; the
+PDF tools take their input as base64 bytes instead. The signing key is loaded into memory, never into
+a key store, and the private key never leaves the process.
+
+Nothing listens unless the host builds an `McpHttpServer`, and when it does: loopback only by default,
+a bearer token the host supplies and the server compares in constant time, one path served, every
+other method refused, the request body capped on its declared length before it is read, the header
+block capped, the number of sessions capped, and a session that idles is forgotten. The transport
+never makes an outbound connection, and TLS is the proxy's job.
 
 ## Notes
 
-- The protocol is JSON-RPC 2.0 over stdio, one message per line. The package is `PublishAot`-clean:
-  no reflection-based serializer, no hosting framework.
-- The tests drive the server over an in-memory stream pair. The ones that compile render need
-  `SHARPTYPST_NATIVE_PATH` and skip with a message when it is absent; the protocol and argument
-  tests run without it.
+- The protocol is JSON-RPC 2.0, framed either as one message per line on stdio or as one HTTP
+  request per message. The package is `PublishAot`-clean: no reflection-based serializer, no hosting
+  framework, and the HTTP listener is a `TcpListener` from the shared framework rather than
+  `HttpListener`, which would need a URL reservation on Windows.
+- The protocol core is transport-free: `McpServer.HandleMessageAsync` takes a message and returns an
+  answer, `IMcpTransport` is the framing. `StdioTransport` and `McpHttpServer` are the two that ship.
+- The tests drive the server over an in-memory stream pair and, for HTTP, over a real `HttpClient` on
+  a loopback port the operating system assigns. A shared suite runs the same messages through both
+  transports. No third-party MCP client was used. The ones that compile render need
+  `SHARPTYPST_NATIVE_PATH` and skip with a message when it is absent; the protocol, transport and
+  argument tests run without it.
