@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 
 namespace M3scalinum.Text.Ocr.Internal;
@@ -19,12 +20,15 @@ internal static class ResultParser
         using var document = JsonDocument.Parse(json);
         var root = document.RootElement;
 
+        var width = root.GetProperty("width").GetInt32();
+        var height = root.GetProperty("height").GetInt32();
+
         return new OcrResult(
             Text(root),
-            ParseLines(root),
+            ParseLines(root, width, height),
             Confidence(root),
-            root.GetProperty("width").GetInt32(),
-            root.GetProperty("height").GetInt32());
+            width,
+            height);
     }
 
     /// <summary>Parses <c>{"pages": [...]}</c>.</summary>
@@ -35,13 +39,16 @@ internal static class ResultParser
         var pages = new List<OcrPageResult>();
         foreach (var page in document.RootElement.GetProperty("pages").EnumerateArray())
         {
+            var width = page.GetProperty("width").GetInt32();
+            var height = page.GetProperty("height").GetInt32();
+
             pages.Add(new OcrPageResult(
                 page.GetProperty("pageIndex").GetInt32(),
                 Text(page),
-                ParseLines(page),
+                ParseLines(page, width, height),
                 Confidence(page),
-                page.GetProperty("width").GetInt32(),
-                page.GetProperty("height").GetInt32(),
+                width,
+                height,
                 page.GetProperty("dpi").GetInt32()));
         }
 
@@ -54,7 +61,13 @@ internal static class ResultParser
     private static double Confidence(JsonElement element)
         => element.GetProperty("meanConfidence").GetDouble();
 
-    private static List<OcrLine> ParseLines(JsonElement element)
+    /// <summary>
+    /// Reads the lines of one image or page and normalises them against the page: every
+    /// box is clipped to it, the words of a line are put in reading order, and a line
+    /// box the detector reported with no area is widened to the boxes of the words it
+    /// found rather than reported as a zero-size line that holds text.
+    /// </summary>
+    private static List<OcrLine> ParseLines(JsonElement element, int pageWidth, int pageHeight)
     {
         var lines = new List<OcrLine>();
 
@@ -65,15 +78,27 @@ internal static class ResultParser
             {
                 words.Add(new OcrWord(
                     word.GetProperty("text").GetString() ?? string.Empty,
-                    ParseBox(word.GetProperty("bounds")),
+                    BoxMath.Clip(ParseBox(word.GetProperty("bounds")), pageWidth, pageHeight),
                     word.GetProperty("confidence").GetDouble()));
+            }
+
+            var ordered = BoxMath.InReadingOrder(words);
+            var bounds = BoxMath.Clip(ParseBox(line.GetProperty("bounds")), pageWidth, pageHeight);
+
+            if (bounds.Width == 0 || bounds.Height == 0)
+            {
+                var union = BoxMath.Union(ordered.Select(word => word.Bounds).ToList());
+                if (union.Width > 0 && union.Height > 0)
+                {
+                    bounds = union;
+                }
             }
 
             lines.Add(new OcrLine(
                 line.GetProperty("text").GetString() ?? string.Empty,
-                ParseBox(line.GetProperty("bounds")),
+                bounds,
                 line.GetProperty("confidence").GetDouble(),
-                words));
+                ordered));
         }
 
         return lines;

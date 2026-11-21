@@ -47,6 +47,35 @@ SATELLITE_ASSEMBLIES = {
     "lib/net11.0/M3scalinum.Text.SharpTypst.Templates.dll",
     "lib/net11.0/M3scalinum.Text.Pdf.FactureX.dll",
     "lib/net11.0/M3scalinum.Text.Mcp.dll",
+    "lib/net11.0/M3scalinum.Text.Docx.dll",
+}
+
+# Packages that carry a Rust cdylib of their own rather than the compiler. They ship five RIDs, not
+# the compiler's six: `linux-musl-x64` needs a hand-linked staticlib and is not built for them yet,
+# so an Alpine consumer gets the resolver's explicit error. A missing native job is caught here
+# instead of by a consumer's DllNotFoundException.
+NATIVE_PACKAGES = {
+    "lib/net11.0/M3scalinum.Text.Barcodes.dll": {
+        "win-x64": "sharp_text_barcodes.dll",
+        "win-arm64": "sharp_text_barcodes.dll",
+        "linux-x64": "libsharp_text_barcodes.so",
+        "linux-arm64": "libsharp_text_barcodes.so",
+        "osx": "libsharp_text_barcodes.dylib",
+    },
+    "lib/net11.0/M3scalinum.Text.Ocr.dll": {
+        "win-x64": "sharp_text_ocr.dll",
+        "win-arm64": "sharp_text_ocr.dll",
+        "linux-x64": "libsharp_text_ocr.so",
+        "linux-arm64": "libsharp_text_ocr.so",
+        "osx": "libsharp_text_ocr.dylib",
+    },
+    "lib/net11.0/M3scalinum.Text.Docx.dll": {
+        "win-x64": "sharp_text_docx.dll",
+        "win-arm64": "sharp_text_docx.dll",
+        "linux-x64": "libsharp_text_docx.so",
+        "linux-arm64": "libsharp_text_docx.so",
+        "osx": "libsharp_text_docx.dylib",
+    },
 }
 
 
@@ -59,6 +88,7 @@ def main(path: str) -> int:
         # Only the main package carries the native compiler; the others do not.
         is_main_package = "lib/net11.0/M3scalinum.Text.SharpTypst.dll" in names
         is_satellite = bool(SATELLITE_ASSEMBLIES & names)
+        native_package = next((assembly for assembly in NATIVE_PACKAGES if assembly in names), None)
 
         if is_main_package:
             for rid, library in RIDS.items():
@@ -67,6 +97,16 @@ def main(path: str) -> int:
                     problems.append(f"missing native asset: {entry}")
 
             for required in REQUIRED_FILES + REQUIRED_ASSEMBLIES:
+                if required not in names:
+                    problems.append(f"missing file: {required}")
+
+        if native_package is not None:
+            for rid, library in NATIVE_PACKAGES[native_package].items():
+                entry = f"runtimes/{rid}/native/{library}"
+                if entry not in names:
+                    problems.append(f"missing native asset: {entry}")
+
+            for required in REQUIRED_FILES:
                 if required not in names:
                     problems.append(f"missing file: {required}")
 
@@ -121,6 +161,8 @@ def main(path: str) -> int:
 
     if is_main_package:
         print(f"{path}: ok ({len(RIDS)} RIDs, {len(REQUIRED_FILES)} licence files)")
+    elif native_package is not None:
+        print(f"{path}: ok ({len(NATIVE_PACKAGES[native_package])} RIDs, {len(REQUIRED_FILES)} licence files)")
     elif is_satellite:
         print(f"{path}: ok (satellite, core version pinned)")
     else:

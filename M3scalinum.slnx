@@ -9,6 +9,11 @@
     <Project Path="src/Text.SharpTypst.Templates.Generator/Text.SharpTypst.Templates.Generator.csproj" />
     <Project Path="src/Text.SharpTypst.Templates/Text.SharpTypst.Templates.csproj" />
     <Project Path="src/Text.SharpTypst/Text.SharpTypst.csproj" />
+    <Project Path="src/Text.Barcodes/Text.Barcodes.csproj" />
+    <Project Path="src/Text.Charts/Text.Charts.csproj" />
+    <Project Path="src/Text.Docx/Text.Docx.csproj" />
+    <Project Path="src/Text.Epub/Text.Epub.csproj" />
+    <Project Path="src/Text.Ocr/Text.Ocr.csproj" />
   </Folder>
 
   <Folder Name="/tests/">
@@ -20,6 +25,11 @@
     <Project Path="tests/Text.SharpTypst.Tests/Text.SharpTypst.Tests.csproj" />
     <Project Path="tests/Text.Suite.Tests/Text.Suite.Tests.csproj" />
     <Project Path="tests/Text.Templates.Tests/Text.Templates.Tests.csproj" />
+    <Project Path="tests/Text.Barcodes.Tests/Text.Barcodes.Tests.csproj" />
+    <Project Path="tests/Text.Charts.Tests/Text.Charts.Tests.csproj" />
+    <Project Path="tests/Text.Docx.Tests/Text.Docx.Tests.csproj" />
+    <Project Path="tests/Text.Epub.Tests/Text.Epub.Tests.csproj" />
+    <Project Path="tests/Text.Ocr.Tests/Text.Ocr.Tests.csproj" />
   </Folder>
 
   <Folder Name="/samples/">

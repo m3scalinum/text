@@ -25,6 +25,16 @@
 - [Reading text](Pdf-Text)
 - [Encryption](Pdf-Encryption)
 
+**Beyond a page** — other formats and in-process engines
+
+- [Barcodes](Barcodes)
+- [OCR](Ocr)
+- [Reading DOCX](Docx)
+- [Charts](Charts)
+- [EPUB](Epub)
+- [Converting to PDF/A](Pdf-Conversion)
+- [Importing Markdown](SharpTypst-Markdown-Import)
+
 **MCP** — render from a model
 
 - [The MCP server](Mcp-Server)

@@ -49,6 +49,11 @@ byte[] pdf = TypstCompiler.CompileToPdf("""
 | `M3scalinum.Text.Pdf.FactureX` | Factur-X / ZUGFeRD invoices: read, validate, render, read back | SharpTypst |
 | `M3scalinum.Text.Templates` | Seven business-document layouts — invoice, quotation, account statement, attestation, contract, payslip, purchase order — with typed options and English or French labels | SharpTypst |
 | `M3scalinum.Text.Mcp` | A Model Context Protocol server over stdio: render a document or a Factur-X invoice, list the layouts, sign, merge and read PDFs | SharpTypst, Templates, FactureX, Pdf |
+| `M3scalinum.Text.Barcodes` | QR, DataMatrix, Aztec, PDF417, Code 128/39, EAN-13/8, ITF and Codabar: encode to SVG or PNG, decode back | — |
+| `M3scalinum.Text.Ocr` | Text, lines and boxes out of a page image, with the models supplied by the caller | — |
+| `M3scalinum.Text.Docx` | A Word document read into the document model, then renderable like any other | SharpTypst |
+| `M3scalinum.Text.Charts` | Line, area, bar, stacked bar, scatter, pie, donut and sparkline charts, emitted as SVG | — |
+| `M3scalinum.Text.Epub` | An EPUB 3 container built from the HTML the compiler produces | — |
 
 The third and fourth answer a question the first does not: a document that has to be signed, and an
 invoice that has to be booked. They are separate packages rather than features of the compiler
@@ -370,14 +375,19 @@ Not yet on nuget.org. Everything below passes on the current tree:
 
 | Suite | Tests |
 | --- | --- |
-| `Text.SharpTypst.Tests` | 389 |
-| `Text.Pdf.Tests` | 314 |
+| `Text.SharpTypst.Tests` | 459 |
+| `Text.Pdf.Tests` | 345 |
 | `Text.Pdf.FactureX.Tests` | 364 |
-| `Text.SharpTypst.Templates.Generator.Tests` | 14 |
 | `Text.Templates.Tests` | 111 |
-| `Text.Mcp.Tests` | 75 |
+| `Text.Mcp.Tests` | 112 |
+| `Text.Barcodes.Tests` | 105 |
+| `Text.Docx.Tests` | 46 |
+| `Text.Epub.Tests` | 106 |
+| `Text.Charts.Tests` | 82 |
+| `Text.Ocr.Tests` | 99 |
 | `Text.Suite.Tests` (public surface and documentation) | 7 |
-| `Text.SharpTypst.Integration.Tests` (real compiler) | 247 |
+| `Text.SharpTypst.Templates.Generator.Tests` | 14 |
+| `Text.SharpTypst.Integration.Tests` (real compiler) | 251 |
 
 The `coverage` job fails below 90 % of production lines. Native AOT publish, a 10 000-cycle leak test
 and a benchmark regression gate are in place. The public API of `M3scalinum.Text.SharpTypst` is the

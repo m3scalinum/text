@@ -28,6 +28,12 @@ them is a bug.
 | 17 | [17-mcp.md](17-mcp.md) | The `M3scalinum.Text.Mcp` server: protocol surface, tools, limits and security posture |
 | 18 | [18-pdf-text.md](18-pdf-text.md) | `PdfText`: what a received document draws, what is lost, and the per-page fallbacks |
 | 19 | [19-pdf-encryption.md](19-pdf-encryption.md) | `PdfEncryption`: reading and writing AES-encrypted documents, and what encryption does to a signature |
+| 20 | [20-barcodes.md](20-barcodes.md) | `M3scalinum.Text.Barcodes`: encoding and decoding symbologies in-process, over `rxing` |
+| 21 | [21-ocr.md](21-ocr.md) | `M3scalinum.Text.Ocr`: text from page images, with caller-supplied models and no download |
+| 22 | [22-docx.md](22-docx.md) | `M3scalinum.Text.Docx`: reading a Word document into the document model |
+| 23 | [23-charts.md](23-charts.md) | `M3scalinum.Text.Charts`: a typed chart model that emits SVG, with no dependency |
+| 25 | [25-epub.md](25-epub.md) | `M3scalinum.Text.Epub`: a valid EPUB 3 container, built by hand |
+| 26 | [26-pdfa-conversion.md](26-pdfa-conversion.md) | `PdfAConverter`: turning an existing PDF into PDF/A, and refusing when it cannot |
 
 ## Status
 
@@ -43,7 +49,12 @@ them is a bug.
 | `src/Text.Pdf` | PAdES-B signatures as an incremental update, page merge/extract/split/rotate/remove, AcroForm fill and flatten, AES-256 and AES-128 encryption, structural PDF/A and PDF/UA conformance checks, text extraction from a received PDF; no dependency on the compiler |
 | `src/Text.Pdf.FactureX` | CII/UBL reader, EN 16931 checks, CII writer, Factur-X renderer and XMP patch |
 | `src/Text.Mcp` | JSON-RPC 2.0 over stdio: `render_document`, `render_invoice`, `list_templates`, with limits and no ambient file access |
-| Tests | 389 unit (fake native) + 314 Pdf + 364 Factur-X + 14 generator + 111 templates + 75 mcp + 7 suite + 247 integration (real compiler) |
+| `src/Text.Barcodes` | Ten symbologies encoded to SVG or PNG and decoded back, over a Rust `rxing` library of its own |
+| `src/Text.Ocr` | Text, lines and boxes from a page image or a PDF, with caller-supplied models and no download |
+| `src/Text.Docx` | Word documents read into the document model over `zip` 9 and `roxmltree` |
+| `src/Text.Charts` | Seven chart kinds from a typed model, emitted as SVG, with no dependency |
+| `src/Text.Epub` | A valid EPUB 3 container built from the compiler's HTML |
+| Tests | 459 unit (fake native) + 345 Pdf + 364 Factur-X + 111 templates + 112 mcp + 105 barcodes + 46 docx + 106 epub + 82 charts + 99 ocr + 7 suite + 14 generator + 251 integration (real compiler) |
 | Benchmarks | `benchmarks/Text.SharpTypst.Benchmarks`, baseline stored, `--check` gate in CI |
 | Build & packaging | Build files in place; native packaging wired in CI |
 

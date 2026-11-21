@@ -62,6 +62,8 @@ byte[] document = FacturXRenderer.Render(invoice);
 | [Importing HTML](SharpTypst-Html-Import) | [Reading text](Pdf-Text) | [Validation](FactureX-Validation) |
 | [Diagnostics](SharpTypst-Diagnostics) | [Encryption](Pdf-Encryption) | [The French profile](FactureX-French-Profile) |
 | [Packages and Fonts](SharpTypst-Packages-and-Fonts) | [The MCP server](Mcp-Server) | |
+| [Barcodes](Barcodes) | [OCR](Ocr) | [Reading DOCX](Docx) |
+| [Charts](Charts) | [EPUB](Epub) | [Converting to PDF/A](Pdf-Conversion) |
 | [Dependency Injection](SharpTypst-Dependency-Injection) | | |
 | [Performance](SharpTypst-Performance) | | |
 | [Troubleshooting](SharpTypst-Troubleshooting) | | |
