@@ -47,7 +47,19 @@ public sealed class FacturXInvoice
     public string? BuyerReference { get; init; }
 
     /// <summary>
-    /// The business process the document belongs to, <c>BT-23</c>.
+    /// The specification identifier, <c>BT-24</c> — <c>cbc:CustomizationID</c> in UBL.
+    /// </summary>
+    /// <remarks>
+    /// In CII it is the Factur-X guideline URN, which is what selects the conformance level; in UBL
+    /// it names the profile the document claims, and for a document sent over Peppol it is
+    /// <c>urn:cen.eu:en16931:2017#compliant#urn:fdc:peppol.eu:2017:poacc:billing:3.0</c>. Left
+    /// empty, the writers fall back to the URN of <see cref="Profile"/>, which is the Factur-X
+    /// spelling and not a Peppol one.
+    /// </remarks>
+    public string? SpecificationId { get; init; }
+
+    /// <summary>
+    /// The business process the document belongs to, <c>BT-23</c> — <c>cbc:ProfileID</c> in UBL.
     /// </summary>
     /// <remarks>
     /// The French CIUS calls this the <em>cadre de facturation</em>: <c>B1</c> for a B2B invoice,
@@ -73,6 +85,20 @@ public sealed class FacturXInvoice
 
     /// <summary>The payment terms, <c>BT-20</c>.</summary>
     public string? PaymentTerms { get; init; }
+
+    /// <summary>
+    /// The invoice this document corrects, <c>BT-25</c> — the preceding invoice reference of
+    /// <c>BG-3</c>, which a credit note carries.
+    /// </summary>
+    /// <remarks>
+    /// A line also has a prior-invoice reference (<see cref="FacturXLine.PriorInvoiceNumber"/>),
+    /// which is the cascade one: a detail line of a group line corrects a sub-invoice. This one
+    /// places the whole document against the invoice it cancels or corrects.
+    /// </remarks>
+    public string? PrecedingInvoiceNumber { get; init; }
+
+    /// <summary>The issue date of <see cref="PrecedingInvoiceNumber"/>, <c>BT-26</c>.</summary>
+    public DateOnly? PrecedingInvoiceDate { get; init; }
 
     /// <summary>The payment means code, <c>BT-81</c>: <c>58</c> for a SEPA credit transfer.</summary>
     public string? PaymentMeansCode { get; init; }
@@ -158,6 +184,7 @@ public sealed class FacturXInvoice
         DueDate = DueDate,
         Period = Period,
         BuyerReference = BuyerReference,
+        SpecificationId = SpecificationId,
         BusinessProcess = BusinessProcess,
         OrderReference = OrderReference,
         ContractReference = ContractReference,
@@ -165,6 +192,8 @@ public sealed class FacturXInvoice
         Note = Note,
         Notes = Notes,
         PaymentTerms = PaymentTerms,
+        PrecedingInvoiceNumber = PrecedingInvoiceNumber,
+        PrecedingInvoiceDate = PrecedingInvoiceDate,
         PaymentMeansCode = PaymentMeansCode,
         PaymentReference = PaymentReference,
         Mandate = Mandate,

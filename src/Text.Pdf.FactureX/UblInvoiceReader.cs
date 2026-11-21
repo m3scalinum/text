@@ -27,21 +27,37 @@ internal static class UblInvoiceReader
         var monetary = root.Child("LegalMonetaryTotal");
         var paymentMeans = root.Child("PaymentMeans");
 
+        // BG-3: the invoice a credit note corrects. The schema allows more than one reference; the
+        // first is the one a receiver books against.
+        var preceding = root.Child("BillingReference")?.Child("InvoiceDocumentReference");
+
         return new FacturXInvoice
         {
             Number = root.Text("ID") ?? string.Empty,
             TypeCode = root.Text("InvoiceTypeCode") ?? root.Text("CreditNoteTypeCode") ?? "380",
             Profile = Xml.Profile(root),
+            // BT-24 and BT-23: UBL names them CustomizationID and ProfileID, and the reader kept
+            // neither before, which is why a Peppol document lost the two identifiers a receiver
+            // routes on.
+            SpecificationId = root.Text("CustomizationID"),
+            BusinessProcess = root.Text("ProfileID"),
             Currency = root.Text("DocumentCurrencyCode") ?? "EUR",
             TaxCurrency = root.Text("TaxCurrencyCode"),
             IssueDate = root.Date("IssueDate") ?? default,
             DueDate = root.Date("DueDate"),
             Period = Period(root.Child("InvoicePeriod")),
             BuyerReference = root.Text("BuyerReference"),
+            PrecedingInvoiceNumber = preceding?.Text("ID"),
+            PrecedingInvoiceDate = preceding?.Date("IssueDate"),
             OrderReference = root.Child("OrderReference")?.Text("ID"),
             ContractReference = root.Child("ContractDocumentReference")?.Text("ID"),
             ProjectReference = root.Child("ProjectReference")?.Text("ID"),
             Note = root.Text("Note"),
+            Notes = root.Children("Note")
+                .Select(note => note.Value.Trim())
+                .Where(text => text.Length > 0)
+                .Select(text => new FacturXNote { Content = text })
+                .ToList(),
             PaymentTerms = root.Child("PaymentTerms")?.Text("Note"),
             PaymentMeansCode = paymentMeans?.Text("PaymentMeansCode"),
             PaymentReference = paymentMeans?.Text("PaymentID"),
