@@ -1046,14 +1046,18 @@ symbols and no other difference, and the old entry points keep the default ceili
   square refusal, the WebP one, the lowered-ceiling one, the `prepare_image` one and the ABI one).
 - **The ABI maps** — `admitting_a_forty_thousand_square_png_is_a_typed_refusal_through_the_abi` and
   `admitting_a_normal_image_reports_the_size_its_header_states` in `lib.rs`; managed-side in
-  `tests/Text.Ocr.Tests/ImageLimitTests.cs`: eleven tests. Seven need no native library — five for the
-  option's range rules, and two driven through a recording `IOcrNative` that prove a lowered ceiling
-  reaches the limited export with the numbers the caller wrote and that a call naming none keeps the
-  plain one. Four run against the real library when it is loadable: the typed exception with both
-  numbers, the header report, the byte refusal, and a ceiling above the maximum.
+  `tests/Text.Ocr.Tests/ImageLimitTests.cs`: seventeen tests. Twelve need no native library, and they
+  cover more than the range rules: a recording `IOcrNative` proves that a lowered ceiling reaches the
+  simple, the preprocessed and the language entry points with the numbers the caller wrote, that a
+  call naming none keeps the plain one, that a library missing the exports is reported as
+  `unsupported`, that a double without them fails loudly, and that a ceiling name this package does
+  not know still reads as a typed refusal. Five run against the real library when it is loadable: the
+  typed exception with both numbers, the header report, the byte refusal, a ceiling above the maximum,
+  and the three new exports resolving.
 - **Counts** — `cargo test --lib` in `native/text-ocr`: 94 passed, 0 failed (76 before this change);
-  `dotnet test tests/Text.Ocr.Tests -c Release` with the native library present: 222 total, 218 passed,
-  0 failed, 4 skipped by their own guards (211 before, and the 11 new tests).
+  `dotnet test tests/Text.Ocr.Tests -c Release` with the native library present: 228 total, 224 passed,
+  0 failed, 4 skipped by their own guards (211 before, and the 17 new tests); the coverage gate reads
+  92.1% of `M3scalinum.Text.Ocr`'s production lines (floor 90%), 1029/1117.
 - **What is not proved here** — that a *real* 64-megapixel scan reads: that needs models, and this
   repository ships none. That a real WebP file decodes: only its header path is proved. And that the
   2 GiB byte ceiling refuses a real 2 GiB buffer: the buffer is never produced, so the arithmetic is

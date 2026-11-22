@@ -218,32 +218,153 @@ public sealed class ImageLimitTests
         Assert.True(native.PlainCallSeen);
     }
 
+    [Fact]
+    public void A_lowered_ceiling_with_preprocessing_takes_the_preprocessed_limited_call()
+    {
+        var native = new RecordingNative();
+        using var handle = OcrEngineHandle.Create(native, [1], [2], null);
+
+        handle.Recognize(
+            [0x89, 0x50, 0x4E, 0x47],
+            new OcrOptions { MaximumImagePixels = 10, DetectRotation = true });
+
+        Assert.True(native.PreprocessedLimitedSeen);
+        Assert.Equal(10UL, native.MaximumPixels);
+    }
+
+    [Fact]
+    public void A_lowered_ceiling_on_a_language_engine_takes_the_language_limited_call()
+    {
+        var native = new RecordingNative();
+        using var handle = OcrEngineHandle.CreateLanguages(
+            native,
+            "{\"default\":\"fr\",\"sets\":[{\"language\":\"fr\",\"directory\":\"/w\"}]}"u8.ToArray());
+
+        handle.RecognizeLanguage(
+            [0x89, 0x50, 0x4E, 0x47],
+            new OcrOptions { MaximumImageBytes = 2_048 },
+            "fr");
+
+        Assert.True(native.LanguageLimitedSeen);
+        Assert.Equal((nuint)2_048, native.MaximumBytes);
+    }
+
+    [Fact]
+    public void A_library_that_predates_the_limited_exports_is_reported_as_unsupported()
+    {
+        var plan = "{\"default\":\"fr\",\"sets\":[{\"language\":\"fr\",\"directory\":\"/w\"}]}"u8.ToArray();
+
+        using var handle = OcrEngineHandle.Create(new RecordingNative { ThrowOnLimited = true }, [1], [2], null);
+
+        var image = Assert.Throws<OcrException>(() => handle.Recognize(
+            [0x89, 0x50, 0x4E, 0x47],
+            new OcrOptions { MaximumImagePixels = 10, DetectRotation = true }));
+
+        Assert.Equal("unsupported", image.Code);
+        Assert.Contains("to_engine_recognize_preprocessed_limited", image.Message, StringComparison.Ordinal);
+
+        using var languages = OcrEngineHandle.CreateLanguages(
+            new RecordingNative { ThrowOnLimited = true }, plan);
+
+        var language = Assert.Throws<OcrException>(() => languages.RecognizeLanguage(
+            [0x89, 0x50, 0x4E, 0x47],
+            new OcrOptions { MaximumImageBytes = 2_048 },
+            "fr"));
+
+        Assert.Contains("to_engine_recognize_language_limited", language.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_native_that_cannot_measure_an_image_fails_loudly_rather_than_silently()
+    {
+        // The interface's own defaults: a double written before the ceilings existed still
+        // compiles, and a call that would need one fails instead of pretending it measured.
+        IOcrNative bare = new BareNative();
+
+        Assert.Throws<NotSupportedException>(() => bare.ImageAdmit([0x89], 0, 0, out _, out _));
+
+        using var handle = OcrEngineHandle.Create(new BareNative(), [1], [2], null);
+
+        Assert.Throws<NotSupportedException>(
+            () => handle.Recognize([0x89], new OcrOptions { MaximumImagePixels = 10 }));
+
+        Assert.Throws<NotSupportedException>(
+            () => handle.Recognize([0x89], new OcrOptions { MaximumImagePixels = 10, Deskew = true }));
+    }
+
+    [Fact]
+    public void The_limited_exports_resolve_and_refuse_a_null_engine()
+    {
+        if (!NativeProbe.IsAvailable)
+        {
+            Assert.Skip(NativeProbe.SkipReason);
+        }
+
+        var png = PngDeclaring(32, 16);
+
+        var plain = NativeOcr.Library.EngineRecognizeLimited(
+            IntPtr.Zero, png, 0, 0, 0.6, 0.5, 0.5, out var plainJson, out var plainError);
+
+        Assert.Equal(1, plain);
+        Assert.Equal(IntPtr.Zero, plainJson.Pointer);
+        Assert.Equal("invalid_argument", NativeOcr.ToException(plainError).Code);
+
+        var preprocessed = NativeOcr.Library.EngineRecognizePreprocessedLimited(
+            IntPtr.Zero, png, 0, 0, 0.6, 0.5, 0.5, false, false, false, out _, out var preprocessedError);
+
+        Assert.Equal(1, preprocessed);
+        Assert.Equal("invalid_argument", NativeOcr.ToException(preprocessedError).Code);
+
+        var language = NativeOcr.Library.EngineRecognizeLanguageLimited(
+            IntPtr.Zero, png, 0, 0, 0.6, 0.5, 0.5, "fr"u8.ToArray(), false, false, false,
+            out _, out var languageError);
+
+        Assert.Equal(1, language);
+        Assert.Equal("invalid_argument", NativeOcr.ToException(languageError).Code);
+    }
+
+    [Fact]
+    public void A_ceiling_name_this_package_does_not_know_still_reads_as_a_typed_refusal()
+    {
+        var native = new BareNative
+        {
+            ErrorDocument =
+                "{\"code\":\"image_limit\",\"message\":\"refused\",\"limit\":\"quarts\","
+                + "\"observed\":5,\"maximum\":1}",
+        };
+
+        var exception = Assert.IsType<OcrImageLimitException>(
+            NativeOcr.ToException(native, new IntPtr(1)));
+
+        Assert.Equal(OcrImageLimit.Unspecified, exception.Limit);
+        Assert.Equal(5L, exception.Observed);
+        Assert.Equal(1L, exception.Maximum);
+    }
+
     /// <summary>
-    /// An <see cref="IOcrNative"/> that answers like the library and records which entry point
-    /// the handle chose, and with which ceilings.
+    /// An <see cref="IOcrNative"/> that answers like the library for the calls an engine
+    /// needs, and nothing more: the members the interface gives a default are the defaults.
     /// </summary>
     /// <remarks>
     /// A real engine needs two models that weigh tens of megabytes, and this repository ships
-    /// none; this double is what lets the choice between the plain and the limited calls be
+    /// none; a double is what lets the choice between the plain and the limited calls be
     /// observed at all. It is in this test file rather than in the shared fakes so the fakes
     /// stay exactly what they were.
     /// </remarks>
-    private sealed class RecordingNative : IOcrNative
+    private class BareNative : IOcrNative
     {
-        internal bool LimitedCallSeen { get; private set; }
-
-        internal bool PlainCallSeen { get; private set; }
-
-        internal ulong MaximumPixels { get; private set; }
-
-        internal nuint MaximumBytes { get; private set; }
-
         public uint AbiVersion() => 2;
 
         public IntPtr BuildInfo() => IntPtr.Zero;
 
         public IntPtr EngineCreate(
             byte[] detectionModel, byte[] recognitionModel, byte[]? dictionary, out IntPtr error)
+        {
+            error = IntPtr.Zero;
+            return new IntPtr(1);
+        }
+
+        public IntPtr EngineCreateLanguages(byte[] plan, out IntPtr error)
         {
             error = IntPtr.Zero;
             return new IntPtr(1);
@@ -264,7 +385,6 @@ public sealed class ImageLimitTests
             out NativeBuffer json,
             out IntPtr error)
         {
-            PlainCallSeen = true;
             error = IntPtr.Zero;
             json = Document("{\"status\":\"recognized\"}");
             return 0;
@@ -287,26 +407,11 @@ public sealed class ImageLimitTests
             return 0;
         }
 
-        public int EngineRecognizeLimited(
-            IntPtr engine,
-            byte[] image,
-            ulong maximumPixels,
-            nuint maximumBytes,
-            double pageConfidence,
-            double wordConfidence,
-            double maxRejectedWordRatio,
-            out NativeBuffer json,
-            out IntPtr error)
-        {
-            LimitedCallSeen = true;
-            MaximumPixels = maximumPixels;
-            MaximumBytes = maximumBytes;
-            error = IntPtr.Zero;
-            json = Document("{\"status\":\"recognized\"}");
-            return 0;
-        }
+        /// <summary>The error document a faked call returns, when a test needs one.</summary>
+        internal string? ErrorDocument { get; init; }
 
-        public NativeBuffer ErrorJson(IntPtr error) => default;
+        public NativeBuffer ErrorJson(IntPtr error)
+            => ErrorDocument is null ? default : Document(ErrorDocument);
 
         public void ErrorFree(IntPtr error)
         {
@@ -320,13 +425,124 @@ public sealed class ImageLimitTests
             }
         }
 
-        private static NativeBuffer Document(string json)
+        protected static NativeBuffer Document(string json)
         {
             var bytes = Encoding.UTF8.GetBytes(json);
             var pointer = Marshal.AllocHGlobal(bytes.Length);
             Marshal.Copy(bytes, 0, pointer, bytes.Length);
 
             return new NativeBuffer { Pointer = pointer, Length = (nuint)bytes.Length };
+        }
+    }
+
+    /// <summary>The same double, with the limited entry points the ceilings need.</summary>
+    private sealed class RecordingNative : BareNative, IOcrNative
+    {
+        internal bool LimitedCallSeen { get; private set; }
+
+        internal bool PlainCallSeen { get; private set; }
+
+        internal bool PreprocessedLimitedSeen { get; private set; }
+
+        internal bool LanguageLimitedSeen { get; private set; }
+
+        internal bool ThrowOnLimited { get; init; }
+
+        internal ulong MaximumPixels { get; private set; }
+
+        internal nuint MaximumBytes { get; private set; }
+
+        public new int EngineRecognize(
+            IntPtr engine,
+            byte[] image,
+            double pageConfidence,
+            double wordConfidence,
+            double maxRejectedWordRatio,
+            out NativeBuffer json,
+            out IntPtr error)
+        {
+            PlainCallSeen = true;
+            error = IntPtr.Zero;
+            json = Document("{\"status\":\"recognized\"}");
+            return 0;
+        }
+
+        public int EngineRecognizeLimited(
+            IntPtr engine,
+            byte[] image,
+            ulong maximumPixels,
+            nuint maximumBytes,
+            double pageConfidence,
+            double wordConfidence,
+            double maxRejectedWordRatio,
+            out NativeBuffer json,
+            out IntPtr error)
+        {
+            ThrowIfAsked();
+
+            LimitedCallSeen = true;
+            MaximumPixels = maximumPixels;
+            MaximumBytes = maximumBytes;
+            error = IntPtr.Zero;
+            json = Document("{\"status\":\"recognized\"}");
+            return 0;
+        }
+
+        public int EngineRecognizePreprocessedLimited(
+            IntPtr engine,
+            byte[] image,
+            ulong maximumPixels,
+            nuint maximumBytes,
+            double pageConfidence,
+            double wordConfidence,
+            double maxRejectedWordRatio,
+            bool detectRotation,
+            bool deskew,
+            bool denoise,
+            out NativeBuffer json,
+            out IntPtr error)
+        {
+            ThrowIfAsked();
+
+            PreprocessedLimitedSeen = true;
+            MaximumPixels = maximumPixels;
+            MaximumBytes = maximumBytes;
+            error = IntPtr.Zero;
+            json = Document("{\"status\":\"recognized\"}");
+            return 0;
+        }
+
+        public int EngineRecognizeLanguageLimited(
+            IntPtr engine,
+            byte[] image,
+            ulong maximumPixels,
+            nuint maximumBytes,
+            double pageConfidence,
+            double wordConfidence,
+            double maxRejectedWordRatio,
+            byte[] language,
+            bool detectRotation,
+            bool deskew,
+            bool denoise,
+            out NativeBuffer json,
+            out IntPtr error)
+        {
+            ThrowIfAsked();
+
+            LanguageLimitedSeen = true;
+            MaximumPixels = maximumPixels;
+            MaximumBytes = maximumBytes;
+            error = IntPtr.Zero;
+            json = Document("{\"status\":\"recognized\"}");
+            return 0;
+        }
+
+        private void ThrowIfAsked()
+        {
+            if (ThrowOnLimited)
+            {
+                throw new EntryPointNotFoundException("the library predates this export");
+            }
         }
     }
 
