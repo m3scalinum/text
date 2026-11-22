@@ -395,6 +395,21 @@ mod tests {
     }
 
     #[test]
+    fn aztec_rune_is_refused_because_the_engine_has_no_such_format() {
+        // Aztec Rune — the seventy-seven-module symbol that carries one byte — has no
+        // `BarcodeFormat` variant in rxing 0.9.4, so it has no writer and no reader there: the
+        // crate's `barcode_format.rs` lists AZTEC and nothing rune-shaped, and `aztec/mod.rs`
+        // exposes `AztecWriter` only. The name is therefore not a symbology this library knows,
+        // and the refusal says so instead of writing a full Aztec symbol the caller did not ask
+        // for (Spec 20 §12.1).
+        for name in ["AztecRune", "Aztec Rune", "Rune"] {
+            let error = Symbology::parse(name).unwrap_err();
+            assert_eq!(error.code, crate::ffi::BT_ERR_UNSUPPORTED, "{name}");
+            assert!(error.json.contains(name), "{}", error.json);
+        }
+    }
+
+    #[test]
     fn the_read_only_symbologies_are_the_ones_rxing_cannot_write() {
         let read_only: Vec<&str> = ALL
             .iter()

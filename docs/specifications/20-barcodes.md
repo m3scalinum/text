@@ -979,3 +979,66 @@ is the same call it always was.
 | Rust, `tests/styled.rs` | A logo reads back through `decode_png_all` at L, M, Q and H; 20 % reads back at H on a 45-module symbol; 30 % at H is refused with "cannot read back"; 30 % at Q is refused with "exceeds the 25% ceiling"; a brand module on cream renders in those colours and decodes; refusals for contrast, inversion, and the styled SVG. |
 | Rust, `print.rs`, `lib.rs` | A styled print keeps its geometry and reads back; the styled ABI entry points write a PNG this build decodes and an SVG carrying the fill; a pale module is `BT_ERR_INVALID_ARGUMENT` across the ABI. |
 | C# | A brand module on a light ground renders as a truecolour PNG and decodes with `DecodeAll`; the default rendering is unchanged byte for byte; a logo reads back at L, M, Q and H and at 20 % on H; a 30 % logo at H and 30 % at Q are refused with their messages; a pale module and an inverted pair are refused; a logo on Code 128 is a `BarcodeUnsupportedException`; the ratio is the WCAG one and the floor is 4.5; a styled `Print` and a styled `AddToDocument` figure decode back; `FromHex`/`ToHex` round trip and reject malformed text. |
+
+## 12. MaxiCode and Aztec Rune: what the engine actually holds
+
+Two symbologies were on the board, and the answer to both is a fact about `rxing` 0.9.4 rather than
+a preference of this package. The list stays at nineteen: §8.1 is the whole of it, and nothing in
+this section adds a member.
+
+### 12.1 MaxiCode: read, not written
+
+`rxing` 0.9.4 has `BarcodeFormat::MAXICODE`, a detector (`src/maxicode/detector.rs`) and a reader
+(`src/maxicode/maxi_code_reader.rs`). It has no writer: `MultiFormatWriter::encode_with_hints` in
+`src/multi_format_writer.rs` matches fifteen formats and falls through to
+`"No encoder available for format …"` for the rest, and `MAXICODE` is in that rest.
+
+So MaxiCode is **read only** here, and that is not new: `BarcodeSymbology.MaxiCode` has been in the
+enum since §8.1 was written, `Barcode.CanEncode` returns `false` for it, and the refusal an encode
+raises names the symbology instead of failing somewhere inside the engine. Nothing was added for
+this item — the coverage was already the crate's coverage, and this section records the evidence.
+
+### 12.2 Aztec Rune: absent from the crate, so absent from the package
+
+Aztec Rune is the seventy-seven-module Aztec symbol that carries one byte: same bullseye, no mode
+message, no error correction. It is a different symbol from an Aztec code, not a mode of one.
+
+`rxing` 0.9.4 does not know it. Three checks, in the crate's own source:
+
+- `BarcodeFormat` (`src/barcode_format.rs`) declares twenty-one variants and none of them is
+  rune-shaped: `AZTEC`, `CODABAR`, `CODE_39`, `CODE_93`, `CODE_128`, `DATA_MATRIX`, `EAN_8`,
+  `EAN_13`, `ITF`, `MAXICODE`, `PDF_417`, `QR_CODE`, `MICRO_QR_CODE`,
+  `RECTANGULAR_MICRO_QR_CODE`, `RSS_14`, `RSS_EXPANDED`, `TELEPEN`, `UPC_A`, `UPC_E`,
+  `UPC_EAN_EXTENSION`, `DXFilmEdge`. There is no `AZTEC_RUNE` and no alias that parses to one.
+- The string `Rune` does not occur anywhere under `src/`: no reader, no writer, no constant.
+- `src/aztec/` holds `aztec_writer.rs`, whose encoder always writes a full Aztec symbol with an
+  error-correction level. A caller who asked for a rune and got one of those would have a symbol
+  that means something else.
+
+**The refusal.** `Symbology::parse` accepts the nineteen names of §8.1 and refuses everything else
+by name, listing what it does accept. `AztecRune`, `Aztec Rune` and `Rune` therefore fail as
+`BT_ERR_UNSUPPORTED` — the same path an unknown name takes, because it is an unknown name. A rune
+the engine cannot write is not a symbology this package can pretend to have; the alternative,
+quietly writing a full Aztec symbol, would put a symbol on a label that a rune reader cannot read.
+
+`aztec_rune_is_refused_because_the_engine_has_no_such_format` in `symbology.rs` asserts exactly
+that, for all three spellings.
+
+**What would change the answer.** A crate version that declares the format, or a Rust encoder for
+the rune added to `src/` behind a new member of `Symbology`. The guard below is what makes that a
+deliberate change rather than a forgotten one.
+
+### 12.3 The test that keeps the list and the table one list
+
+`SymbologyCoverageTests` in `tests/Text.Barcodes.Tests` reads §8.1 out of this file, takes the ABI
+name from every row, and compares the set with `Enum.GetValues<BarcodeSymbology>()`:
+
+- a member the table does not document fails the test with the member named;
+- a row the enum does not declare fails it with the row named;
+- every row must say the symbology is readable, because that is what the table means;
+- the Write column is compared with `Barcode.CanEncode`, so a symbology whose direction changes in
+  the engine cannot stay documented the old way.
+
+It enumerates both sides rather than comparing counts, so the next symbology added — or removed —
+fails it on the day it is added, whatever its direction.
+
