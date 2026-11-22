@@ -29,6 +29,7 @@ file names, to find what you want.
 | 06 | [06-markdown-and-text-export.md](06-markdown-and-text-export.md) | Semantic extraction and its fidelity contract |
 | 27 | [27-html-export.md](27-html-export.md) | Writing the model as semantic HTML5, and what HTML cannot hold |
 | 12 | [12-dependency-injection.md](12-dependency-injection.md) | The `M3scalinum.Text.Typst.DependencyInjection` package: services, lifetimes, options, validation |
+| 32 | [32-localized-formatting.md](32-localized-formatting.md) | `TypstFormatting`: dates, numbers and amounts per language, with no culture lookup |
 
 ## The PDF family
 
