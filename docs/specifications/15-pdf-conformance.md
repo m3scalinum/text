@@ -27,7 +27,8 @@ anything else with `invalid_argument`. No UA-2 flavour exists to be selected.
 A PDF/UA-2 member added to the managed enum would therefore fail at export time, not fall back
 silently — but it would still be a value that cannot work. It is not added. PDF/UA-1 remains the
 accessible flavour the suite can produce and check, and this document says so rather than implying
-more.
+more. §8 states the same limit as a level-by-level table, with the option each crate exposes, the
+PDF bytes that prove it, and the release that would lift it.
 
 ## 2. The API
 
@@ -352,3 +353,94 @@ What is delivered instead of that confirmation: one automatic test per line that
 the demo file for a reviewer to open, and this list. A future change that runs a screen reader in CI
 must record the reader, its version and the transcript; until then the honest status of line 10 is
 "manual, not executed".
+
+## 8. PDF 2.0 and PDF/UA-2: how far the pipeline reaches
+
+The board item groups two different things. **PDF 2.0** is a file format version (ISO 32000-2):
+the compiler writes it and the checker reads it today. **PDF/UA-2** is an accessibility profile
+layered on that version (ISO 14289-2): the compiler has no code path for it, no released Typst
+version has one, and this suite therefore makes no claim about it.
+
+| Level | Produced and checked today | Blocked by | Evidence |
+| --- | --- | --- | --- |
+| PDF 2.0 header (`%PDF-2.0`) | **yes** | — | `typst-pdf 0.15.1`, `src/lib.rs:166`: `PdfStandard::V_2_0 => set_version(PdfVersion::Pdf20)?`. `fixtures/pdfua/a4.pdf` begins `%PDF-2.0`, and `PdfConformanceStandard.Pdf20` checks it |
+| PDF 2.0 with tagged structure, no accessibility claim | **yes** | — | `tagged` defaults to `true` in `native/sharp-typst/src/export.rs`; a 2.0 header with no accessibility validator keeps the structure tree and claims no accessibility standard |
+| PDF/UA-1 (ISO 14289-1, PDF 1.4 to 1.7) | **yes** | — | `typst-pdf 0.15.1`, `src/lib.rs:178`: `PdfStandard::Ua_1 => set_accessibility_validator(Accessibility::UA1)?`. `fixtures/pdfua/ua1.pdf` is `%PDF-1.7` with `pdfuaid:part 1` |
+| PDF/UA-1 over a PDF 2.0 file | **no — refused on both sides** | `krilla 0.8.2` fixes `Accessibility::UA1` to PDF 1.7; a configuration naming 2.0 fails as `VersionDoesNotMatchValidatorsRange`, and PDF/A-4 with UA-1 fails as `NoOverlappingValidatorsRange` (`src/configure/mod.rs:132-140`) | `PdfConformance.Check(a4.pdf, PdfUa1)` reports `PDF.VERSION_MISMATCH`: “PDF/UA-1 requires PDF 1.4 to 1.7, but the file declares 2.0” |
+| PDF/UA-2 (ISO 14289-2, PDF 2.0) | **no** | No released Typst. It needs a `typst-pdf` that adds a second accessibility variant (`PdfStandard::Ua_2`; the enum ends at `Ua_1`, `src/lib.rs:334-336`), which in turn needs `krilla` to add `Accessibility::UA2` (0.8.2 declares `UA1` alone, `src/configure/validate.rs:1090`). The earliest release that *could* carry it is the next `typst-pdf`/Typst minor (0.16 in the crate's numbering); with `typst-pdf 0.15.1` and `krilla 0.8.2` the newest published, that release does not exist | `PdfConformanceStandard` has no `PdfUa2` member, `PdfConformanceCodes` no ISO 14289-2 rule, and `PdfUa2Tests` fails if a member is added without a producer |
+
+### 8.1 The evidence, quoted from the pinned crates
+
+The producer's own enumeration is the authority on what can be exported, and it stops at one
+accessibility flavour:
+
+```rust
+// typst-pdf 0.15.1, src/lib.rs:279-336 (abridged)
+#[non_exhaustive]
+pub enum PdfStandard {
+    /// PDF 2.0.
+    #[serde(rename = "2.0")]
+    V_2_0,
+    // … the PDF/A flavours through A_4f and A_4e …
+    /// PDF/UA-1.
+    #[serde(rename = "ua-1")]
+    Ua_1,
+}
+```
+
+```rust
+// typst-pdf 0.15.1, src/lib.rs:166 and :178
+PdfStandard::V_2_0 => set_version(PdfVersion::Pdf20)?,
+PdfStandard::Ua_1 => set_accessibility_validator(Accessibility::UA1)?,
+```
+
+The limit is not in Typst's plumbing but in the PDF writer below it. `krilla 0.8.2` can write a
+2.0 file — `PdfVersion::MAX` is `Pdf20` (`src/configure/version.rs:31`) — and can qualify exactly
+one accessibility standard, capped at 1.7:
+
+```rust
+// krilla 0.8.2, src/configure/validate.rs:1195-1202
+/// Maximum PDF version this standard can be used with.
+pub const fn max(self) -> PdfVersion {
+    match self {
+        // PDF/UA-1 is specified against PDF 1.7.
+        Self::UA1 => PdfVersion::Pdf17,
+    }
+}
+```
+
+`Accessibility` is an enum with the single variant `UA1` (`src/configure/validate.rs:1019-1090`).
+A UA-2 flavour is a new variant there, a new `PdfStandard` variant in `typst-pdf`, a new arm in
+`native/sharp-typst/src/export.rs`'s `parse_standard`, and only then a member here. Adding the
+member first would produce a value that the export rejects with `invalid_argument`, which is exactly
+the claim this document refuses to make.
+
+### 8.2 What a public-market tender can be answered with
+
+A tender that asks for **PDF 2.0** is met: `PdfStandard.Pdf20` writes `%PDF-2.0`, and
+`PdfConformance.Check(bytes, PdfConformanceStandard.Pdf20)` establishes the header and the
+structural integrity of that file. A tender that asks for **PDF/UA-2** is not met by this suite, and
+the answer is **PDF/UA-1** (`PdfStandard.PdfUa1`), the accessible flavour Typst 0.15.1 produces,
+checked by `PdfConformance.CheckAccessibility`. The two cannot be combined: UA-1 does not exist over
+a 2.0 header, in the producer or in the standard.
+
+### 8.3 What the conformance still does not cover
+
+Section 5 lists what a structural checker cannot establish, and section 6 lists the usability lines
+the compiler does and does not satisfy. The limits that matter for a PDF 2.0 or PDF/UA-2 claim are
+these, and none of them is closed by the version bump:
+
+- **Fonts.** Embedding and the presence of a `/ToUnicode` CMap are checked; that the program holds
+  every glyph the content draws, and that the CMap is correct, is not. A PDF/UA-2 claim would rest
+  on the same presence-only evidence.
+- **`/ActualText`.** The compiler writes none, so ligatures, hyphenation and stretchable characters
+  have no replacement text — a UA-2 line that UA-1 also states and that stays open (§6, line 9, and
+  §5 under alternate descriptions).
+- **Table tagging.** The compiler's default output writes `/TD` cells and no `/TH`;
+  `fixtures/pdfua/ua1.pdf` measures twelve `/TD` and zero `/TH`. The suite supplies scoped header
+  cells through the model (`table.header(…)` with `pdf.header-cell(scope: …)`, §6 line 2), and that
+  remains a writing rule with a checker behind it, not something the 2.0 header improves.
+- **No ISO 14289-2 rule.** `PdfConformance` and `PdfConformanceCodes` implement ISO 14289-1 only. A
+  file declaring `pdfuaid:part 2` is rejected as a UA-1 mismatch
+  (`PDFUA.XMP_STANDARD_MISMATCH`), not validated as UA-2. When a producer writes UA-2, the checker
+  needs a part-2 identity rule and a 2.0 version range before any member may claim it.
