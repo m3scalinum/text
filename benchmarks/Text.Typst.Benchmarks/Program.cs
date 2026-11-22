@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using M3scalinum.Text.Typst.Compilation;
 using M3scalinum.Text.Documents;
@@ -16,11 +18,14 @@ namespace M3scalinum.Text.Typst.Benchmarks;
 /// Usage:
 ///   dotnet run -c Release -- --write benchmarks/baseline.json
 ///   dotnet run -c Release -- --check benchmarks/baseline.json
+///   dotnet run -c Release -- --samples artifacts/a.json --label main --min-iteration-ms 1
 /// </remarks>
 internal static class Program
 {
     private const int Warmup = 10;
     private const int Iterations = 50;
+
+    private const string DefaultBaselinePath = "benchmarks/baseline.json";
 
     /// <summary>
     /// The gate, as a ratio over the baseline. Generous on purpose: a shared CI runner varies by
@@ -45,25 +50,80 @@ internal static class Program
     private static int Main(string[] args)
     {
         var mode = args.Length > 0 ? args[0] : "--write";
-        var path = args.Length > 1 ? args[1] : "benchmarks/baseline.json";
+        string? path = null;
+        var iterations = Iterations;
+        var warmup = Warmup;
+        var label = string.Empty;
+        var minIterationMs = 0.0;
+
+        for (var index = 1; index < args.Length; index++)
+        {
+            var argument = args[index];
+
+            if (!argument.StartsWith("--", StringComparison.Ordinal))
+            {
+                path ??= argument;
+                continue;
+            }
+
+            if (index + 1 >= args.Length)
+            {
+                return Fail($"`{argument}` needs a value");
+            }
+
+            var value = args[++index];
+
+            switch (argument)
+            {
+                case "--iterations":
+                    if (!TryParsePositive(value, out iterations))
+                    {
+                        return Fail($"`--iterations` expects a positive integer, got `{value}`");
+                    }
+
+                    break;
+                case "--warmup":
+                    if (!TryParsePositive(value, out warmup))
+                    {
+                        return Fail($"`--warmup` expects a positive integer, got `{value}`");
+                    }
+
+                    break;
+                case "--label":
+                    label = value;
+                    break;
+                case "--min-iteration-ms":
+                    if (!double.TryParse(value, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out minIterationMs) || minIterationMs < 0)
+                    {
+                        return Fail($"`--min-iteration-ms` expects a non-negative number, got `{value}`");
+                    }
+
+                    break;
+                default:
+                    return Fail($"unknown option `{argument}`; use --write, --check or --samples");
+            }
+        }
+
+        var settings = new Settings(warmup, iterations, minIterationMs);
 
         return mode switch
         {
-            "--write" => Write(path),
-            "--check" => Check(path),
-            _ => Fail($"unknown mode `{mode}`; use --write or --check"),
+            "--write" => Write(path ?? DefaultBaselinePath, settings),
+            "--check" => Check(path ?? DefaultBaselinePath, settings),
+            "--samples" => Samples(path, label, settings),
+            _ => Fail($"unknown mode `{mode}`; use --write, --check or --samples"),
         };
     }
 
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
-    private static int Write(string path)
+    private static int Write(string path, Settings settings)
     {
         var results = new Dictionary<string, Result>(StringComparer.Ordinal);
 
         foreach (var (name, run) in Scenarios)
         {
-            var result = Measure(name, run);
+            var result = Measure(run, settings, repeats: 1).Summary;
             results[name] = result;
             Console.WriteLine($"{name,-18} {result.MinMs,8:0.00} ms  {result.OpsPerSecond,8:0.0} op/s");
         }
@@ -83,7 +143,84 @@ internal static class Program
         return 0;
     }
 
-    private static int Check(string path)
+    /// <summary>
+    /// Writes every raw sample instead of the three summary numbers, so an A/B on one machine can
+    /// measure its own noise instead of assuming it. <c>tools/bench-compare.py</c> reads this file;
+    /// the baseline format above is unrelated and stays byte-for-byte the same.
+    /// </summary>
+    private static int Samples(string? path, string label, Settings settings)
+    {
+        if (string.IsNullOrEmpty(path))
+        {
+            return Fail("--samples needs an output path");
+        }
+
+        var scenarios = new Dictionary<string, SampleScenario>(StringComparer.Ordinal);
+
+        foreach (var (name, run) in Scenarios)
+        {
+            var repeats = settings.MinIterationMs > 0 ? Calibrate(run, settings) : 1;
+            var measurement = Measure(run, settings, repeats, warmedUp: settings.MinIterationMs > 0);
+            var samples = measurement.Samples;
+            var mean = 0.0;
+
+            foreach (var sample in samples)
+            {
+                mean += sample;
+            }
+
+            mean /= samples.Length;
+
+            var variance = 0.0;
+
+            foreach (var sample in samples)
+            {
+                variance += (sample - mean) * (sample - mean);
+            }
+
+            var deviation = samples.Length > 1 ? Math.Sqrt(variance / (samples.Length - 1)) : 0.0;
+
+            scenarios[name] = new SampleScenario
+            {
+                MinMs = measurement.Summary.MinMs,
+                MedianMs = measurement.Summary.MedianMs,
+                MeanMs = Math.Round(mean, 3),
+                StdDevMs = Math.Round(deviation, 3),
+                P95Ms = Math.Round(samples[(int)((samples.Length - 1) * 0.95)], 3),
+                Repeats = repeats,
+                SamplesMs = Array.ConvertAll(samples, static sample => Math.Round(sample, 3)),
+            };
+
+            Console.WriteLine(
+                $"{name,-18} {measurement.Summary.MedianMs,8:0.00} ms median  {deviation,7:0.00} ms sd  x{repeats}");
+        }
+
+        var directory = Path.GetDirectoryName(Path.GetFullPath(path));
+
+        if (!string.IsNullOrEmpty(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        File.WriteAllText(path, JsonSerializer.Serialize(
+            new SampleDocument
+            {
+                Label = label,
+                RuntimeVersion = Environment.Version.ToString(),
+                OperatingSystem = RuntimeInformation.OSDescription,
+                Architecture = RuntimeInformation.ProcessArchitecture.ToString(),
+                ProcessorCount = Environment.ProcessorCount,
+                Warmup = settings.Warmup,
+                Iterations = settings.Iterations,
+                Scenarios = scenarios,
+            },
+            JsonOptions));
+
+        Console.WriteLine($"samples written to {path}");
+        return 0;
+    }
+
+    private static int Check(string path, Settings settings)
     {
         if (!File.Exists(path))
         {
@@ -107,7 +244,7 @@ internal static class Program
                 continue;
             }
 
-            var actual = Measure(name, run);
+            var actual = Measure(run, settings, repeats: 1).Summary;
             var ratio = actual.MinMs / expected.MinMs;
 
             Console.WriteLine(
@@ -133,23 +270,61 @@ internal static class Program
         return 1;
     }
 
-    private static Result Measure(string name, Func<long> run)
+    /// <summary>
+    /// How many times the body has to run for one timed iteration to reach
+    /// <see cref="Settings.MinIterationMs"/>. A 30 µs scenario is measured by the scheduler and the
+    /// JIT as much as by the compiler, and a ratio computed on it is noise; the repeat count is
+    /// recorded in the samples file so a comparison can see what was measured. Only `--samples`
+    /// uses it: `--write` and `--check` keep the one-call-per-iteration semantics of the baseline.
+    /// </summary>
+    private static int Calibrate(Func<long> run, Settings settings)
     {
-        for (var index = 0; index < Warmup; index++)
+        for (var index = 0; index < settings.Warmup; index++)
         {
             _ = run();
         }
 
-        var samples = new double[Iterations];
+        var probe = new double[3];
 
-        for (var index = 0; index < Iterations; index++)
+        for (var index = 0; index < probe.Length; index++)
         {
             var stopwatch = Stopwatch.StartNew();
             _ = run();
             stopwatch.Stop();
+            probe[index] = stopwatch.Elapsed.TotalMilliseconds;
+        }
+
+        Array.Sort(probe);
+        var observed = Math.Max(probe[probe.Length / 2], 0.001);
+        var repeats = (int)Math.Ceiling(settings.MinIterationMs / observed);
+
+        return Math.Clamp(repeats, 1, 1_000);
+    }
+
+    private static Measurement Measure(Func<long> run, Settings settings, int repeats, bool warmedUp = false)
+    {
+        for (var index = warmedUp ? settings.Warmup : 0; index < settings.Warmup; index++)
+        {
+            _ = run();
+        }
+
+        var samples = new double[settings.Iterations];
+
+        for (var index = 0; index < settings.Iterations; index++)
+        {
+            var stopwatch = Stopwatch.StartNew();
+
+            for (var repeat = 0; repeat < repeats; repeat++)
+            {
+                _ = run();
+            }
+
+            stopwatch.Stop();
             samples[index] = stopwatch.Elapsed.TotalMilliseconds;
         }
 
+        // Sorted in place: everything downstream wants order statistics, and the caller gets the
+        // sorted array, which is what `--samples` writes.
         Array.Sort(samples);
 
         // The minimum is the most stable estimator for CPU-bound work: it is the run that was
@@ -157,12 +332,14 @@ internal static class Program
         var min = samples[0];
         var median = samples[samples.Length / 2];
 
-        return new Result
-        {
-            MinMs = Math.Round(min, 3),
-            MedianMs = Math.Round(median, 3),
-            OpsPerSecond = Math.Round(1000.0 / min, 1),
-        };
+        return new Measurement(
+            new Result
+            {
+                MinMs = Math.Round(min, 3),
+                MedianMs = Math.Round(median, 3),
+                OpsPerSecond = Math.Round(1000.0 / min * repeats, 1),
+            },
+            samples);
     }
 
     private const string SmallSource = """
@@ -253,11 +430,18 @@ internal static class Program
         .Divider()
         .Paragraph(content => content.Text("See ").Link("https://typst.app", "the reference").Text("."));
 
+    private static bool TryParsePositive(string value, out int parsed) =>
+        int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out parsed) && parsed > 0;
+
     private static int Fail(string message)
     {
         Console.Error.WriteLine(message);
         return 2;
     }
+
+    private readonly record struct Settings(int Warmup, int Iterations, double MinIterationMs);
+
+    private sealed record Measurement(Result Summary, double[] Samples);
 
     private sealed class Baseline
     {
@@ -271,5 +455,45 @@ internal static class Program
         public double MedianMs { get; set; }
 
         public double OpsPerSecond { get; set; }
+    }
+
+    private sealed class SampleDocument
+    {
+        public string Tool { get; set; } = "Text.Typst.Benchmarks";
+
+        public int Format { get; set; } = 1;
+
+        public string? Label { get; set; }
+
+        public string? RuntimeVersion { get; set; }
+
+        public string? OperatingSystem { get; set; }
+
+        public string? Architecture { get; set; }
+
+        public int ProcessorCount { get; set; }
+
+        public int Warmup { get; set; }
+
+        public int Iterations { get; set; }
+
+        public Dictionary<string, SampleScenario>? Scenarios { get; set; }
+    }
+
+    private sealed class SampleScenario
+    {
+        public double MinMs { get; set; }
+
+        public double MedianMs { get; set; }
+
+        public double MeanMs { get; set; }
+
+        public double StdDevMs { get; set; }
+
+        public double P95Ms { get; set; }
+
+        public int Repeats { get; set; }
+
+        public double[] SamplesMs { get; set; } = [];
     }
 }
