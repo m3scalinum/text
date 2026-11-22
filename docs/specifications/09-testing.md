@@ -263,11 +263,12 @@ shipped native library, not by a mock, and a function the compiler cannot reach 
 
 ## 11. The native platform matrix
 
-Four packages carry a Rust library of their own — `M3scalinum.Text.Barcodes`, `.Ocr`, `.Docx` and
-`.Xlsx` — and each ships the same six RIDs the compiler does. The matrix in `ci-text.yml`
-(`native-extras`, one job per crate and RID) builds every combination; `verify-package.py` then
-reads the packed `.nupkg` and fails when a RID is missing from `runtimes/<rid>/native/`. A package
-that builds but packs five RIDs is as red as one that does not compile.
+Five packages carry a Rust library of their own — `M3scalinum.Text.Barcodes`, `.Ocr`, `.Docx`,
+`.Xlsx` and `.Pdf` — and each ships seven RIDs, one more than the compiler's six. The matrix in
+`ci-text.yml` (`native-extras`, one job per crate and RID) builds every combination;
+`verify-package.py` then reads the packed `.nupkg` and fails when a RID is missing from
+`runtimes/<rid>/native/`. A package that builds but packs six RIDs is as red as one that does not
+compile.
 
 | RID | Runner | Built as | Library |
 | --- | --- | --- | --- |
@@ -276,41 +277,50 @@ that builds but packs five RIDs is as red as one that does not compile.
 | `linux-x64` | `ubuntu-latest` | host build | `libsharp_text_*.so` |
 | `linux-arm64` | `ubuntu-24.04-arm` | host build | `libsharp_text_*.so` |
 | `linux-musl-x64` | `ubuntu-latest` | cross-compile, `--target x86_64-unknown-linux-musl` | `libsharp_text_*.so` |
+| `linux-musl-arm64` | `ubuntu-24.04-arm` | musl build on a matching host, `--target aarch64-unknown-linux-musl` | `libsharp_text_*.so` |
 | `osx` | `macos-15-intel` | host build | `libsharp_text_*.dylib` |
 
 **What each entry proves.** The `win-*`, `linux-x64`, `linux-arm64` and `osx` entries compile the
 crate on the platform that will load it, run `cargo fmt`, `cargo clippy --all-targets -D warnings`
 and the crate's unit tests there, then stage the library under `native/artifacts/<rid>/`. The
-`linux-musl-x64` entry is the only cross-compile: Rust cannot emit a `cdylib` for a musl target — it
-drops the crate type with a warning and writes only the `staticlib` — so the job links the archive
-into a shared object with `musl-gcc`, naming every exported entry point on the link line so the
-linker keeps it, then strips the result. That is the compiler's recipe, and the four crates need
-nothing more: their dependency trees (`rxing` and `image` for barcodes, `ocrs`, `rten` and `hayro`
-for OCR, `zip` and `roxmltree` for DOCX, `calamine` and `zip` for XLSX) are pure Rust, so no C
-library is vendored and `musl-gcc` needs no `pkg-config` path the way the compiler's OpenSSL does.
-The musl entry also runs `cargo clippy` and the unit tests for that target: a musl test binary is
-statically linked and runs on the glibc runner, so the entry proves the crate both builds and passes
-there.
+`linux-musl-x64` and `linux-musl-arm64` entries are the ones that link by hand: Rust cannot emit a
+`cdylib` for a musl target — it drops the crate type with a warning and writes only the `staticlib`
+— so the job links the archive into a shared object with `musl-gcc`, naming every exported entry
+point on the link line so the linker keeps it, then strips the result. Only the x64 one is a
+cross-compile: on the arm64 pool `musl-tools` installs an aarch64 `musl-gcc`, the architecture the
+target links for, so no `aarch64-linux-musl-cross` toolchain and no per-crate linker configuration
+are involved. That is the compiler's recipe, and the five crates need nothing more: their
+dependency trees (`rxing` and `image` for barcodes, `ocrs`, `rten` and `hayro` for OCR, `zip` and
+`roxmltree` for DOCX, `calamine` and `zip` for XLSX, `hayro` and `vello_cpu` for PDF) are pure Rust,
+so no C library is vendored and `musl-gcc` needs no `pkg-config` path the way the compiler's OpenSSL
+does. Both musl entries also run `cargo clippy` and the unit tests for their target: a musl test
+binary is statically linked and runs on the glibc runner, so the entry proves the crate both builds
+and passes there.
 
 **What the matrix does not prove, and what does.** A build is not a load: a musl `.so` compiled for
-the wrong libc, a truncated archive or a missing symlink all compile. The `musl (Alpine)` job of
-`ci-text.yml` closes that gap. It packs the four packages, publishes each one's example
-self-contained for `linux-musl-x64` (so every native asset of the package lands next to the
+the wrong libc, a truncated archive or a missing symlink all compile. Two jobs of `ci-text.yml`
+close that gap, one per architecture. `musl (Alpine)` packs the five packages, publishes each one's
+example self-contained for `linux-musl-x64` (so every native asset of the package lands next to the
 executable instead of staying in the NuGet cache the container cannot see), and runs it inside
 `mcr.microsoft.com/dotnet/runtime-deps:11.0-alpine` — the image a default .NET container is built
-from. Each example prints what it did with the library loaded from the package, so a library that
-does not load fails with `DllNotFoundException` in that container rather than in a consumer's.
+from; `musl (Alpine arm64)` does the same for `linux-musl-arm64` on `ubuntu-24.04-arm`, where the
+image is pulled for arm64 with no `--platform` flag. Each example prints what it did with the
+library loaded from the package, so a library that does not load fails with `DllNotFoundException`
+in that container rather than in a consumer's.
 
-**What is still not proven.** Only `linux-musl-x64` is built for musl, exactly as for the compiler:
-no musl build is shipped for arm64, so an Alpine arm64 image gets no native asset it can load. The
-`osx` entry builds the host slice only; the universal dylib is produced by the release workflow's
-`lipo` step, and the package ships it under `runtimes/osx/native/` when the artifacts hold it. No
-job executes the four libraries on macOS ARM: that one is covered on the Intel pool with the x86_64
-slice, the same trade the compiler workflow makes for its own `osx` entry.
+**What is still not proven.** The compiler package has no musl arm64 build:
+`M3scalinum.Text.Typst` vendors OpenSSL for `x86_64-unknown-linux-musl` alone, so `typst-kit`'s
+downloader has no vendored TLS for `aarch64-unknown-linux-musl` and an Alpine arm64 consumer of the
+compiler still gets `DllNotFoundException` (08 §6). The `osx` entry builds the host slice only; the
+universal dylib is produced by the release workflow's `lipo` step, and the package ships it under
+`runtimes/osx/native/` when the artifacts hold it. No job executes the five libraries on macOS ARM:
+that one is covered on the Intel pool with the x86_64 slice, the same trade the compiler workflow
+makes for its own `osx` entry, and `osx-arm64` resolves to no separate asset because the universal
+dylib carries both slices.
 
 **Cache.** Each crate and RID pair caches the *library* it produces under
 `native/artifacts/<rid>/`, keyed on the crate's manifest, lock file and sources, so a managed-only
-pull request restores twenty-four libraries instead of compiling them. The recipe itself lives in
+pull request restores thirty-five libraries instead of compiling them. The recipe itself lives in
 the workflow, not in the crate, which is why `NATIVE_CACHE_VERSION` is the knob that invalidates it.
 
 ## 12. The per-package coverage table

@@ -1,0 +1,35 @@
+<Project>
+
+  <!--
+    Packs the seventh RID of the five packages that carry a Rust library of their own.
+
+    Each of those csproj files lists its `runtimes/<rid>/native/` entries literally — one per RID,
+    each conditioned on the staged library existing. `linux-musl-arm64` is not in those lists: the
+    change that added it owned the workflow matrix, the staging and the verifier, not `src/`, so the
+    declaration of the RID made its way here instead. The package a consumer installs carries the
+    arm64 musl library all the same, and `tests/verify-package.py` is what proves it did.
+
+    The workflows import this file through the two hooks Microsoft.Common.targets exposes — one for
+    a single-target-framework build, one for the outer multi-targeting build — by exporting
+    `CustomAfterMicrosoftCommonTargets` and `CustomAfterMicrosoftCommonCrossTargetingTargets`. A
+    project not named below, or a run where the library was never staged, gets nothing: every item
+    is conditioned on the file existing, exactly as the csproj entries are.
+
+    The end state is five `<None Include=...>` lines in the csproj files and no such file here;
+    nothing but the workflows' two environment variables depends on this one.
+  -->
+  <PropertyGroup>
+    <_MuslArm64Directory>$(MSBuildProjectDirectory)/../../native/artifacts/linux-musl-arm64</_MuslArm64Directory>
+    <_MuslArm64Library Condition="'$(MSBuildProjectName)' == 'Text.Barcodes'">libsharp_text_barcodes.so</_MuslArm64Library>
+    <_MuslArm64Library Condition="'$(MSBuildProjectName)' == 'Text.Ocr'">libsharp_text_ocr.so</_MuslArm64Library>
+    <_MuslArm64Library Condition="'$(MSBuildProjectName)' == 'Text.Docx'">libsharp_text_docx.so</_MuslArm64Library>
+    <_MuslArm64Library Condition="'$(MSBuildProjectName)' == 'Text.Xlsx'">libsharp_text_xlsx.so</_MuslArm64Library>
+    <_MuslArm64Library Condition="'$(MSBuildProjectName)' == 'Text.Pdf'">libsharp_text_pdf.so</_MuslArm64Library>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(_MuslArm64Library)' != '' and Exists('$(_MuslArm64Directory)/$(_MuslArm64Library)')">
+    <None Include="$(_MuslArm64Directory)/$(_MuslArm64Library)"
+          Pack="true" PackagePath="runtimes/linux-musl-arm64/native/" Visible="false" />
+  </ItemGroup>
+
+</Project>

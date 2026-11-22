@@ -37,6 +37,16 @@ env:
   DOTNET_CLI_TELEMETRY_OPTOUT: true
   # Bump this to invalidate the native caches below; the crate source is hashed into the key.
   NATIVE_CACHE_VERSION: v1
+  # The five packages that carry a Rust library declare one `runtimes/<rid>/native/` entry per RID
+  # in their csproj, and `linux-musl-arm64` is missing from those lists — the change that added the
+  # RID owned this workflow, the staging and the verifier, not `src/`. These two hooks are how
+  # Microsoft.Common.targets lets a file outside the project add the entry at pack time: one for the
+  # inner single-TFM build, one for the outer multi-targeting build `dotnet pack` starts with. The
+  # file conditions every item on the library existing, so a job that stages nothing is unaffected.
+  # Both properties are exported rather than passed on each command line so that no pack step can
+  # forget them; `tests/verify-package.py` is what notices if one does.
+  CustomAfterMicrosoftCommonTargets: ${{ github.workspace }}/.github/native/linux-musl-arm64.targets
+  CustomAfterMicrosoftCommonCrossTargetingTargets: ${{ github.workspace }}/.github/native/linux-musl-arm64.targets
 
 # Read-only by default: no job here writes to the repository. The publish job of release-text.yml
 # overrides this with the OIDC permission it needs.
@@ -270,17 +280,18 @@ jobs:
     # nothing compiled them — a Dependabot bump of `zip` in native/text-docx reached main with every
     # check green and a broken build.
     name: native (${{ matrix.crate }}, ${{ matrix.rid }})
-    # Six RIDs per crate, the same set the package ships, because `verify-package.py` demands every
+    # Seven RIDs per crate, the same set the package ships, because `verify-package.py` demands every
     # one of them: a linux-only job packs a package with one native and the check then fails, or worse,
-    # passes for a package missing five architectures. That is the compiler's six, `linux-musl-x64`
-    # included — the three format packages carry a hand-linked musl build for the same reason the
-    # compiler does, so an Alpine consumer of `mcr.microsoft.com/dotnet/runtime-deps:11.0-alpine`
-    # gets a library it can load.
+    # passes for a package missing six architectures. That is the compiler's six, `linux-musl-x64`
+    # included, plus `linux-musl-arm64` — the five crates carry a hand-linked musl build for the same
+    # reason the compiler does, so an Alpine consumer of
+    # `mcr.microsoft.com/dotnet/runtime-deps:11.0-alpine` gets a library it can load, on either
+    # architecture.
     strategy:
       fail-fast: false
       matrix:
         crate: [text-barcodes, text-ocr, text-docx, text-xlsx, text-pdf]
-        rid: [win-x64, win-arm64, linux-x64, linux-arm64, linux-musl-x64, osx]
+        rid: [win-x64, win-arm64, linux-x64, linux-arm64, linux-musl-x64, linux-musl-arm64, osx]
         # `rid` is an axis, not an `include` entry: an include that adds a key absent from every
         # combination is merged into each of them in turn, so the last one wins and the matrix
         # collapses to the crates on macOS alone. Crossing on both axes and letting these entries
@@ -294,6 +305,11 @@ jobs:
           # `linux-musl-x64` to `linux-x64` without a word. Built on the x64 pool: the target is a
           # cross-compile, and musl-tools only ships an x86_64 host toolchain.
           - { rid: linux-musl-x64, os: ubuntu-latest, target: x86_64-unknown-linux-musl }
+          # The same gap on the other architecture, closed without a cross toolchain: on the arm64
+          # runner `musl-tools` installs an aarch64 musl-gcc, which is the architecture the target
+          # links for, so this entry reuses the recipe above instead of adding
+          # `aarch64-linux-musl-cross` and a `[target]` linker block to five crates.
+          - { rid: linux-musl-arm64, os: ubuntu-24.04-arm, target: aarch64-unknown-linux-musl }
           - { rid: osx, os: macos-15-intel, target: "" }
     runs-on: ${{ matrix.os }}
     env:
@@ -307,8 +323,8 @@ jobs:
       RUSTFLAGS: ${{ matrix.target != '' && '-C linker=musl-gcc' || '' }}
     steps:
       - uses: actions/checkout@v7
-      # Twenty-four Rust builds that no managed change can invalidate: each crate is hashed on its
-      # own, so a pull request touching only C# restores all twenty-four libraries instead of
+      # Thirty-five Rust builds that no managed change can invalidate: each crate is hashed on its
+      # own, so a pull request touching only C# restores all thirty-five libraries instead of
       # compiling them. Restored after the checkout, because `hashFiles` reads the workspace.
       - uses: actions/cache@v4
         id: natives
@@ -457,6 +473,11 @@ jobs:
           dotnet pack src/Text.Docx -c Release --no-build -o artifacts/packages
           dotnet pack src/Text.Ocr -c Release --no-build -o artifacts/packages
           dotnet pack src/Text.Xlsx -c Release --no-build -o artifacts/packages
+      - name: Prove the verifier refuses a package without linux-musl-arm64
+        # A verifier that only passes proves nothing. The selftest fabricates packages and asserts
+        # that one without that RID is refused, so deleting the requirement turns this red instead
+        # of quietly shrinking what the next step checks.
+        run: python3 tests/verify-package.py --selftest
       - name: Verify the packages
         # Three of them carry a native library each: a missing RID fails here rather than as a
         # DllNotFoundException in a consumer's application.
@@ -518,6 +539,60 @@ jobs:
             version=${nupkg#"artifacts/packages/$package".}
             export M3SCALINUM_PUBLISH_DIR="$PWD/artifacts/musl/$example"
             samples/examples/run.sh "$example" "$package" "${version%.nupkg}" "$PWD/artifacts/packages" --self-contained linux-musl-x64
+            docker run --rm -v "$M3SCALINUM_PUBLISH_DIR:/app" -w /app \
+              mcr.microsoft.com/dotnet/runtime-deps:11.0-alpine ./Example
+          done <<'TABLE'
+          Barcodes M3scalinum.Text.Barcodes
+          Ocr M3scalinum.Text.Ocr
+          Docx M3scalinum.Text.Docx
+          Xlsx M3scalinum.Text.Xlsx
+          Pdf M3scalinum.Text.Pdf
+          TABLE
+
+  musl-arm64:
+    name: musl (Alpine arm64)
+    # The job above, on the architecture the matrix now builds for: NuGet resolves
+    # `linux-musl-arm64` to `linux-arm64` without a word, so an Alpine arm64 image — a Graviton node,
+    # or an Apple Silicon host running Docker — would get a glibc library and fail with a
+    # DllNotFoundException that names the RID and not the cause. Only running the packaged example
+    # inside that image proves the arm64 asset loads; the matrix only proves it exists.
+    needs: [native-extras]
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 11.0.x
+      # No compiler artifact: the five packages under test carry their own libraries, and the
+      # compiler wrapper the feed also needs is packed here without natives, as ci-sharptypst packs
+      # it. The runner is arm64, so the Alpine image is pulled for arm64 with no `--platform`.
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: text-*-*
+          merge-multiple: true
+          path: native/artifacts
+      - run: dotnet restore
+      - run: dotnet build -c Release --no-restore
+      - name: Pack every package under test
+        # The same nine the x64 job packs: Docx and Xlsx pin the compiler wrapper and Docx's example
+        # converts through `.Documents`, so a feed holding one run's packages is the only way those
+        # dependencies resolve to the build under test rather than to nuget.org.
+        run: |
+          for project in Text.Pdf Text.Templates Text.Mcp Text.Barcodes Text.Ocr Text.Docx Text.Xlsx Text.Typst Text.Documents; do
+            dotnet pack "src/$project" -c Release --no-build -o artifacts/packages
+          done
+          ls -l artifacts/packages
+      - name: Run one example per package on Alpine
+        # Self-contained for `linux-musl-arm64`, so every native asset of the package lands next to
+        # the executable instead of in a NuGet cache the container cannot see, and the image is the
+        # one a default .NET container ships, on the architecture this runner is.
+        run: |
+          chmod +x samples/examples/run.sh
+          while read -r example package; do
+            nupkg=$(ls "artifacts/packages/$package".*.nupkg | head -n 1)
+            version=${nupkg#"artifacts/packages/$package".}
+            export M3SCALINUM_PUBLISH_DIR="$PWD/artifacts/musl-arm64/$example"
+            samples/examples/run.sh "$example" "$package" "${version%.nupkg}" "$PWD/artifacts/packages" --self-contained linux-musl-arm64
             docker run --rm -v "$M3SCALINUM_PUBLISH_DIR:/app" -w /app \
               mcr.microsoft.com/dotnet/runtime-deps:11.0-alpine ./Example
           done <<'TABLE'

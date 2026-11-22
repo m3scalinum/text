@@ -1187,4 +1187,42 @@ public sealed partial class TypstDocument
         _body.Add(new TypstIndexNode(title));
         return this;
     }
+
+    /// <summary>
+    /// Appends a <see cref="TypstSection"/>: its content inside a content block, with the header,
+    /// footer, watermark and page numbering it declares set for that block alone.
+    /// </summary>
+    /// <param name="section">The section, built with <see cref="TypstSection.Create"/>.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="section"/> is null.</exception>
+    /// <remarks>
+    /// The block is the whole mechanism: a <c>#set page</c> inside it applies to the pages the
+    /// section's content lands on and stops applying where the block closes, so the document's own
+    /// setup and its <see cref="TypstDocumentStyle"/> are untouched outside the section.
+    /// </remarks>
+    public TypstDocument Section(TypstSection section)
+    {
+        ArgumentNullException.ThrowIfNull(section);
+        _body.Add(new SectionNode(section));
+        return this;
+    }
+
+    /// <summary>
+    /// Appends a section configured in place, and fills its content from the same call.
+    /// </summary>
+    /// <param name="configure">Sets the section's header, footer, watermark and numbering.</param>
+    /// <param name="body">Writes the section's content; null leaves the section empty.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="configure"/> is null.</exception>
+    /// <remarks>
+    /// <c>document.Section(s => s.Footer("Partie I — page {page}"), b => b.Heading(1, "Contexte"))</c>
+    /// is the same section as one built with <see cref="TypstSection.Create"/> and passed to
+    /// <see cref="Section(TypstSection)"/>.
+    /// </remarks>
+    public TypstDocument Section(Action<TypstSection> configure, Action<TypstDocument>? body = null)
+    {
+        ArgumentNullException.ThrowIfNull(configure);
+        var section = TypstSection.Create();
+        configure(section);
+        body?.Invoke(section.Body);
+        return Section(section);
+    }
 }
