@@ -274,59 +274,9 @@ public sealed class TypstDocumentStyleBuilder
 
     /// <summary>
     /// Turns a header or footer text into a context block, so the page counter is available where the
-    /// running text is laid out.
+    /// running text is laid out. The section model writes the same expression.
     /// </summary>
-    private static string RunningText(string text)
-    {
-        var markup = new StringBuilder("context [ ");
-        var index = 0;
-
-        while (index < text.Length)
-        {
-            if (text[index] == '{')
-            {
-                var end = text.IndexOf('}', index + 1);
-
-                if (end > index && Placeholder(text[(index + 1)..end]) is { } replacement)
-                {
-                    markup.Append(replacement);
-                    index = end + 1;
-                    continue;
-                }
-            }
-
-            markup.Append(Escape(text[index]));
-            index++;
-        }
-
-        return markup.Append(" ]").ToString();
-    }
-
-    private static string? Placeholder(string name) => name switch
-    {
-        "page" => "#counter(page).display()",
-        "pages" => "#counter(page).final().first()",
-        "title" => "#document.title",
-        _ => null,
-    };
-
-    /// <summary>Escapes one character of literal running text, so it reaches the page as written.</summary>
-    private static string Escape(char character) => character switch
-    {
-        '\\' => "\\\\",
-        '#' => "\\#",
-        '$' => "\\$",
-        '*' => "\\*",
-        '_' => "\\_",
-        '`' => "\\`",
-        '<' => "\\<",
-        '>' => "\\>",
-        '@' => "\\@",
-        '~' => "\\~",
-        '[' => "\\[",
-        ']' => "\\]",
-        _ => character.ToString(),
-    };
+    private static string RunningText(string text) => TypstRunningText.Markup(text);
 
     private static string LanguageCode(TypstLanguage language) => language switch
     {

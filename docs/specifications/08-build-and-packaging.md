@@ -263,6 +263,56 @@ which `NativeLibraryResolver` probes first on a musl host (Spec 02 §9).
 `typst-kit`'s downloader links OpenSSL, which no musl host provides, so `Cargo.toml` vendors it for
 that triple alone; every other target keeps the system library.
 
+**Decision — the five native packages ship `linux-musl-arm64`.** `linux-musl-x64` alone left the
+other architecture open: NuGet resolves `linux-musl-arm64` to `linux-arm64` without a word, so an
+Alpine arm64 image — a Graviton node, or an Apple Silicon host running Docker — loaded a glibc
+library and failed with the very `DllNotFoundException` the x64 RID was added to remove.
+`M3scalinum.Text.Barcodes`, `.Ocr`, `.Docx`, `.Xlsx` and `.Pdf` now carry
+`runtimes/linux-musl-arm64/native/libsharp_text_*.so` as a seventh RID, built by the same
+`native (${{ matrix.crate }}, ${{ matrix.rid }})` matrix entry and demanded by
+`tests/verify-package.py` like the other six.
+
+**The linker, and why the arm64 pool builds it.** The entry runs on `ubuntu-24.04-arm` with
+`musl-tools`, whose `musl-gcc` there *is* an aarch64 musl compiler: the runner and the target share
+an architecture, so `--target aarch64-unknown-linux-musl` needs no cross toolchain and no
+`[target.aarch64-unknown-linux-musl]` linker block in any crate. Cross-compiling from the x64 pool
+would have meant `aarch64-linux-musl-cross` plus a cargo configuration per crate for a target that
+has a native runner; the repository already builds `linux-arm64` there, and this entry follows that
+choice instead of inventing a second one. Rust still refuses a `cdylib` for a musl target, so the
+link is the x64 recipe unchanged: the staticlib, `-Wl,-u` for every exported `bt_`/`to_`/`td_`/
+`tx_`/`tp_` symbol, `-lpthread -ldl -lm`, then `strip --strip-all`. The entry also runs the crate's
+`cargo test --lib` for that target, on a statically linked binary that executes on the glibc runner
+because it carries its own libc.
+
+**What it costs.** Thirty-five native builds per pull request instead of thirty — five crates times
+seven RIDs — each cached on its own crate-and-RID key, so a managed-only change still restores
+libraries instead of compiling them, and five new cache entries to fill the first time. One more
+job on the arm64 pool, `musl (Alpine arm64)`, publishes the five examples self-contained for
+`linux-musl-arm64` and runs them in `mcr.microsoft.com/dotnet/runtime-deps:11.0-alpine`. Every
+consumer downloads the extra arm64 slice whether they need it or not — the same trade the x64 musl
+entry made, and the `.nupkg` sizes the release job publishes are where the delta is measured.
+
+**Where the seventh RID is declared, and why not in the csproj.** Each of those five csproj files
+lists its `runtimes/<rid>/native/` entries literally, one per RID. `linux-musl-arm64` is not among
+them: the change that added the RID owned the workflow matrix, the staging and the verifier, and
+`src/` was outside it. `.github/native/linux-musl-arm64.targets` supplies the missing `None` item at
+pack time, imported through the two hooks `Microsoft.Common.targets` exposes —
+`CustomAfterMicrosoftCommonTargets` for the inner single-target build and
+`CustomAfterMicrosoftCommonCrossTargetingTargets` for the outer multi-targeting one — which
+`ci-text.yml` and `release-text.yml` export as environment variables so that no pack step can forget
+them. Every item is conditioned on the staged library existing, so a job that stages none is
+unaffected, and `tests/verify-package.py --selftest` — run by the `extras` job — fails if the
+requirement is deleted. It is machinery a reader should not have to know about: the end state is
+five `<None Include=...>` lines in the csproj files and the deletion of that file.
+
+**What `linux-musl-arm64` does not cover.** The compiler package has no such asset:
+`M3scalinum.Text.Typst` vendors OpenSSL for `x86_64-unknown-linux-musl` alone, so `typst-kit`'s
+downloader has no vendored TLS for the arm64 musl triple and the target is not built at all; an
+Alpine arm64 consumer of the compiler still gets `DllNotFoundException`, which is a `Cargo.toml`
+change of its own. macOS is unchanged and stays a single universal `osx` dylib: `osx-arm64` loads
+the arm64 slice of it, no `osx-arm64` native asset exists, and no job executes that slice on an
+arm64 Mac (Spec 09 §11).
+
 **Decision — `M3scalinum.Text.Typst.Native` is merged, not published.** Every type in that assembly is
 `internal`, so it is an implementation detail. The project reference carries `PrivateAssets="all"`
 and the assembly is added to the package through `TargetsForTfmSpecificBuildOutput`, so the

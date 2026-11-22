@@ -30,7 +30,7 @@ file names, to find what you want.
 | 27 | [27-html-export.md](27-html-export.md) | Writing the model as semantic HTML5, and what HTML cannot hold |
 | 12 | [12-dependency-injection.md](12-dependency-injection.md) | The `M3scalinum.Text.Typst.DependencyInjection` package: services, lifetimes, options, validation |
 | 32 | [32-localized-formatting.md](32-localized-formatting.md) | `TypstFormatting`: dates, numbers and amounts per language, with no culture lookup |
-| 34 | [34-document-style.md](34-document-style.md) | `TypstDocumentStyle`: page, body, headings, language, header and footer declared once, applied to any document |
+| 34 | [34-document-style.md](34-document-style.md) | `TypstDocumentStyle`: page, body, headings, language, header and footer declared once, applied to any document; `TypstSection`: a header, a footer and a watermark per part |
 | 37 | [37-footnotes-and-numbering.md](37-footnotes-and-numbering.md) | `TypstNumberingScope`: footnotes and figures numbered per document or per section, and the rules each writes |
 | 38 | [38-table-pagination.md](38-table-pagination.md) | Table headers repeated across pages, rows kept whole, and what Typst guarantees about the break |
 | 41 | [41-columns-and-margin-notes.md](41-columns-and-margin-notes.md) | `TypstPageSetup.Columns` and the page-level primitive that paginates, the gutter, and `TypstMarginNote` placed level with its marker |

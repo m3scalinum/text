@@ -20,7 +20,7 @@ placeholders.
 | Not done | Why |
 | --- | --- |
 | Conditional styles — a page that differs on the first page, an even/odd header | A style describes one presentation. `#set page` with a function, or `TypstPageSetup` used directly, is one `Set` call away, and a conditional is a layout decision, not a declaration. |
-| Styles per section | The document model has no sections: `#set` rules are scoped by the markup they precede, and a document is one run of content. A caller that needs a boundary writes a raw `#[…]` block, as it does today. |
+| Styles per section | A style is one presentation for the whole document. The boundary between parts is `TypstSection` (§8), a page setup scoped to a block, not a style: two styles do not combine and a section carries no body font, no heading size and no language. |
 | Heading levels 4 to 6 | A document's outline is three levels deep in practice; the deeper levels are the pack's business. A style that covers them would need a fourth and fifth configuration for prose nobody writes. |
 | A numbering pattern other than `1.1.1` | Numbering is a yes or no in this model, as the item states. A pattern language would duplicate Typst's `numbering` argument for no gain: a caller that needs `I.` or `a)` passes it through `Set`. |
 | Composition, inheritance, "extends" | Two styles do not combine. Applying a second style replaces the first, which is the only behaviour that can be explained in one sentence. |
@@ -176,9 +176,9 @@ case in this suite; the template pack's documents are the same type and take the
 
 Stated here so that no reader expects it:
 
-- **No per-section or conditional style.** One style, one document, from the first page to the last.
-  A first page without a header is `Page` on the document plus `Set("page(header: none)")`, or a raw
-  block; it is not a style.
+- **No per-section style.** One style, one document, from the first page to the last. A part that
+  changes header, footer, watermark or page numbering is a `TypstSection` (§8): a page setup scoped to
+  a block, which carries no typography and does not combine with the style.
 - **No style arithmetic.** Styles do not merge, do not `Extend` and do not fall back to a default. A
   document applies one style or none.
 - **No content in the header beyond text.** A logo is `TypstPageSetup.WithHeader` with a `TypstContent`
@@ -188,7 +188,100 @@ Stated here so that no reader expects it:
 - **No effect on HTML or Markdown export.** Both read the document's nodes, not its preamble; a styled
   document exports exactly like the same document without a style.
 
-## 8. Tests
+## 8. Sections: a header, a footer and a watermark per part
+
+A `TypstDocumentStyle` describes one presentation from the first page to the last. A contract changes
+footer at every part and opens on a cover, so the model has a boundary that carries its own page
+setup:
+
+```csharp
+var report = TypstDocument.Create()
+    .Apply(style)
+    .Section(
+        section => section.NoPageNumber().NoHeader().Footer("COUVERTURE"),
+        body => body.Heading(1, "Rapport annuel").Paragraph("Page de garde"))
+    .Section(
+        section => section
+            .Header("Partie I")
+            .Footer("Partie I — page {page}")
+            .Watermark("BROUILLON"),
+        body => body.Heading(1, "Contexte").Paragraph("Le contrat commence."))
+    .Section(
+        section => section.Header("Partie II").Footer("Partie II — page {page}"),
+        body => body.Heading(1, "Annexes").Paragraph("Les annexes suivent."));
+```
+
+- `TypstSection` — `Create`, `Header`, `NoHeader`, `Footer`, `NoFooter`, `Watermark`, `NoWatermark`,
+  `PageNumbering`, `NoPageNumber`, `StartsOnNewPage`, and `Body`, a whole `TypstDocument`.
+- `TypstWatermark` — the word drawn across the page, with `Angle`, `Size`, `Color` and `Opacity`.
+- `TypstDocument.Section(TypstSection)` and `TypstDocument.Section(configure, body)` — the second
+  builds the section and its content in one call and writes the same markup as the first.
+
+A section replaces what the document and its style declared, for its own pages only: a section with a
+footer and no header keeps the document's header, `NoHeader` removes it, and `NoFooter` removes the
+footer. The three `{page}`, `{pages}` and `{title}` placeholders are the ones `Header` and `Footer` on
+a `TypstDocumentStyle` accept, written by the same helper.
+
+### 8.1 The primitive, and what the measurements ruled out
+
+Typst has no section element, so the candidates were compiled and read rather than assumed.
+
+| Candidate | What a compiled document showed |
+| --- | --- |
+| `#set page(header: …)` at the top of the document, before each part's content | Works: three parts produced three headers on three pages. **Not usable as a section**: the rule has no end, so the last part's setup stays in force for every page after it and the document's own footer never comes back. |
+| The same rule inside a `#[ … ]` content block | **Chosen.** Three sections produced three footers, and content written after the last block came back to the document's footer (`Rapport — page 3` in the measurement). Typst scopes the rule to the block. |
+| `context` + `counter(page)` to pick a header from a page range | Not needed: a scoped `set page` already gives the right header per page. A range test would duplicate the page numbers in the source and break as soon as a part grew by one page. |
+| A `header` function that reads a `state` the section updates | Works — page 1 read `PARTIE UN`, page 2 read `PARTIE DEUX` — but it needs a named `#let` and an `update` call per section, and the value is read where the page is laid out, so a section that starts mid-page changes the header of that page. The scoped rule needs no name and closes with the block, so the model writes that. |
+| `#set page` inside a `#let` function | Applies to the pages the function's content lands on and ends with it (measured: the function's page carried `DANS`, the next page the document's `DOC`). The model does not use it: a block is the caller-visible boundary. |
+
+Two facts of the layout shape the API, and both were measured:
+
+- **A change of page setup starts a new page.** A 400-word paragraph, then a content block that sets
+  a new footer, then another paragraph produced three pages: page 1 the paragraph and the document
+  footer, page 2 only the block, page 3 the trailing paragraph and the document footer again. The
+  same document with a content block that sets nothing produced two pages. Two sections therefore
+  never share a page, and `StartsOnNewPage` matters only for a section that overrides nothing.
+- **The block closes the override.** Content after `]` is laid out with the document's own setup and
+  its style, as the third page of that measurement shows.
+
+### 8.2 A cover with no page number
+
+`NoPageNumber` writes `numbering: none` — the page number is not displayed, the counter is not
+touched. Measured on a cover followed by two numbered pages: the cover carries no number, the next
+page reads `2`, the one after `3`. `PageNumbering("i")` writes another format for the section, which
+is how a report numbers its preliminaries in roman and its body in arabic.
+
+A cover with neither header nor page number is therefore one section:
+
+```csharp
+document.Section(section => section.NoPageNumber().NoHeader(), body => body.Heading(1, "Titre"));
+```
+
+### 8.3 The watermark
+
+A watermark is the page's `background`, not content: `place(center + horizon, rotate(-30deg, text(…)))`
+centred on the page, drawn before the body on every page the section covers, at `15 %` by default. The
+defaults are a 30° counter-clockwise slant, 72 pt, and `luma(0.7).transparentize(85%)`; `Opacity(1)`
+drops the transparency, and `Angle`, `Size` and `Color` write the rest.
+
+It is text, so it is extractable: `ExtractTextPages` returns the mark's word on each covered page, at
+the start of the page's text, before the body it is drawn behind. A caller that extracts text and
+wants the mark kept apart filters the word it passed to `Watermark`; the extraction does not label it.
+The mark does not disturb the body: the words of the paragraph come out in reading order, contiguous,
+and a later section's `NoWatermark` removes it for that section only.
+
+### 8.4 What is not covered
+
+- **No `firstPage` flag.** Typst 0.15.1 has no first-page selector on `set page`; a distinct first page
+  is a section whose content is that page, which is what §8.2 shows.
+- **No header content beyond text.** A logo is `TypstPageSetup.WithHeader` with a `TypstContent` on the
+  document; a section carries text and placeholders, like a style.
+- **No section numbering of its own.** A part title is a `Heading` in the section's body; the outline
+  and the heading counter are the document's, not the section's.
+- **Sections do not merge.** Each writes its own `#set page` inside its own block; a section that
+  declares nothing writes an empty block, which is a page break and nothing else.
+
+## 9. Tests
 
 `tests/Text.Typst.Tests/DocumentStyleTests.cs` — twenty-six tests, no native library.
 
@@ -220,6 +313,53 @@ Stated here so that no reader expects it:
 | Empty style writes nothing | `An_empty_style_writes_nothing` |
 | Null style refused | `Applying_a_null_style_is_refused` |
 | The builder can build twice | `A_builder_can_build_twice_and_both_styles_are_independent` |
+
+`tests/Text.Typst.Tests/SectionHeaderTests.cs` — twenty-seven tests, no native library; they pin the
+markup a section writes.
+
+| Behaviour | Test |
+| --- | --- |
+| Footer written inside a content block | `A_section_writes_its_footer_inside_a_content_block` |
+| A section that declares no header keeps the document's | `A_section_that_declares_no_header_leaves_the_documents_header_alone` |
+| `NoHeader` writes `none` | `A_section_can_remove_the_header_with_none` |
+| `NoFooter` writes `none` | `A_section_can_remove_the_footer_with_none` |
+| `NoWatermark` writes `none` | `A_section_can_remove_the_documents_watermark` |
+| Watermark is a centred, slanted background | `The_watermark_is_a_page_background_centred_and_slanted` |
+| Opacity 1 draws the colour as it is | `A_watermark_with_full_opacity_is_drawn_in_its_own_colour` |
+| Any other opacity is transparency | `A_watermark_opacity_is_written_as_a_transparency` |
+| Cover numbering | `A_cover_page_is_numbered_none_and_the_counter_keeps_counting` |
+| A section's own numbering format | `A_section_can_number_its_pages_with_its_own_format` |
+| A format undoes a hidden number | `A_hidden_page_number_is_undone_by_a_later_format` |
+| `StartsOnNewPage` writes the break before the block | `A_section_that_starts_on_a_new_page_writes_the_break_before_its_block` |
+| No break unless asked | `A_section_that_does_not_ask_for_a_break_writes_none` |
+| A section overrides only what it declares | `A_section_only_overrides_what_it_declares` |
+| A section that declares nothing writes an empty block | `A_section_that_declares_nothing_writes_an_empty_block` |
+| The style's three placeholders, verbatim | `The_section_footer_uses_the_same_three_placeholders_as_a_style` |
+| An unknown placeholder stays literal | `An_unknown_placeholder_in_a_section_footer_stays_literal` |
+| Blank header, footer, watermark refused | `A_blank_section_header_is_refused`, `A_blank_section_footer_is_refused`, `A_blank_watermark_is_refused` |
+| Opacity outside 0 to 1 refused | `An_opacity_outside_zero_to_one_is_refused` |
+| Null section refused | `A_null_section_is_refused` |
+| The body keeps the document API | `A_section_body_keeps_the_document_api_inside_the_block` |
+| Prepared and configured sections write the same markup | `A_prepared_section_and_a_configured_section_write_the_same_markup` |
+| Three sections, three page rules | `Three_sections_write_three_page_rules` |
+| No section, no block | `A_document_without_a_section_writes_no_block` |
+| A body's own `#set` stays inside the block | `A_set_rule_inside_a_section_body_stays_inside_the_block` |
+
+`tests/Text.Typst.Integration.Tests/SectionHeaderIntegrationTests.cs` — nine tests against the real
+compiler, through `SHARPTYPST_NATIVE_PATH`; each one reads the pages of the produced PDF, not the
+markup.
+
+| Behaviour | Test |
+| --- | --- |
+| Three sections, three footers, cover unnumbered | `Three_sections_carry_three_footers_and_the_cover_has_no_page_number` |
+| A header is drawn on every page of its section | `A_header_is_drawn_on_every_page_of_its_section_and_stops_at_the_next` |
+| The watermark is on the page and the body is intact | `The_watermark_is_drawn_on_the_page_and_the_body_text_stays_intact` |
+| A later section drops the watermark | `A_later_section_can_drop_the_watermark` |
+| A section's numbering format reaches the pages | `A_section_page_numbering_format_reaches_the_pages` |
+| A section keeps the footer it does not override | `A_section_keeps_the_document_footer_it_does_not_override` |
+| A setup change starts a new page | `A_change_of_page_setup_starts_a_new_page_so_two_sections_never_share_one` |
+| The document footer returns after the block | `The_document_footer_comes_back_after_the_section_closes` |
+| No section, same rendering | `A_document_without_a_section_still_renders_its_own_footer` |
 
 The code blocks in this document are checked by `DocumentationDriftTests`: every `Typst…` type and
 every method named here exists in the public surface.
