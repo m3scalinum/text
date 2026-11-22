@@ -19,8 +19,12 @@ byte[] signed = PdfSigner.Sign(pdf, certificate, new PdfSignatureOptions
 });
 ```
 
-That is the whole API surface: one static method and one options record. Everything else — which
-certificate, which key store, when the signature is applied — belongs to your application.
+That is the signing entry point: one static method and one options record for the common case. The
+rest of the package is a set of independent static APIs over the same bytes — `PdfSignatureVerifier`,
+`PdfConformance`, `PdfText`, `PdfPages`, `PdfForm`, `PdfAttachments`, `PdfOutline`, `PdfEncryption`,
+`PdfAConverter`, `PdfBatchManifest`, `PdfRaster` and `PdfLotl` — and each takes a PDF and returns
+either bytes or a typed report. Which certificate, which key store and when the signature is applied
+still belong to your application.
 
 ## What it is for
 

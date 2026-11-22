@@ -28,6 +28,8 @@
 - [Pages and forms](Pdf-Pages-and-Forms)
 - [Reading text](Pdf-Text)
 - [Encryption](Pdf-Encryption)
+- [Outlines and attachments](Pdf-Outlines-and-Attachments)
+- [Batches and trust](Pdf-Batches-and-Trust)
 - [Converting to PDF/A](Pdf-Conversion)
 
 **Formats and engines** — one page each
