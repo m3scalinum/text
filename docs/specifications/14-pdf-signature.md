@@ -97,7 +97,8 @@ expired and the responder is gone:
 Every list is caller-supplied on purpose. Fetching a CRL or an OCSP response means naming a URL the
 document chose, over a network the library does not own; a signature library that does that silently
 is a signature library that leaks where its documents are opened. The signature is written with
-whatever the caller collected, and the verifier reports how far that material goes.
+whatever the caller collected, and the verifier reports how far that material goes. Section 11 covers
+the named seam that answers "what did you collect" certificate by certificate.
 
 The store is a dictionary the catalog points at (`/DSS`, indirect), with `/Certs`, `/OCSPs` and
 `/CRLs` arrays of streams holding the DER bytes. It is written in the same revision as the signature,
@@ -315,3 +316,71 @@ the tokens' own CMS verifies. The LTA claim itself rests on the verifier and the
   evidence of anything.
 - The signature covers the file as it is. Signing a document that is later modified invalidates it,
   which is the point.
+
+## 11. The revocation seam
+
+`PdfSignatureOptions.Dss` says what to embed; `PdfSignatureOptions.RevocationSource` says who
+answers for a certificate. The two exist together because they answer different questions: the store
+is a list of bytes, and a source is a function the writer calls once per certificate of the chain.
+
+```csharp
+public interface IRevocationSource
+{
+    PdfRevocationAnswer GetRevocation(X509Certificate2 certificate, X509Certificate2 issuer);
+}
+```
+
+`PdfRevocationAnswer` carries an OCSP response, a CRL, both, or `PdfRevocationAnswer.None`. The bytes
+are the structures as the responder or the issuer returned them: the writer embeds them verbatim, so
+a reader years later verifies the very thing the responder signed.
+
+**Who does what.** The source runs on the caller's side: it reaches whatever responder the caller's
+policy allows, through whatever HTTP client, proxy or pinning the caller configured, and it keeps
+whatever cache it trusts. The suite calls `GetRevocation` synchronously, once per certificate that
+has an issuer inside the supplied chain (the root is skipped — it is its own authority), and asks
+nothing else. There is no URL in this package, no `HttpClient` of its own, no cache and no clock: a
+grep for `HttpClient` across `src/Text.Pdf` finds only the `TimestampClient` the caller hands in for
+RFC 3161, never a connection the library opens.
+
+**The default level.** Supplying a `RevocationSource` makes **PAdES-B-LT the level the call is
+configured to reach** — `PdfSignatureResult.Level` reports `BaselineLT`. Without a source, the
+previous behaviour is unchanged: the store is whatever `Dss` holds, and no level is enforced. With no
+store and no source, the signature is B, or B-T when a timestamp authority is supplied.
+`PdfSignatureOptions.Level` overrides the default when the caller needs to name it. B-LT sits on top
+of B-T: with a source but no timestamp authority the store is still written, and the signature reads
+back as B, because a store proves nothing about when — that is what the timestamp is for.
+
+**What is refused.** For PAdES-B-LT, every certificate of the chain needs an OCSP answer or a CRL
+that names it. When one has neither, the write is refused with `PdfRevocationException`, whose
+`Subject`, `Issuer` and `SerialNumber` name the certificate and whose message says both remedies:
+answer for it from the source, or ask for `BaselineT`. The signature is not produced — a B-LT that
+quietly degraded to B-T would claim evidence the file does not carry.
+
+**What is honoured.** `Level = PdfSignatureLevel.BaselineT` with an incomplete source is a deliberate
+choice, and it succeeds: the answers that do exist are embedded, nothing is refused, and
+`PdfSignatureResult.MissingRevocation` lists the certificates that have none. `Level` set to
+`BaselineLTA` is refused, because archiving needs a document timestamp over the finished file; set
+`BaselineLT` and call `PdfArchiveTimestamp.Refresh` on the result. `Level = PdfSignatureLevel.None`
+is refused as well: it asks for nothing.
+
+**What the writer checks, and what it does not.** The writer parses each answer far enough to be sure
+it is the right structure and that it names the certificate — the serial and issuer hash for OCSP,
+the issuer name for a CRL. It does **not** authenticate the response: a delegated responder, whose
+answer is signed by a certificate the issuer authorised, is something the writer will happily embed,
+and the reader will not treat as evidence. The signature's proof of B-LT rests on the verifier, not
+on the writer's opinion, so a response whose signature does not verify yields a document that reads
+back as B-T.
+
+**Reading the store back.** `PdfSignatureVerifier.ReadRevocation(pdf)` returns one
+`PdfRevocationCoverage` per certificate the store embeds, saying whether an OCSP answer covers it and
+when it was produced, whether a CRL covers it and when it was issued, and the serial number that ties
+the report to the certificate. This is the cache side of the seam: a caller can see how old the
+evidence in a file is without asking a responder, and can decide to refresh it. Coverage means the
+answer was signed by the issuer and names the certificate; it does not mean the certificate is
+trusted, nor that the responder is one the caller accepts.
+
+**What remains the caller's job.** Fetching — with authentication, retries, timeouts and a cache that
+respects `nextUpdate`; deciding whether a delegated responder is acceptable; keeping the answers
+fresh for as long as the document must be provable; and re-archiving with
+`PdfArchiveTimestamp.Refresh` when the revocation data or the digests age out. None of that is
+visible from the PDF, and none of it can be proven by the PDF.
