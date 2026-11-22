@@ -1,0 +1,43 @@
+name: dependency policy
+
+# The register in docs/specifications/dependencies.md is only worth the check that reads it. The
+# offline mode runs on every pull request and needs no network: it compares the crates declared in
+# the Cargo.toml files with the rows of the register, so a new Rust dependency cannot arrive without
+# a licence, a traction figure and a decision. The online mode asks crates.io for every documented
+# crate and catches a licence that moved between two releases; it runs on demand only, so a
+# rate-limited or unreachable crates.io never turns a pull request red for a reason that is not the
+# code's.
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A branch pushed three times otherwise runs three checks over the same commits.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  policy:
+    name: dependency policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      # Standard library only, so there is nothing to install. `pull_request` is the check that
+      # refuses an undocumented crate.
+      - name: Coverage of the register (offline)
+        run: python3 tools/check-dependencies.py --offline
+
+      # Only where a person is watching: a network failure here means "run it again", and the
+      # message the script prints at exit status 2 says so.
+      - name: Licences and release dates (crates.io)
+        if: github.event_name == 'workflow_dispatch'
+        run: python3 tools/check-dependencies.py
