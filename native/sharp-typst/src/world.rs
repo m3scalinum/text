@@ -15,11 +15,11 @@ use typst::text::{Font, FontBook};
 use typst::utils::LazyHash;
 use typst::{Feature, Features, Library, LibraryExt, World, WorldExt};
 use typst_kit::downloader::{Downloader, SystemDownloader};
-use typst_kit::fonts::FontSource;
 use typst_kit::packages::{FsPackages, SystemPackages, UniversePackages};
 
 use crate::config::{ClockConfig, Limits, PackagesConfig, WorldConfig};
 use crate::ffi::{TN_ERR_LIMIT, TnError};
+use crate::fonts::{FontIndex, HostSources, IndexOptions, shared_index};
 
 /// A downloader that refuses everything: the offline default.
 ///
@@ -85,7 +85,12 @@ fn build_packages(config: &PackagesConfig) -> SystemPackages {
 pub struct NetWorld {
     library: Arc<LazyHash<Library>>,
     book: Arc<LazyHash<FontBook>>,
+    /// The fonts embedded in the binary: never copied, shared by every world.
     fonts: Arc<Vec<Font>>,
+    /// Faces the host registered with `add_font`, after the embedded ones.
+    extra: Vec<Font>,
+    /// The host's indexed fonts, shared by every world that asked for the same sources.
+    host: Option<Arc<FontIndex>>,
     /// How many of `fonts` are the ones embedded in the binary — the rest are the host's.
     embedded_fonts: usize,
     sources: RwLock<HashMap<FileId, Source>>,
@@ -140,44 +145,42 @@ fn shared() -> &'static Shared {
 
 /// The font book and fonts of a world: the shared embedded set, plus whatever the host asked for.
 ///
-/// Host fonts are opt-in: a compile never reads the file system unless the caller asks. Only such a
-/// world copies the embedded set; the common case shares it.
-fn fonts_for(config: &crate::config::FontsConfig) -> (Arc<LazyHash<FontBook>>, Arc<Vec<Font>>) {
-    let shared = shared();
+/// Host fonts are opt-in: a compile never reads the file system unless the caller asks. The
+/// metadata scan is not per world — [`crate::fonts::shared_index`] returns the process-wide index
+/// for the same sources, so the second world and the two-thousandth cost a lookup, and the faces
+/// are parsed when a compilation first uses them.
+fn fonts_for(
+    config: &crate::config::FontsConfig,
+    shared: &Shared,
+) -> (Arc<LazyHash<FontBook>>, Option<Arc<FontIndex>>) {
+    let source = HostSources {
+        system: config.system,
+        directories: config.directories.clone(),
+    };
 
-    if !config.system && config.directories.is_empty() {
-        return (Arc::clone(&shared.book), Arc::clone(&shared.fonts));
+    if source.is_empty() {
+        return (Arc::clone(&shared.book), None);
     }
 
-    let mut book = (**shared.book).clone();
-    let mut fonts = (*shared.fonts).clone();
+    let cache = config.cache_path();
 
-    if config.system {
-        for (path, info) in typst_kit::fonts::system() {
-            if let Some(font) = path.load() {
-                book.push(info);
-                fonts.push(font);
-            }
-        }
-    }
+    let index = shared_index(
+        &source,
+        &shared.book,
+        IndexOptions {
+            refresh: config.refresh,
+            cache_dir: cache.as_deref(),
+        },
+    );
 
-    for directory in &config.directories {
-        for (path, info) in typst_kit::fonts::scan(std::path::Path::new(directory)) {
-            if let Some(font) = path.load() {
-                book.push(info);
-                fonts.push(font);
-            }
-        }
-    }
-
-    (Arc::new(LazyHash::new(book)), Arc::new(fonts))
+    (Arc::clone(index.book()), Some(index))
 }
 
 impl NetWorld {
     pub fn new(config: WorldConfig) -> Result<Self, TnError> {
         let shared = shared();
         let embedded_fonts = shared.fonts.len();
-        let (book, fonts) = fonts_for(&config.fonts);
+        let (book, host) = fonts_for(&config.fonts, shared);
 
         let main_path = VirtualPath::new("main.typ")
             .map_err(|e| TnError::invalid_argument(format!("invalid default root: {e}")))?;
@@ -198,7 +201,9 @@ impl NetWorld {
         Ok(Self {
             library: Arc::clone(&shared.library),
             book,
-            fonts,
+            fonts: Arc::clone(&shared.fonts),
+            extra: Vec::new(),
+            host,
             embedded_fonts,
             sources: RwLock::new(HashMap::new()),
             files: RwLock::new(HashMap::new()),
@@ -222,6 +227,8 @@ impl NetWorld {
             library: Arc::clone(&self.library),
             book: Arc::clone(&self.book),
             fonts: Arc::clone(&self.fonts),
+            extra: self.extra.clone(),
+            host: self.host.as_ref().map(Arc::clone),
             embedded_fonts: self.embedded_fonts,
             sources: RwLock::new(sources),
             files: RwLock::new(files),
@@ -301,7 +308,7 @@ impl NetWorld {
                 ),
             ));
         }
-        if self.fonts.len() >= self.limits.max_fonts {
+        if self.font_count() >= self.limits.max_fonts {
             return Err(TnError::new(
                 TN_ERR_LIMIT,
                 format!("too many fonts (max {})", self.limits.max_fonts),
@@ -314,13 +321,13 @@ impl NetWorld {
 
         if let Some(font) = Font::new(data.clone(), face_index) {
             book.push(font.info().clone());
-            Arc::make_mut(&mut self.fonts).push(font);
+            self.extra.push(font);
             added += 1;
         } else {
             // Not a single-face font: walk the collection (`ttc`/`otc`).
             for font in Font::iter(data) {
                 book.push(font.info().clone());
-                Arc::make_mut(&mut self.fonts).push(font);
+                self.extra.push(font);
                 added += 1;
             }
         }
@@ -341,12 +348,18 @@ impl NetWorld {
         write(&self.sources).clear();
     }
 
+    /// The host index this world holds, if it asked for host fonts. Exposed for tests.
+    #[cfg(test)]
+    pub fn host_index(&self) -> Option<&Arc<FontIndex>> {
+        self.host.as_ref()
+    }
+
     pub fn source_count(&self) -> usize {
         read(&self.sources).len()
     }
 
     pub fn font_count(&self) -> usize {
-        self.fonts.len()
+        self.fonts.len() + self.host.as_ref().map_or(0, |index| index.len()) + self.extra.len()
     }
 
     /// How many of the fonts this world resolves are the ones embedded in the binary.
@@ -362,16 +375,22 @@ impl NetWorld {
     ///
     /// A font collection — a `ttc` or an `otc` — exposes one `Font` per face over the same buffer,
     /// so summing per face would count that file once per face. The pointer and the length identify
-    /// the buffer, which is what a caller wants to compare with what it registered.
+    /// the buffer, which is what a caller wants to compare with what it registered. A host face the
+    /// compilation never used is not parsed yet, so its file's length is what counts; the answer
+    /// does not depend on which faces have been touched.
     pub fn font_bytes(&self) -> u64 {
         let mut seen = HashSet::new();
         let mut bytes = 0u64;
 
-        for font in self.fonts.iter() {
+        for font in self.fonts.iter().chain(self.extra.iter()) {
             let data = font.data().as_slice();
             if seen.insert((data.as_ptr() as usize, data.len())) {
                 bytes += data.len() as u64;
             }
+        }
+
+        if let Some(host) = &self.host {
+            bytes += host.file_bytes();
         }
 
         bytes
@@ -508,7 +527,21 @@ impl World for NetWorld {
     }
 
     fn font(&self, index: usize) -> Option<Font> {
-        self.fonts.get(index).cloned()
+        if index < self.fonts.len() {
+            return self.fonts.get(index).cloned();
+        }
+
+        let index = index - self.fonts.len();
+
+        if let Some(host) = &self.host {
+            if index < host.len() {
+                return host.font(index);
+            }
+
+            return self.extra.get(index - host.len()).cloned();
+        }
+
+        self.extra.get(index).cloned()
     }
 
     fn today(&self, _offset: Option<Duration>) -> Option<Datetime> {
@@ -588,5 +621,211 @@ mod tests {
             .expect("add_source after poisoning");
         assert_eq!(world.source_count(), 1);
         assert!(world.has_source("main.typ"));
+    }
+
+    /// A font directory to hand the world, and the family one of its files carries.
+    ///
+    /// The bytes are the ones embedded in the binary, copied to a temporary directory: the tests
+    /// need real font files and must not depend on what the host has installed.
+    struct FontDir {
+        path: std::path::PathBuf,
+        family: String,
+    }
+
+    impl FontDir {
+        fn new(label: &str) -> Self {
+            static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+            let mut chosen: Option<(Vec<u8>, String)> = None;
+
+            for (font, info) in typst_kit::fonts::embedded() {
+                match &chosen {
+                    None => chosen = Some((font.data().as_slice().to_vec(), info.family.clone())),
+                    Some((_, family)) if *family != info.family => {
+                        // A second family, so `new` can add one the first world has not seen.
+                        break;
+                    }
+                    Some(_) => {}
+                }
+            }
+
+            let (bytes, family) = chosen.expect("an embedded font");
+
+            let path = std::env::temp_dir().join(format!(
+                "sharp-typst-world-fonts-{}-{}-{}",
+                std::process::id(),
+                COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+                label
+            ));
+
+            std::fs::create_dir_all(&path).expect("temp dir");
+            std::fs::write(path.join("host.otf"), &bytes).expect("write font");
+
+            Self { path, family }
+        }
+
+        fn config(&self) -> WorldConfig {
+            let mut config = WorldConfig::default();
+            config.fonts.directories = vec![self.path.to_string_lossy().into_owned()];
+            config.fonts.cache = false;
+            config
+        }
+    }
+
+    impl Drop for FontDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.path);
+        }
+    }
+
+    #[test]
+    fn every_world_shares_one_host_font_index() {
+        let fonts = FontDir::new("shared");
+        let first = NetWorld::new(fonts.config()).expect("first world");
+        let second = NetWorld::new(fonts.config()).expect("second world");
+
+        let one = first.host_index().expect("first world holds an index");
+        let two = second.host_index().expect("second world holds an index");
+
+        assert!(
+            Arc::ptr_eq(one, two),
+            "the scan is per process, not per world"
+        );
+        assert_eq!(one.id(), two.id());
+        assert!(
+            first.font_families().contains(&fonts.family),
+            "the directory's family is resolvable"
+        );
+        assert_eq!(first.font_count(), second.font_count());
+        assert_eq!(
+            one.counts(),
+            (1, 0, false),
+            "one font file was read, none came from the persistent index"
+        );
+    }
+
+    #[test]
+    fn a_hundred_worlds_compile_from_one_scan() {
+        let fonts = FontDir::new("hundred");
+        let config = fonts.config();
+
+        // The document changes on every iteration: Typst memoises a compilation by its inputs, and
+        // a repeated one would answer from that cache instead of exercising the layout.
+        let markup = |seed: usize| {
+            format!(
+                "#set text(font: \"{}\")\n= Title {seed}\n\n#lorem({})",
+                fonts.family,
+                seed + 40
+            )
+        };
+
+        let template = NetWorld::new(config.clone()).expect("template world");
+        let index = Arc::clone(template.host_index().expect("index"));
+        let before = index.id();
+
+        for seed in 0..100 {
+            let world = NetWorld::new(config.clone()).expect("world");
+            world
+                .add_source("main.typ", markup(seed))
+                .expect("add_source");
+
+            assert!(
+                Arc::ptr_eq(world.host_index().expect("index"), &index),
+                "every world must reuse the index the process already built"
+            );
+
+            let document = typst::compile::<typst_layout::PagedDocument>(&world)
+                .output
+                .expect("the document compiles");
+
+            assert_eq!(document.pages().len(), 1);
+        }
+
+        assert_eq!(index.id(), before, "no compilation rebuilt the index");
+        assert_eq!(
+            index.font(0).map(|font| font.info().family.clone()),
+            Some(fonts.family.clone()),
+            "the host face is parsed on first use"
+        );
+    }
+
+    #[test]
+    fn a_refresh_world_rebuilds_the_index_for_every_world_that_follows() {
+        let fonts = FontDir::new("refresh-world");
+        let mut refresh = fonts.config();
+        refresh.fonts.refresh = true;
+
+        let accepted = NetWorld::new(fonts.config()).expect("accepted world");
+        let refreshed = NetWorld::new(refresh).expect("refresh world");
+        let after = NetWorld::new(fonts.config()).expect("world after the refresh");
+
+        let first = accepted.host_index().expect("index");
+        let second = refreshed.host_index().expect("index");
+        let third = after.host_index().expect("index");
+
+        assert_ne!(first.id(), second.id(), "a refresh world rescans");
+        assert!(Arc::ptr_eq(second, third), "the rebuild replaces the entry");
+    }
+
+    /// The measurement behind the item: two thousand compilations, one scan.
+    ///
+    /// Ignored because it is a measurement, not a gate — it asserts on the process-wide scan
+    /// counter, which is only meaningful with one test running.
+    /// `cargo test --lib --release -- --ignored --nocapture --test-threads=1`.
+    #[test]
+    #[ignore = "measurement: run with --ignored --nocapture --test-threads=1"]
+    fn two_thousand_compilations_scan_the_fonts_once() {
+        let fonts = FontDir::new("soak");
+        let config = fonts.config();
+
+        // Every iteration compiles a different document: Typst memoises by inputs, and a repeated
+        // one would be answered from the memo table rather than laid out.
+        let markup = |seed: usize| {
+            format!(
+                "#set text(font: \"{}\")\n= Title {seed}\n\n#lorem({})",
+                fonts.family,
+                seed % 200 + 20
+            )
+        };
+
+        // What the old code paid per world: a metadata scan with nothing shared.
+        let scan_started = std::time::Instant::now();
+        let mut refresh = config.clone();
+        refresh.fonts.refresh = true;
+        let scanned = NetWorld::new(refresh).expect("scan world");
+        let scan_time = scan_started.elapsed();
+        drop(scanned);
+
+        let after_scan = crate::fonts::scan_count();
+
+        let started = std::time::Instant::now();
+        let mut pages = 0usize;
+
+        for seed in 0..2000 {
+            let world = NetWorld::new(config.clone()).expect("world");
+            world
+                .add_source("main.typ", markup(seed))
+                .expect("add_source");
+
+            let document = typst::compile::<typst_layout::PagedDocument>(&world)
+                .output
+                .expect("the document compiles");
+
+            pages += document.pages().len();
+        }
+
+        let elapsed = started.elapsed();
+        let scans_after = crate::fonts::scan_count();
+
+        println!(
+            "2000 compilations in {elapsed:?} ({:.3} ms each, {pages} pages); one host font scan              costs {scan_time:?}; scans during the 2000 compilations: {}",
+            elapsed.as_secs_f64() * 1000.0 / 2000.0,
+            scans_after - after_scan
+        );
+
+        assert_eq!(
+            scans_after, after_scan,
+            "two thousand compilations must not scan the host fonts again"
+        );
     }
 }
