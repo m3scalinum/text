@@ -66,6 +66,13 @@ public static class PdfAConverter
     /// The target is not a PDF/A or PDF/UA flavour, the target needs an ICC profile and none was
     /// supplied, or the profile supplied is not one this converter can describe.
     /// </exception>
+    /// <exception cref="PdfOperationException">
+    /// The document carries an XMP packet outside the bounds metadata is read under — larger than
+    /// four megabytes, nested deeper than sixty-four levels, past a hundred thousand nodes, or
+    /// declaring a document type. The message names the rule and the value observed. A packet that
+    /// is merely not well-formed XML is not a refusal: it is replaced, as a mistyped packet always
+    /// was.
+    /// </exception>
     public static PdfAConversionResult Convert(ReadOnlySpan<byte> pdf, PdfAConversionOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -458,12 +465,12 @@ public static class PdfAConverter
         }
     }
 
-    /// <summary>Reads the document's XMP, or <see langword="null"/> when it carries none that decodes.</summary>
-    private static string? ReadXmp(PdfFile file, PdfDictionary catalog)
+    /// <summary>Reads the document's XMP as decoded bytes, or <see langword="null"/> when it carries none.</summary>
+    private static byte[]? ReadXmp(PdfFile file, PdfDictionary catalog)
     {
         var stream = file.ResolveStream(catalog["Metadata"]);
 
-        return stream is null ? null : file.Decode(stream) is { } bytes ? Encoding.UTF8.GetString(bytes) : null;
+        return stream is null ? null : file.Decode(stream);
     }
 
     /// <summary>Writes the XMP stream that declares the target, and records what it did.</summary>

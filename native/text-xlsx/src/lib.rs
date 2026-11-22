@@ -194,6 +194,9 @@ unsafe fn workbook_ref<'a>(workbook: *mut TxWorkbook) -> Result<&'a TxWorkbook, 
 struct RawOptions {
     max_bytes: Option<u64>,
     max_cells: Option<u64>,
+    max_sheets: Option<usize>,
+    max_cell_text_bytes: Option<u64>,
+    max_text_bytes: Option<u64>,
 }
 
 fn parse_options(json: Option<&str>) -> Result<Options, TxError> {
@@ -217,6 +220,11 @@ fn parse_options(json: Option<&str>) -> Result<Options, TxError> {
     Ok(Options {
         max_bytes: raw.max_bytes.unwrap_or(defaults.max_bytes),
         max_cells: raw.max_cells.unwrap_or(defaults.max_cells),
+        max_sheets: raw.max_sheets.unwrap_or(defaults.max_sheets),
+        max_cell_text_bytes: raw
+            .max_cell_text_bytes
+            .unwrap_or(defaults.max_cell_text_bytes),
+        max_text_bytes: raw.max_text_bytes.unwrap_or(defaults.max_text_bytes),
     })
 }
 

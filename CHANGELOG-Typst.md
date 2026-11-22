@@ -53,6 +53,17 @@ Not yet published. Embeds Typst 0.15.1.
   `03/01/2026` — with no call to `CultureInfo.GetCultureInfo`, which throws under
   `InvariantGlobalization`. The group separator is U+00A0, the only non-breaking space Typst's layout
   treats as a space, so a formatted amount survives the round trip through the markup.
+- `TypstDocumentStyle`: a page setup, body face and size, heading scale for levels 1 to 3, document
+  language and a header or footer, declared once and applied to any document — one built by hand or
+  produced by a template — as a single immutable object. What the style does not define is left
+  alone, so a document without a style keeps its markup, and applying the same style twice writes the
+  same rules rather than duplicating them. A footer can interpolate `{page}`, `{pages}` and `{title}`
+  without the caller writing Typst.
+- Numbered cross references: a figure, a table or a heading carries a label — given, or generated as
+  `fig:1`, `tbl:1`, `sec:1` with duplicates indexed — and `Reference` emits the `#ref` that Typst
+  resolves at layout, so a reference before its target still prints the right number. A labelled
+  table is wrapped in a `figure(kind: table)`, which is the only way Typst counts it. `Outline` gains
+  its title and depth; the page numbers come from the compilation, never from C#.
 - In-process compilation of Typst source through a C ABI over the Rust `typst` crate. No process
   spawn, no binary on `PATH`, no temporary files.
 - Export to PDF, SVG (single page or merged), PNG (single page or merged), HTML, Markdown, plain

@@ -65,7 +65,7 @@ public sealed class TypstDocumentTests
 
         Assert.Contains("#table(", markup, StringComparison.Ordinal);
         Assert.Contains("columns: (2fr, 1fr),", markup, StringComparison.Ordinal);
-        Assert.Contains("table.header([Item], [Amount]),", markup, StringComparison.Ordinal);
+        Assert.Contains("table.header(repeat: true, [Item], [Amount]),", markup, StringComparison.Ordinal);
         Assert.Contains("[Hosting], [1 200],", markup, StringComparison.Ordinal);
     }
 
