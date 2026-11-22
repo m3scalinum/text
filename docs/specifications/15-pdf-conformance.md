@@ -261,7 +261,7 @@ Each line is exactly one of three things, and says which:
 | # | Line | What the model must carry | What the rendering must do | Typst 0.15.1 | Verified by |
 | --- | --- | --- | --- | --- | --- |
 | 1 | Alternate text for every image | a description per image, or an explicit "decorative" mark | bind the image to a `/Figure` with a non-empty `/Alt` (or `/ActualText`); a decorative image is an artifact and carries none | yes — `image(..., alt: "...")` | checked: `PDFUA.FIGURE_ALT_MISSING`; a warning `PDFUA.IMAGE_NOT_STRUCTURED` when images are drawn and no figure exists |
-| 2 | Table header cells | which row is the header, and whether each header describes its row, its column or both | `/TR` holding `/TH` cells with `/A <</O /Table /Scope /Column>>`; data cells are `/TD` | **no** — every cell is written `/TD`, no `/TH` and no scope (measured on `ua1.pdf`: 12 `/TD`, 0 `/TH`) | checked: `PDFUA.TABLE_HEADER_MISSING`, `PDFUA.TABLE_HEADER_SCOPE_MISSING`. The compiler's own PDF/UA-1 output **fails** this line |
+| 2 | Table header cells | which row is the header, and whether each header describes its row, its column or both | `/TR` holding `/TH` cells with `/A <</O /Table /Scope /Column>>`; data cells are `/TD` | yes, with the `a11y-extras` feature — `table.header(…)` marks the header row and `pdf.header-cell(scope: …)` writes `/TH` with `/Scope`; the model exposes both, as `TypstTable.HeaderRow` and `TypstTableCell.HeaderScope` | checked: `PDFUA.TABLE_HEADER_MISSING`, `PDFUA.TABLE_HEADER_SCOPE_MISSING`; `ModelAccessibilityPdfTests` asserts that a document built through the model passes. A document that marks no header — the `ua1.pdf` fixture among them, which measures 12 `/TD` and 0 `/TH` — still fails this line |
 | 3 | Document language | the document's natural language tag | catalog `/Lang`, plus `/Lang` on any span that changes language | yes — `#set text(lang: "fr")` becomes `/Lang(fr)` | checked: `PDFUA.LANG_MISSING` |
 | 4 | Reading order and structure tree | block order as read, not as drawn; the semantic role of each block | `/StructTreeRoot` with `/ParentTree`, every page tagged with `/StructParents` and `/Tabs /S` | yes | checked: `PDFUA.STRUCT_TREE_MISSING`, `PDFUA.STRUCT_TREE_INCONSISTENT`, `PDFUA.TABS_NOT_STRUCTURE`, `PDFUA.ROLE_NOT_MAPPED` |
 | 5 | Hierarchical headings | an outline whose levels do not skip a step | `/H1` … `/H6` in document order, never a bare `/H` | yes — `=`, `==` | checked: `PDFUA.HEADING_LEVEL_SKIPPED` (a level that follows one more than one above it) |
@@ -339,8 +339,8 @@ person can make, and they are **open**:
    content stream's marked-content order.
 2. That the alternate text says something useful ("Un carré rouge de quatre pixels") rather than
    merely existing.
-3. That a table is announced with its header — the compiler's output has no header cell to
-   announce, so this cannot pass until line 2 is fixed in the producer.
+3. That a table is announced with its header and its scope — the checker reads the `/TH` and
+   `/Scope` a marked table carries, not what a reader does with them.
 4. That heading navigation (`H` in NVDA, the rotor in VoiceOver) reaches the expected outline.
 5. That the contrast ratio and the 200 % zoom of line 6 hold on the rendered page, measured with a
    contrast tool rather than read from the PDF.

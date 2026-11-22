@@ -4,10 +4,14 @@
 # .github/workflows/cargo-deny.yml. The policy it encodes is docs/specifications/dependencies.md;
 # when the two disagree, the document is the decision and this file is the bug.
 #
-#   cargo deny --manifest-path native/<crate>/Cargo.toml check bans licenses advisories
+#   cargo deny --config deny.toml --manifest-path native/<crate>/Cargo.toml check bans licenses advisories
 #
 # There is no Cargo workspace here: each crate is its own manifest with its own Cargo.lock, so the
-# check runs once per crate and this file is resolved by looking up from each crate's directory.
+# check runs once per crate. The configuration is read from the working directory, not from the
+# manifest's directory and not from its ancestors: a `cargo deny` run started inside
+# `native/<crate>/` silently falls back to the default (deny everything) and rejects MIT and
+# Apache-2.0 as "not explicitly allowed". Hence `--config deny.toml` in the workflow, from the
+# repository root, so the answer cannot depend on where the command was started.
 
 [graph]
 # The targets this suite actually ships, matching the matrix in .github/workflows/ci-sharptypst.yml
