@@ -49,6 +49,7 @@ file names, to find what you want.
 | 21 | [21-ocr.md](21-ocr.md) | `M3scalinum.Text.Ocr`: text from page images, with caller-supplied models and no download |
 | 22 | [22-docx.md](22-docx.md) | `M3scalinum.Text.Docx`: reading a Word document into the document model |
 | 28 | [28-xlsx.md](28-xlsx.md) | `M3scalinum.Text.Xlsx`: reading an Excel workbook into typed sheets, over `calamine` |
+| 29 | [29-threat-model.md](29-threat-model.md) | Every received document is hostile: the parsing surfaces, their limits, the test for each, and what is not bounded |
 
 ## The protocol server
 
