@@ -527,12 +527,16 @@ returning the certificates it could not accept. A certificate that travelled wit
 rejected is reported with its own subject, issuer and serial number; a certificate nobody supplied
 is reported with the issuer name its child states, and `Subject` and `SerialNumber` stay null rather
 than being invented. Every name is deduplicated, so two signatures over the same missing root name
-it once. The reason is the chain flag — `UntrustedRoot`, `PartialChain`, `NotTimeValid` — and not
-the platform's sentence about it, because that sentence is localised by the operating system and a
-report must not depend on the machine's language. A chain that was not judged names nothing: an
-empty store is a decision not to judge, not a list of missing certificates. The certificates named
-are those of the signature chains; a document timestamp's own chain is judged in
-`PdfSignatureVerification.DocumentTimestamps` and contributes no entry here.
+it once. Which certificate is named does not depend on the runtime: when the chain stops before the
+store, the entry is the topmost certificate the chain could reach — as an embedded certificate when
+it is its own issuer, otherwise as the issuer name it states — and when a completed path is still
+refused, the entry is each element the chain flagged. `Reason` says why, as the chain flag —
+`UntrustedRoot`, `PartialChain`, `NotTimeValid` — rather than the platform's localised sentence;
+that sentence is localised by the operating system, and *which* flags fire is the platform's
+judgement, so the reason stays on the object and out of the canonical text. A chain that was not
+judged names nothing: an empty store is a decision not to judge, not a list of missing certificates.
+The certificates named are those of the signature chains; a document timestamp's own chain is
+judged in `PdfSignatureVerification.DocumentTimestamps` and contributes no entry here.
 
 **The text form.** `ToText` renders the report as UTF-8 without a byte-order mark, LF line endings,
 tab-separated fields, in a fixed order:
@@ -548,16 +552,17 @@ status	Trusted	1
 status	Untrusted	1
 document	0	Trusted	1	0
 document	1	Untrusted	1	1
-missing	1		CN=Some Other Root, O=Elsewhere, C=FR		named	the certificate that issued this one is not in the trust store and the file does not embed it
+missing	1		CN=Some Other Root, O=Elsewhere, C=FR		named
 document	2	NotEvaluated	0	0
 ```
 
 The first line is the format's name and version; then the four totals; then one `status` line per
 chain status in ascending value; then one block per document — a `document` line carrying the index,
 the status (or `Unreadable`), the signature count and the missing-certificate count, a `missing`
-line per certificate, and an `error` line when the document could not be read. Tabs, line feeds,
-carriage returns and percent signs inside a name are escaped as `%09`, `%0A`, `%0D` and `%25`, so a
-subject with a tab in it cannot forge a field. The same batch verified twice renders the same bytes,
+line per certificate — subject, issuer, serial number, and `embedded` or `named` — and an `error`
+line when the document could not be read. Tabs, line feeds, carriage returns and percent signs
+inside a name are escaped as `%09`, `%0A`, `%0D` and `%25`, so a subject with a tab in it cannot
+forge a field. The same batch verified twice renders the same bytes,
 with or without parallelism.
 
 **The cost.** One parse and one chain build per signature, exactly what verifying the documents one

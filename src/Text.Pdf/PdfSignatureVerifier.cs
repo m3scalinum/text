@@ -421,7 +421,7 @@ public static class PdfSignatureVerifier
             return (PdfChainStatus.Trusted, null);
         }
 
-        issues = Describe(chain);
+        issues = Describe(chain, trustStore);
 
         var reasons = chain.ChainStatus
             .Select(status => status.StatusInformation.Trim())
@@ -434,18 +434,49 @@ public static class PdfSignatureVerifier
     }
 
     /// <summary>
-    /// The certificates a failed chain could not accept, read from the chain's own elements, plus the
-    /// name of the issuer the chain never found.
+    /// The certificates to add to the store for a chain that did not build: the topmost certificate
+    /// the chain could reach when the store does not anchor it, or the elements a completed path
+    /// rejected.
     /// </summary>
-    private static List<PdfSignatureChainCertificate> Describe(X509Chain chain)
+    /// <remarks>
+    /// The branch is chosen on whether the chain reached an anchor of the store, not on which flags
+    /// the platform attached: a chain that stops short is described the same way on every runtime,
+    /// while a path that reaches an anchor and is still refused names the elements that failed.
+    /// </remarks>
+    private static List<PdfSignatureChainCertificate> Describe(X509Chain chain, PdfTrustStore store)
     {
         var rejected = new List<PdfSignatureChainCertificate>();
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        X509ChainElement? last = null;
+
+        if (chain.ChainElements.Count == 0)
+        {
+            return rejected;
+        }
+
+        var last = chain.ChainElements[chain.ChainElements.Count - 1];
+
+        if (!ReachesAnchor(store, last.Certificate))
+        {
+            // The chain stops before the store. Either the topmost certificate is its own issuer and
+            // is the anchor nobody trusts, or the certificate nobody supplied is the issuer it names.
+            rejected.Add(string.Equals(last.Certificate.Subject, last.Certificate.Issuer, StringComparison.Ordinal)
+                ? new PdfSignatureChainCertificate(
+                    last.Certificate.Subject,
+                    last.Certificate.Issuer,
+                    last.Certificate.SerialNumber,
+                    isEmbedded: true,
+                    "the chain ends at this certificate, which no anchor of the trust store issued")
+                : new PdfSignatureChainCertificate(
+                    subject: null,
+                    last.Certificate.Issuer,
+                    serialNumber: null,
+                    isEmbedded: false,
+                    "the certificate that issued this one is not in the trust store and the file does not embed it"));
+
+            return rejected;
+        }
 
         foreach (X509ChainElement element in chain.ChainElements)
         {
-            last = element;
             var reasons = Reasons(element.ChainElementStatus);
 
             if (reasons.Count == 0)
@@ -454,45 +485,32 @@ public static class PdfSignatureVerifier
             }
 
             var certificate = element.Certificate;
-            var issue = new PdfSignatureChainCertificate(
+
+            rejected.Add(new PdfSignatureChainCertificate(
                 certificate.Subject,
                 certificate.Issuer,
                 certificate.SerialNumber,
                 isEmbedded: true,
-                "the chain rejects this certificate: " + string.Join(", ", reasons));
-
-            if (seen.Add(issue.Key))
-            {
-                rejected.Add(issue);
-            }
-        }
-
-        // A chain that stops before an anchor ends at the last certificate it could find. The next
-        // link is missing, so the only fact available is the issuer name that certificate states.
-        if (last is not null
-            && (StopsAtMissingIssuer(chain.ChainStatus) || StopsAtMissingIssuer(last.ChainElementStatus)))
-        {
-            var issue = new PdfSignatureChainCertificate(
-                subject: null,
-                last.Certificate.Issuer,
-                serialNumber: null,
-                isEmbedded: false,
-                "the certificate that issued this one is not in the trust store and the file does not embed it");
-
-            if (seen.Add(issue.Key))
-            {
-                rejected.Add(issue);
-            }
+                "the chain rejects this certificate: " + string.Join(", ", reasons)));
         }
 
         return rejected;
     }
 
-    /// <summary>
-    /// The chain's verdicts as the names of its flags. The platform's own sentence is localised by
-    /// the operating system, which would make a report depend on the machine that wrote it; the flag
-    /// names are the same everywhere and are what a caller has to act on.
-    /// </summary>
+    /// <summary>Whether the chain's topmost certificate is one of the store's anchors.</summary>
+    private static bool ReachesAnchor(PdfTrustStore store, X509Certificate2 certificate)
+    {
+        foreach (var anchor in store.Anchors)
+        {
+            if (string.Equals(anchor.Thumbprint, certificate.Thumbprint, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private static List<string> Reasons(X509ChainStatus[] status)
     {
         var reasons = new List<string>(status.Length);
@@ -505,9 +523,6 @@ public static class PdfSignatureVerifier
         reasons.Sort(StringComparer.Ordinal);
         return reasons;
     }
-
-    private static bool StopsAtMissingIssuer(X509ChainStatus[] status)
-        => status.Any(entry => entry.Status.HasFlag(X509ChainStatusFlags.PartialChain));
 
     private static List<PdfSignatureChainCertificate> Deduplicate(List<PdfSignatureChainCertificate> rejected)
     {

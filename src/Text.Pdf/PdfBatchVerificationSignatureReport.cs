@@ -175,9 +175,12 @@ public sealed class PdfBatchSignatureReport
     /// <c>unreadable</c> and <c>signed</c> line, one <c>status</c> line per chain status in ascending
     /// order, and one block per document: a <c>document</c> line with its index, status, signature
     /// count and missing-certificate count; a <c>missing</c> line per certificate the chain could not
-    /// accept; and, for a document that could not be read, an <c>error</c> line. Tabs, line feeds,
+    /// accept, carrying its subject, issuer, serial number and whether it was read from the file or
+    /// only named; and, for a document that could not be read, an <c>error</c> line. Tabs, line feeds,
     /// carriage returns and percent signs inside a name are escaped as <c>%09</c>, <c>%0A</c>,
-    /// <c>%0D</c> and <c>%25</c>.
+    /// <c>%0D</c> and <c>%25</c>. The sentence explaining a rejection stays on
+    /// <see cref="PdfSignatureChainCertificate.Reason"/> and out of the text: which flags a chain
+    /// reports is the platform's judgement, and the canonical form must be the same everywhere.
     /// </remarks>
     public string ToText()
     {
@@ -209,8 +212,7 @@ public sealed class PdfBatchSignatureReport
                     .Append(Escape(certificate.Subject ?? string.Empty)).Append(Separator)
                     .Append(Escape(certificate.Issuer)).Append(Separator)
                     .Append(Escape(certificate.SerialNumber ?? string.Empty)).Append(Separator)
-                    .Append(certificate.IsEmbedded ? "embedded" : "named").Append(Separator)
-                    .Append(Escape(certificate.Reason)).Append('\n');
+                    .Append(certificate.IsEmbedded ? "embedded" : "named").Append('\n');
             }
 
             if (!entry.IsRead)
