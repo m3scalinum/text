@@ -31,4 +31,7 @@ public enum DocxErrorCode
 
     /// <summary>The native library failed in a way it does not classify.</summary>
     Internal = 13,
+
+    /// <summary>A part declares a DTD, an external entity, or entities that expand past the reader's bound.</summary>
+    XmlPolicy = 14,
 }

@@ -9,6 +9,7 @@ mod ast;
 mod ffi;
 mod package;
 mod parse;
+mod xml;
 
 pub use ffi::{TdError, TnBuffer};
 

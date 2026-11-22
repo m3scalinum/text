@@ -91,6 +91,7 @@ crate's own:
 | **11** | **`malformed_package`** | Not a zip package, a part that does not parse, or a part name the rules below refuse |
 | **12** | **`missing_part`** | A package that lacks `[Content_Types].xml`, `_rels/.rels` or `word/document.xml` |
 | 13 | `internal` | A failure this library does not classify |
+| **14** | **`xml_policy`** | A part the XML policy refused: a DTD, an external entity, or entities that expand past the bound (§10) |
 
 ### 3.1 Which parts are read, and how a name is found
 
@@ -395,3 +396,100 @@ the pre-change build: the AST JSON and every image byte were identical, which is
 **Not verified here.** No CI job builds this crate yet: `.github/workflows` is outside this change.
 A release therefore packs the native library only from `native/artifacts`, which no job currently
 fills for this crate.
+
+## 10. The XML policy
+
+Every part this reader parses was written by whoever sent the document, and XML has two properties
+that turn a parser into an attack surface: a document type declaration can name an external entity
+the parser fetches and returns as text, and a handful of internal entities can expand to gigabytes
+from a few hundred bytes. Both are refused before a tree is built, and by one function rather than
+by each walker.
+
+**Decision — one door.** `native/text-docx/src/xml.rs` exposes `parse(&str, part)`, and it is the
+only place in the crate that calls a parser. `parse.rs` reads `word/document.xml`, `word/styles.xml`
+and `word/numbering.xml` through it, and `package.rs` reads a `.rels` part through it. Nothing calls
+`roxmltree::Document` directly any more, so a part cannot be read under weaker rules than its
+neighbours, and replacing the parser means rewriting one function instead of auditing every call
+site.
+
+### 10.1 The bounds
+
+| Rule | Bound | Constant | Refused as |
+| --- | --- | --- | --- |
+| DTD | none permitted | — | `xml_policy` |
+| External entity, or an external subset | none permitted | — | `xml_policy` |
+| Internal entity expansion | 1 MiB | `MAX_ENTITY_EXPANSION` | `xml_policy` |
+| Entity declarations in one subset | 64 | `MAX_ENTITY_DECLARATIONS` | `xml_policy` |
+| One XML part | 32 MiB | `MAX_XML_BYTES` | `limit` |
+| Element nesting | 256 levels | `MAX_XML_DEPTH` | `limit` |
+| Nodes built from one part | 2 000 000 | `MAX_XML_NODES` | `limit` |
+
+`MAX_XML_BYTES` is the container's per-part cap (`MAX_PART_BYTES`) stated again at the parser, so a
+part that reaches the tree by another route meets the same ceiling. The document-level bounds of
+§3.2 — 200 000 runs, 50 000 cells, 64 levels of block — still apply to the tree the walker builds;
+the XML bounds are about the part, not about Word's semantics.
+
+### 10.2 How a refusal is decided
+
+The policy reads the bytes, not the parser's opinion, which is what makes it survive a replacement:
+
+1. The part's size is checked against `MAX_XML_BYTES` first, so an oversized part is never scanned.
+2. The prologue is walked — XML declaration, comments and processing instructions are skipped — to
+   find a `<!DOCTYPE`. The declaration's end is found by tracking quotes and the `[ … ]` internal
+   subset, so the `>` that closes an entity is not mistaken for the end of the DTD.
+3. The declaration is classified: a `SYSTEM` or `PUBLIC` identifier on the document type, or on any
+   `<!ENTITY`, is an external entity and is refused as such. Otherwise each internal entity's value
+   is expanded **arithmetically** — the length, not the text — saturating at 1 MiB, with recursion
+   bounded by the declaration cap, which also catches a reference loop. A set that passes the bound
+   is still a DTD, and is refused as a DTD.
+4. The part is parsed with `allow_dtd = false` and `nodes_limit = MAX_XML_NODES`. The parser's own
+   `DtdDetected` is the backstop for a declaration the prologue scan did not see, and keeps the
+   `xml_policy` reason.
+5. The resulting tree is walked with an explicit stack — never recursion — and refused when the
+   deepest element passes `MAX_XML_DEPTH`.
+
+Because step 3 refuses every DTD, no entity is ever expanded today; the expansion bound exists so
+the guarantee holds if a future parser expands entities, and so a billion-laughs document is refused
+with the reason that names it rather than the generic DTD refusal.
+
+### 10.3 What the caller sees
+
+A refusal is never a panic and never a generic code. The status is `14`, `xml_policy`, which
+`M3scalinum.Text.Docx` exposes as `DocxErrorCode.XmlPolicy`, so a host can tell a hostile document
+from a broken one:
+
+```text
+DocxReader.Read(bytes)
+  → DocxException { Code = DocxErrorCode.XmlPolicy,
+                    Message = "word/document.xml declares an external entity or document type
+                               (SYSTEM/PUBLIC); external entities are refused" }
+```
+
+The message always names the part (`word/document.xml`, `word/styles.xml`, `a relationships part`)
+and the rule. Size and depth refusals keep `DocxErrorCode.Limit`, because they are the same class of
+failure as a document over `MaxDocumentBytes`.
+
+### 10.4 Tests
+
+`native/text-docx/src/xml.rs` carries the policy's own unit tests, and `parse.rs` carries the
+end-to-end ones, which build a real package with `zip`'s writer and read it back:
+
+| Test | What it pins |
+| --- | --- |
+| `a_document_without_a_doctype_is_read` | A part with no declaration still parses |
+| `a_doctype_is_refused` | A DTD with only element declarations |
+| `an_external_entity_that_names_a_file_is_refused` | `SYSTEM "file:///etc/passwd"` |
+| `an_external_entity_that_names_a_url_is_refused` | `SYSTEM "http://attacker.test/leak"` |
+| `an_external_document_type_is_refused` | An external subset |
+| `a_billion_laughs_document_is_refused` | Nine levels of ten references |
+| `an_entity_loop_is_an_expansion_bomb` | Two entities referencing each other |
+| `a_part_nested_past_the_depth_cap_is_refused` | 257 levels of element |
+| `a_part_over_the_xml_ceiling_is_refused` | One byte past `MAX_XML_BYTES` |
+| `a_document_with_a_doctype_is_refused` | The same refusal through a `.docx` package |
+| `a_document_with_an_external_entity_is_refused` | A local file and an HTTP target, through a package |
+| `a_billion_laughs_document_is_refused` | The expansion bomb, through a package |
+| `a_valid_document_still_parses_under_the_policy` | Non-regression: the fixture-shaped body still reads |
+
+`tests/Text.Docx.Tests/DocxXmlPolicyTests.cs` asserts the ABI carries it: a package whose
+`word/document.xml` declares a DTD, or an external entity, throws `DocxException` with
+`DocxErrorCode.XmlPolicy`, and the message names the rule.
