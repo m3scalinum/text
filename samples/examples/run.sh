@@ -15,7 +15,7 @@
 #   --self-contained <rid>
 #                      publish a self-contained application for <rid> instead of running it, so the
 #                      package can be executed in a container of that runtime (the `musl` job of
-#                      ci-text.yml runs the four native packages inside Alpine this way). The output
+#                      ci-text.yml runs the five native packages inside Alpine this way). The output
 #                      directory is $M3SCALINUM_PUBLISH_DIR, default $work/publish.
 set -euo pipefail
 

@@ -174,9 +174,10 @@ status table.
 an absent field takes its default.
 
 The managed side loads the library through `SHARPTEXTPDF_NATIVE_PATH` when it is set, then through
-the `runtimes/<rid>/native/` layout under the application directory. The six RIDs the package ships
-are `win-x64`, `win-arm64`, `linux-x64`, `linux-arm64`, `linux-musl-x64` and `osx`; the musl entry is
-a staticlib linked by hand with `musl-gcc`, because Rust cannot emit a cdylib for a musl target.
+the `runtimes/<rid>/native/` layout under the application directory. The seven RIDs the package ships
+are `win-x64`, `win-arm64`, `linux-x64`, `linux-arm64`, `linux-musl-x64`, `linux-musl-arm64` and `osx`;
+a musl entry is a staticlib linked by hand with `musl-gcc`, because Rust cannot emit a cdylib for a musl
+target.
 
 ## 8. What proves it
 

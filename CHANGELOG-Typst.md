@@ -211,6 +211,24 @@ Not yet published. Embeds Typst 0.15.1.
   outer margin on the line of its marker, as an inline zero-width box; the note does not break across
   pages and two markers closer than a note's height overlap, which the specification states and a
   characterisation test pins.
+- A bibliography written in the model: a hand-written BibTeX reader for the common entry types, citation
+  keys resolved against it, and two styles over the same entry — numbered in order of first citation, or
+  author-date. An unknown key is an error naming the key and every key available, never a `[?]`. The
+  subset that is not read (`@string`, the `#` concatenation, LaTeX accents) is refused by name rather
+  than swallowed.
+- An alphabetical index built from marks in the flow: `IndexMark(term, subterm?)` renders nothing;
+  `Index(title)` collects the marks, sorts them case-insensitively and prints one line per term with the
+  pages taken from the real page counter, deduplicated. A mark inside a floating figure reports the page
+  the figure lands on.
+- A header, a footer and a watermark per section, and a first page without a number. Typst has no
+  section, so the section scopes its own `page` rules and a change of layout forces a page break — which
+  the specification states, with the measurements behind it. The cover page carries no number while pages
+  two and three still print 2 and 3.
+- A language tag (BCP 47) on the document, on a style and on a run, and a direction on a block or on an
+  inline run. A Japanese paragraph justifies with the line-break rules of its language and never starts a
+  line with `。` or `、`; an Arabic paragraph with Western digits and a Latin word lays out in the order a
+  bidirectional algorithm gives, measured from glyph positions rather than inspected by eye. No document
+  that asks for neither emits either attribute.
 
 ### Changed
 

@@ -104,3 +104,18 @@ Not yet published on nuget.org.
 - An MCP client cannot render without bound: a per-session quota over a sliding minute, a journal of
   what was rendered, one table behind both `tools/list` and `tools/call`, the template pack as read-only
   resources, and an `Origin` check on the HTTP transport.
+- Documents that carry their apparatus: a bibliography read from BibTeX with two citation styles and an
+  error naming the key it could not resolve, an alphabetical index whose pages come from the real page
+  counter, a header, a footer and a watermark per section with an unnumbered cover, and a language tag and
+  a direction per block — Japanese justified under its own line-break rules, Arabic laid out in
+  bidirectional order.
+- Verification that names what it authenticated: the signature of an OCSP response or a CRL, and the
+  signature of a trust list, with a qualification verdict that says whether the list behind it was
+  verified, stale or unverified.
+- A shipping label rendered by the suite, whose SSCC decodes back from the produced PDF, and a symbology
+  list held to its specification by a test rather than by discipline.
+- An image handed to the OCR is refused on its header, before allocation, past 64 megapixels or 256 MiB.
+- `linux-musl-arm64` for the five native packages, with an Alpine arm64 job that loads each library from
+  the package, so Graviton and Apple Silicon containers stop meeting `DllNotFoundException`. The package
+  weights are measured and published: 168.32 MiB per download, 86.5 % of it unusable on win-x64, with the
+  split costed and the reason it is not done yet written down.

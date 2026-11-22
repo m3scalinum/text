@@ -4,25 +4,25 @@
 
 | Level | Project | Needs natives | Tests | Runtime |
 | --- | --- | --- | --- | --- |
-| Unit (compiler) | `tests/Text.Typst.Tests` | No — fake native | 730 | ~4 s |
-| Unit (signing, conformance, pages, forms, text, encryption, raster) | `tests/Text.Pdf.Tests` | Yes, for the 30 raster and resolver tests — `sharp_text_pdf` | 582 | ~22 s |
+| Unit (compiler) | `tests/Text.Typst.Tests` | No — fake native | 807 | ~4 s |
+| Unit (signing, conformance, pages, forms, text, encryption, raster) | `tests/Text.Pdf.Tests` | Yes, for the 30 raster and resolver tests — `sharp_text_pdf` | 633 | ~22 s |
 | Unit (mcp) | `tests/Text.Mcp.Tests` | No | 131 | ~3 s |
-| Unit (barcodes) | `tests/Text.Barcodes.Tests` | **Yes** — `sharp_text_barcodes` | 189 | ~10 s |
+| Unit (barcodes) | `tests/Text.Barcodes.Tests` | **Yes** — `sharp_text_barcodes` | 225 | ~10 s |
 | Unit (docx) | `tests/Text.Docx.Tests` | **Yes** — `sharp_text_docx` | 53 | ~5 s |
 | Unit (xlsx) | `tests/Text.Xlsx.Tests` | **Yes** — `sharp_text_xlsx` | 68 | ~3 s |
-| Unit (ocr) | `tests/Text.Ocr.Tests` | No — fake native | 211 | ~6 s |
+| Unit (ocr) | `tests/Text.Ocr.Tests` | No — fake native | 228 | ~6 s |
 | Unit (generator) | `tests/Text.Templates.Generator.Tests` | No | 14 | < 5 s |
 | Layouts | `tests/Text.Templates.Tests` | Yes, for the render tests | 111 | ~15 s |
 | Suite (surface and docs) | `tests/Text.Suite.Tests` | No | 7 | < 2 s |
-| Integration | `tests/Text.Typst.Integration.Tests` | **Yes** — `SHARPTYPST_NATIVE_PATH` | 274 | < 3 min |
+| Integration | `tests/Text.Typst.Integration.Tests` | **Yes** — `SHARPTYPST_NATIVE_PATH` | 297 | < 3 min |
 | ABI | `native/sharp-typst` (`cargo test`) | — | 29 | < 30 s |
 | Unit (native xlsx) | `native/text-xlsx` (`cargo test --lib`) | — | 36 | < 5 s |
 | Unit (native pdf) | `native/text-pdf` (`cargo test --lib`) | — | 24 | < 5 s |
 | Benchmark | `benchmarks/Text.Typst.Benchmarks` | Yes | 8 scenarios | manual / nightly |
 
-That is 2 370 managed tests in eleven suites, plus the Rust tests of the six crates: the twenty-nine ABI
+That is 2 574 managed tests in eleven suites, plus the Rust tests of the six crates: the twenty-nine ABI
 tests of `native/sharp-typst`, the fifty-nine of `native/text-docx`, the forty of `native/text-xlsx`,
-the ninety-three of `native/text-barcodes` (plus twenty-seven integration tests), the seventy-six of
+the ninety-six of `native/text-barcodes` (plus twenty-seven integration tests), the ninety-four of
 `native/text-ocr` and the twenty-four of `native/text-pdf`.
 The benchmark scenarios are separate.
 
