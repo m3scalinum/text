@@ -218,6 +218,38 @@ silently writing a weaker level.
 embeds, which evidence covers it and when that evidence was issued. Nothing is fetched and nothing is
 judged there.
 
+### Who signed the evidence
+
+An OCSP answer or a CRL in the store is only worth what its own signature is worth. `ReadRevocationSignatures`
+reads every response the store embeds — answers first, then lists, in store order — and reports what
+its signature proved:
+
+```csharp
+foreach (PdfRevocationSignatureReading reading in PdfSignatureVerifier.ReadRevocationSignatures(pdf))
+{
+    Console.WriteLine($"{reading.Kind} for {reading.Subject ?? "the CRL's scope"}: {reading.Status}");
+}
+```
+
+`Kind` says whether the response is an OCSP answer or a CRL; `Status` is one of four:
+
+| Status | What it means |
+| --- | --- |
+| `Valid` | the signature verifies over the signed bytes, and its signer is the certificate's issuer itself, or a responder certificate that issuer issued with `id-kp-OCSPSigning` (1.3.6.1.5.5.7.3.9) |
+| `NoSignature` | the response carries no signature this reader can check: an empty signature value, no signed bytes, or an algorithm outside the set the package implements |
+| `Invalid` | a signature is present and verifies with no key the file carries; the bytes changed after signing, or the signer's key is not embedded — a reader cannot tell the two apart, and neither is evidence |
+| `UnexpectedSigner` | the signature verifies, but its signer was not entitled to answer for that certificate: a delegated responder without `id-kp-OCSPSigning`, a responder issued by another authority, or a CRL naming an authority no embedded certificate is |
+
+The entry names the certificate the response answers for (`Subject`, `Issuer`, `SerialNumber`, null
+for a CRL and for a certificate the store does not carry) and the certificate that signed it
+(`SignerSubject`, `SignerSerialNumber`), so a report can say "the OCSP answer embedded for CN=… was
+not signed by its issuer" without parsing the store.
+
+It answers one question: who wrote this, and were they allowed to. It says nothing about what the
+answer states — an answer about a revoked certificate still reads `Valid` — and it fetches nothing
+and applies no policy beyond the issuer's own authorisation. Neither an OCSP response nor a CRL is
+timestamped here, so `Valid` is a statement about bytes, not about when they were produced.
+
 ## A document timestamp
 
 An RFC 3161 token over the whole file, added after the signatures, attesting that the document existed

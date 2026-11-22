@@ -47,7 +47,8 @@ var signed = PdfSigner.Sign(pdf, certificate, new PdfSignatureOptions { Reason =
 ## The rest of the suite
 
 - **`M3scalinum.Text.Documents`** — the document model every other package builds: typed content,
-  styles, tables, figures, lists, page setup, and the HTML and Markdown importers. No compiler, no
+  styles, tables, figures, lists, page setup, sections with their own header and watermark, a
+  bibliography from BibTeX, an index, and the HTML and Markdown importers. No compiler, no
   native code. → [The document model](Documents-Model)
 - **`M3scalinum.Text.Templates`** — seven business layouts (invoice, quotation, account statement,
   attestation, contract, payslip, purchase order) with typed options and English or French labels.
@@ -59,9 +60,9 @@ var signed = PdfSigner.Sign(pdf, certificate, new PdfSignatureOptions { Reason =
 - **`M3scalinum.Text.Barcodes`** — 19 symbologies, 15 of them written and read: QR, Micro QR,
   DataMatrix, Aztec, PDF417, Code 128/39/93, Telepen, EAN-13/8, UPC-A/E, ITF, Codabar, GS1-128 and
   the DataBar family, encoded to SVG or PNG, decoded back one symbol or a whole page. Plus the GS1
-  element string and Digital Link. → [Barcodes](Barcodes)
+  element string, Digital Link and a one-page shipping label. → [Barcodes](Barcodes)
 - **`M3scalinum.Text.Ocr`** — text, lines and boxes out of a page image or a scanned PDF, with the
-  models the caller supplies. → [OCR](Ocr)
+  models the caller supplies and ceilings on what it will decode. → [OCR](Ocr)
 - **`M3scalinum.Text.Mcp`** — a Model Context Protocol server over stdio or HTTP: render, list the
   layouts, sign, merge and read PDFs, writing nothing to disk unless the host says so.
   → [The MCP server](Mcp-Server)

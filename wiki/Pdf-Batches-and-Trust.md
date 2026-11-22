@@ -112,5 +112,62 @@ certificate's own text. A certificate the list does not know makes the qualifica
 `NotQualified`; no list at all makes it `NotEvaluated`, which is not the same answer. What the
 verifier proved about the bytes is reported unchanged underneath — see [Signing](Pdf-Signing).
 
+### Verifying the list itself
+
+A list read without anchors is only the claim of the bytes it was handed. `PdfLotl.Read(xml,
+location, anchors)` checks the list's own XML-DSig against anchors the caller supplies, and
+`PdfLotl.VerifySignature(xml, anchors)` returns the same verdict without building the model:
+
+```csharp
+PdfTrustedList lotl = PdfLotl.Read(lotlBytes);
+
+PdfTrustedList national = PdfLotl.Read(
+    nationalBytes,
+    "https://example.test/FR.xml",
+    PdfTrustStore.ForNationalList(lotl, "FR"));
+
+// national.Signature?.Status       — Valid, Invalid or NoSignature
+// national.Signature?.SignerChain  — Trusted, Untrusted or NotEvaluated
+// national.Signature?.IsVerified   — both, and a reference that covers the whole document
+```
+
+A signature that verifies over a detached element is `Valid` but not `IsVerified`: at least one
+verified reference must cover the whole document, or the services are outside what was signed. A
+refused signature does not refuse the list — its services are still read — it only means the list
+cannot make a signature qualified.
+
+`PdfSignatureVerifier.Verify(pdf, trustStore, trustList)` then reports, per signature, what the
+list's own verdict and freshness make the qualification rest on. `PdfSignatureTrustCoverage.Basis`
+is a `PdfQualificationBasis`:
+
+```csharp
+PdfTrustListVerification verified = PdfSignatureVerifier.Verify(pdf, trustStore, national);
+
+foreach (PdfSignatureTrustCoverage coverage in verified.Coverage)
+{
+    // coverage.Basis, coverage.IsQualified, coverage.Service, coverage.EvaluatedAt, coverage.Explanation
+}
+
+bool all = verified.AllQualified;
+```
+
+| `Basis` | What it says |
+| --- | --- |
+| `Verified` | the list's signature verified against a supplied anchor, and the list is inside its `NextUpdate` |
+| `VerifiedExpired` | the signature verified, and `NextUpdate` has passed; `IsQualified` still reflects the service, and the explanation names the expiry |
+| `NotVerified` | a verdict was attached and the bytes are not proven: `IsQualified` is false whatever the services say |
+| `NotChecked` | the list was read without anchors, so the qualification is the list's statement and the explanation says so |
+
+What the signature check is, and what it is not. It resolves each `ds:Reference` — the whole
+document or an element by `Id` — applies the enveloped-signature transform and canonicalisation,
+compares the digest, and verifies `SignatureValue` over the canonical `ds:SignedInfo`, with the
+signer's chain built against the caller's anchors and downloads disabled. Canonical XML 1.0 and
+exclusive C14N, both without comments, are implemented; any other transform is refused by name,
+never guessed at, and a refusal is not evidence of forgery. It does not check a timestamp token over
+the signature — `SignedAt` is `xades:SigningTime`, read and never proven, so no XAdES-T or -LT level
+is established — it does not check the revocation of the list's signer, it does not enforce the
+sequence number or freshness, and it does not interpret the XAdES `SignedProperties` beyond
+digesting the ones a reference names.
+
 The specification behind the manifest is `docs/specifications/33-archive-integrity.md`; the trust-list
 rules are in `docs/specifications/36-trust-lists.md`.

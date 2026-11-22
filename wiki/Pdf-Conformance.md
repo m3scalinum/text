@@ -93,6 +93,31 @@ check one. If you need PDF/UA-2 output today, it has to come from another produc
 still be pointed at it as `PdfConformanceStandard.Pdf20`, which confirms the PDF 2.0 structure but not the
 accessibility rules of ISO 14289-2.
 
+## What the pipeline can produce
+
+The enum mirrors the producer, and the producer reaches these levels and no others:
+
+| Target | Produced | Checked with |
+| --- | --- | --- |
+| PDF 1.4, 1.5, 1.6, 1.7, 2.0 | yes | `PdfConformanceStandard.Pdf14` … `Pdf20` |
+| PDF/A-1b/1a, 2b/2u/2a, 3b/3u/3a, 4/4f/4e | yes | the matching `PdfA…` member |
+| PDF/UA-1 on a 1.4 to 1.7 file | yes | `PdfConformanceStandard.PdfUa1`, and `CheckAccessibility` for the usability lines |
+| PDF/UA-1 on a PDF 2.0 file | **no** | `Check(a4.pdf, PdfUa1)` reports `PDF.VERSION_MISMATCH`: “PDF/UA-1 requires PDF 1.4 to 1.7, but the file declares 2.0” |
+| PDF/UA-2 | **no** | no member in `PdfConformanceStandard`, no rule in `PdfConformanceCodes` |
+
+The PDF/UA-1 ceiling is the standard's, not a choice of this suite. ISO 14289-1 is built on
+ISO 32000-1, and the embedded `krilla 0.8.2` fixes `Accessibility::UA1` to PDF 1.7. A configuration
+that asks `typst-pdf 0.15.1` for a 2.0 version with the UA-1 validator fails inside the producer, so
+the export cannot be made and the checker would report the mismatch if a file claimed it anyway.
+PDF/UA-1 and PDF/A-4 cannot be combined for the same reason: the two validators' version ranges do
+not overlap.
+
+PDF/UA-2 needs a producer before it can need a checker. `typst-pdf 0.15.1` declares a single
+accessibility variant (`Ua_1`), `krilla 0.8.2` a single `Accessibility::UA1`, and the native bridge
+maps exactly one name, `ua-1`. Adding a `PdfUa2` member first would be a value the export rejects
+with `invalid_argument` — a value that cannot work. It is not added; the `PdfUa2Tests` guard fails
+if one is added without a producer.
+
 ## In tests
 
 The conformance suite is built on real files: `tests/Text.Pdf.Tests/fixtures/pdfua` holds PDF/UA-1,

@@ -113,6 +113,43 @@ threshold, the value observed and the number of words concerned, so a log line c
 story. A reading that passes reports the same counters on the result: `RejectedWordCount` and
 `RejectedWordRatio`.
 
+## Image ceilings
+
+An image the engine cannot read costs memory long before it costs recognition, so `Recognize` bounds
+what it will decode:
+
+| Option | Default (0) means | Hard maximum |
+| --- | --- | --- |
+| `MaximumImagePixels` | 64 000 000 pixels (`MaximumImagePixelsCeiling`) | a caller may only lower it |
+| `MaximumImageBytes` | 256 MiB (`MaximumImageBytesCeiling`) | a caller may only lower it |
+
+```csharp
+var options = new OcrOptions
+{
+    MaximumImagePixels = 40_000_000,          // tighten below the library's ceiling
+    MaximumImageBytes = 64 * 1024 * 1024,
+};
+
+OcrRecognition outcome = engine.Recognize(File.ReadAllBytes("scan.png"), options);
+```
+
+The pixel ceiling is checked from the format header — PNG's `IHDR`, JPEG's `SOF`, BMP's information
+header, GIF's screen descriptor, TIFF's first `IFD`, WebP's `VP8`/`VP8L`/`VP8X` block — so an image
+that declares more is refused before its pixels are allocated. The byte ceiling is checked on the
+length alone, before a header byte is read.
+
+An option can only lower a ceiling. Zero means the library's; a negative value or one above the hard
+maximum is an `ArgumentOutOfRangeException`, not a clamp, because a clamp would report a ceiling the
+caller never wrote. The defaults are also what `M3scalinum.Text.Barcodes` applies to an image it
+decodes: 64 000 000 pixels is an A4 page at 600 DPI (34.8 megapixels) with room to spare.
+
+A refusal past either ceiling is an `OcrImageLimitException`, with `Limit` (`Pixels` or `Bytes`),
+`Observed` and `Maximum` — the size the image declared and the ceiling that refused it. It is not an
+`OcrUnreadable`: nothing was decoded, no threshold ran, and there is no page to judge, so the input
+is refused rather than reported as unreadable text. The byte ceiling applies to an image read from
+bytes; a PDF given to `RecognizePdf` is rasterised page by page by the native renderer at
+`OcrPdfOptions.Dpi`, under that rasteriser's own bounds.
+
 ## Preprocessing a turned or noisy page
 
 Three switches on `OcrOptions`, all off by default, clean the page before it is read:
@@ -197,8 +234,10 @@ would; a scanned page — an image and a little text — is its easy case.
 - A page with no text is a refusal, not an exception: `OcrUnreadable` with `BlankPage`, empty
   confidence and no text to reach. A blank scan in a batch does not throw.
 - A model that is not a model, an image that will not decode, a PDF that will not parse: an
-  `OcrException` with a `Code` of `model`, `image` or `pdf`. A panic in the native code is caught at
-  the boundary and reported the same way, never unwound into your process.
+  `OcrException` with a `Code` of `model`, `image` or `pdf`. An image past a pixel or byte ceiling is
+  an `OcrImageLimitException` with the code `image_limit`, refused before a pixel is decoded. A panic
+  in the native code is caught at the boundary and reported the same way, never unwound into your
+  process.
 
 ## Testing it
 

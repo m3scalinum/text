@@ -227,6 +227,70 @@ An **Aztec** symbol needs at least two pixels per module to be read back, by any
 family. `Scale = 1` is accepted and produces a correct symbol that this package cannot read again;
 the default is four. Every other symbology round-trips at one pixel per module.
 
+## A shipping label
+
+`ShippingLabel` produces the one page a logistics label is: an SSCC in a GS1-128 symbol, the same
+number printed for a human, the delivery address and a parcel reference. The page is written by this
+package itself, so a label needs neither `M3scalinum.Text.Pdf` nor the compiler.
+
+```csharp
+ShippingLabel label = ShippingLabel.Create("106141411234567897", new ShippingLabelOptions
+{
+    Recipient = "Camille Dubois",
+    AddressLines = ["12 rue de la Paix", "75002 Paris", "France"],
+    Reference = "LS-2026-000481",
+});
+
+byte[] pdf = label.Pdf;                   // one page, 100 × 150 mm by default
+BarcodePrint code = label.Code;           // the symbol, at the size it really prints
+string printed = label.HumanReadable;     // (00)106141411234567897
+```
+
+`ShippingLabelFormat` has two portrait pages: `Millimetres100x150`, the default and the 4 × 6 in
+stock a thermal label printer is loaded with, and `A6`, 105 × 148 mm. On the default page the
+symbol gets 92 mm — the width less 4 mm of clearance on each side — and is centred at its own
+printed width, so a wider module moves the symbol rather than shrinking the page; a symbol that
+does not fit is refused with both widths in the message. The text margin is 10 mm.
+
+| Option | Default | Accepted |
+| --- | --- | --- |
+| `Format` | `Millimetres100x150` | `Millimetres100x150`, `A6` |
+| `Dpi` | 300 | 72 to 2400 |
+| `ModuleMillimetres` | 0.495 (the GS1 nominal) | any positive number; the print target refuses a module under 0.25 mm |
+| `BarHeightModules` | 64 (about 32 mm at 0.495 mm) | 1 to 1024 |
+| `Recipient` | none | at most 42 characters |
+| `AddressLines` | none | 1 to 5 lines, at most 42 characters each |
+| `Reference` | none | at most 32 characters |
+
+An empty line, a line over its length or a control character is a `BarcodeException` naming the
+field and its length, never a clipped address. At least one address line is required: an SSCC and
+no address is not a deliverable parcel.
+
+### The SSCC
+
+The key is eighteen digits: an extension digit, a sixteen-digit body and the GS1 mod-10 check digit.
+A seventeen- or nineteen-digit string is refused, and so is a key whose check digit does not match —
+`Gs1Data` names both digits:
+
+```text
+AI 00 (SSCC) ends in check digit 8, but '10614141123456789' needs 7:
+the value '106141411234567898' fails the GS1 mod-10 check
+```
+
+`Create(Gs1Data, options)` is the other entry point: it writes whatever element string the data
+carries, provided AI `00` is one of them, and refuses data without it. The symbol is GS1-128, the
+element string with FNC1 in lead position.
+
+### The page
+
+The label is one PDF page written in the package's own `Internal/PdfLabelPage`: two standard
+Helvetica faces, one greyscale image XObject, no colour, no logo, no second page. Text is encoded
+Windows-1252, so an accented address prints as written and a character outside that encoding becomes
+`?`. There is no timestamp and no file identifier, so the same SSCC, address and options produce the
+same bytes, and a test asserts that equality; another test decodes the rendered page back to the
+SSCC where the PDF rasteriser is available. `samples/labels/sscc-label.json` is the same label as
+data, and a test builds it so the sample cannot go stale.
+
 ## Shipping and licensing
 
 The package carries its engine as a native library per runtime identifier — `win-x64`, `win-arm64`,
