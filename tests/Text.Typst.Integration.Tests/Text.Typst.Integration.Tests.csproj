@@ -9,6 +9,7 @@
     <ProjectReference Include="..\..\src\Text.Typst\Text.Typst.csproj" />
     <ProjectReference Include="..\..\src\Text.Typst.Native\Text.Typst.Native.csproj" />
     <ProjectReference Include="..\..\src\Text.Typst.DependencyInjection\Text.Typst.DependencyInjection.csproj" />
+    <ProjectReference Include="..\..\src\Text.Pdf\Text.Pdf.csproj" />
     <ProjectReference Include="..\..\src\Text.Templates.Generator\Text.Templates.Generator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
