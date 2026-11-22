@@ -26,6 +26,17 @@ Not yet published. Embeds Typst 0.15.1.
 - `TypstDocument.FromMarkdown`: Markdown into the document model, with the same fidelity contract the
   HTML importer publishes — headings, nested lists, GFM tables, emphasis, code, links, footnotes and
   images resolved against registered assets only. Written by hand, so the package gains no dependency.
+- `TypstDocument.ToMarkdown`: the model written back out as Markdown, over the same fidelity contract
+  the import publishes — headings, nested lists, a GFM pipe table, emphasis, inline and fenced code,
+  links, images, quotes and rules — and the text of everything Markdown cannot carry (raw markup,
+  calls, plugins, footnotes, citations, colours and weights) conserved rather than dropped. The
+  result names each construct it could not represent and how many times it saw it, so a lossy export
+  is inspectable instead of silent.
+- `TypstDocument.ToHtml`: the model as a semantic HTML5 fragment — headings, paragraphs, nested
+  lists, tables with their spans and alignment, code with its language, links, images resolved by the
+  asset resolver or inlined as a data URL, figures with their captions — with every node that has no
+  HTML equivalent counted in the result. Entities are escaped in text and in attributes, and the
+  output is deterministic, so a document diff is a document diff.
 - In-process compilation of Typst source through a C ABI over the Rust `typst` crate. No process
   spawn, no binary on `PATH`, no temporary files.
 - Export to PDF, SVG (single page or merged), PNG (single page or merged), HTML, Markdown, plain
