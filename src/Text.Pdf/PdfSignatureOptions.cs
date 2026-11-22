@@ -61,6 +61,39 @@ public sealed class PdfSignatureOptions
     /// caller supplies; this library does not fetch either.
     /// </remarks>
     public PdfDssOptions? Dss { get; init; }
+
+    /// <summary>
+    /// Where the revocation evidence comes from, when the caller wants the store filled for it.
+    /// Default: none.
+    /// </summary>
+    /// <remarks>
+    /// Supplying a source makes PAdES-B-LT the level this call is configured to reach: the writer
+    /// asks it for an OCSP answer or a CRL for every certificate of the chain, embeds what it gets,
+    /// and refuses with a <see cref="PdfRevocationException"/> naming the certificate when one has
+    /// neither. The chain itself still comes from <see cref="Dss"/>, plus the signing certificate.
+    /// <para>
+    /// The library never calls the source itself — it has no URL and no cache — and never opens a
+    /// connection: whether the answer comes from memory, a file, or a responder the caller reached
+    /// is invisible here, and deliberately so.
+    /// </para>
+    /// </remarks>
+    public IRevocationSource? RevocationSource { get; init; }
+
+    /// <summary>
+    /// The PAdES baseline level the caller asks the writer to reach. Default: none, which means
+    /// B-LT when a <see cref="RevocationSource"/> is supplied, B-T when a timestamp authority is,
+    /// and B otherwise.
+    /// </summary>
+    /// <remarks>
+    /// Setting <see cref="PdfSignatureLevel.BaselineT"/> with an incomplete source honours the
+    /// request: the evidence the source does return is embedded, nothing is refused, and
+    /// <see cref="PdfSignatureResult.MissingRevocation"/> lists what was missing. Setting
+    /// <see cref="PdfSignatureLevel.BaselineLT"/> refuses instead, because a B-LT that quietly
+    /// carried only part of its evidence would claim more than the file holds.
+    /// <see cref="PdfSignatureLevel.BaselineLTA"/> cannot be produced by a signature: it needs a
+    /// document timestamp over the finished file.
+    /// </remarks>
+    public PdfSignatureLevel? Level { get; init; }
 }
 
 /// <summary>

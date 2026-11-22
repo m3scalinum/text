@@ -90,6 +90,30 @@ public static class PdfSignatureVerifier
             timestamps);
     }
 
+    /// <summary>
+    /// Reports, for every certificate the document security store embeds, which revocation data
+    /// covers it and when that data was issued.
+    /// </summary>
+    /// <param name="pdf">The document to read.</param>
+    /// <returns>One entry per embedded certificate, in the order the store lists them; empty when
+    /// the document carries no store.</returns>
+    /// <exception cref="PdfSignatureException">The data is not a PDF.</exception>
+    /// <remarks>
+    /// This is the cache side of the revocation seam: a caller that keeps its own answers can see
+    /// what the file carries and how old it is, without asking a responder. Nothing is fetched and
+    /// nothing is judged — a covering answer about a revoked certificate still covers it.
+    /// </remarks>
+    public static IReadOnlyList<PdfRevocationCoverage> ReadRevocation(ReadOnlySpan<byte> pdf)
+    {
+        if (pdf.IsEmpty)
+        {
+            throw new PdfSignatureException("the document is empty");
+        }
+
+        var document = PdfDocument.Parse(Encoding.Latin1.GetString(pdf));
+        return PdfDss.Read(document).Coverage();
+    }
+
     private static PdfSignatureInfo VerifySignature(
         byte[] bytes,
         PdfSignatureDictionary dictionary,
