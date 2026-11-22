@@ -49,7 +49,7 @@ public sealed class NativeBackendTests
         Assert.Equal([3, 4], library.LastRecognitionModel);
         Assert.Equal([5], library.LastDictionary);
 
-        var document = handle.Recognize([9]);
+        var document = handle.Recognize([9], new OcrOptions());
 
         Assert.Equal(FakeNativeLibrary.HandleValue, library.LastEngine);
         Assert.Equal(1, library.RecognizeCalls);
@@ -104,7 +104,7 @@ public sealed class NativeBackendTests
         using var handle = OcrEngineHandle.Create(library, [1], [2], null);
 
         Assert.Equal(1, library.ErrorFreeCalls);
-        Assert.NotEmpty(handle.Recognize([1]));
+        Assert.NotEmpty(handle.Recognize([1], new OcrOptions()));
     }
 
     [Fact]
@@ -113,7 +113,7 @@ public sealed class NativeBackendTests
         var library = new FakeNativeLibrary { Document = Encoding.UTF8.GetBytes(ImageDocument) };
         using var handle = OcrEngineHandle.Create(library, [1], [2], null);
 
-        var document = handle.Recognize([1, 2, 3]);
+        var document = handle.Recognize([1, 2, 3], new OcrOptions());
 
         Assert.Equal(ImageDocument, Encoding.UTF8.GetString(document));
         Assert.Equal(1, library.BufferFreeCalls);
@@ -125,7 +125,7 @@ public sealed class NativeBackendTests
         var library = new FakeNativeLibrary { Document = null! };
         using var handle = OcrEngineHandle.Create(library, [1], [2], null);
 
-        var document = handle.Recognize([1]);
+        var document = handle.Recognize([1], new OcrOptions());
 
         Assert.Empty(document);
     }
@@ -142,7 +142,7 @@ public sealed class NativeBackendTests
         };
         using var handle = OcrEngineHandle.Create(library, [1], [2], null);
 
-        var error = Assert.Throws<OcrException>(() => handle.Recognize([1]));
+        var error = Assert.Throws<OcrException>(() => handle.Recognize([1], new OcrOptions()));
 
         Assert.Equal("image", error.Code);
         Assert.Equal(2, library.BufferFreeCalls);
@@ -155,7 +155,7 @@ public sealed class NativeBackendTests
         var library = new FakeNativeLibrary { Status = 6, ErrorCode = "pdf" };
         using var handle = OcrEngineHandle.Create(library, [1], [2], null);
 
-        var error = Assert.Throws<OcrException>(() => handle.Recognize([1]));
+        var error = Assert.Throws<OcrException>(() => handle.Recognize([1], new OcrOptions()));
 
         Assert.Equal("pdf", error.Code);
         Assert.Equal(1, library.BufferFreeCalls);
@@ -174,8 +174,8 @@ public sealed class NativeBackendTests
         var library = new FakeNativeLibrary { Status = status, ErrorCode = code };
         using var handle = OcrEngineHandle.Create(library, [1], [2], null);
 
-        var fromImage = Assert.Throws<OcrException>(() => handle.Recognize([1]));
-        var fromPdf = Assert.Throws<OcrException>(() => handle.RecognizePdf([1], 300, 0, 0));
+        var fromImage = Assert.Throws<OcrException>(() => handle.Recognize([1], new OcrOptions()));
+        var fromPdf = Assert.Throws<OcrException>(() => handle.RecognizePdf([1], new OcrPdfOptions(), 0, 0));
 
         Assert.Equal(code, fromImage.Code);
         Assert.Equal(code, fromPdf.Code);
@@ -187,7 +187,7 @@ public sealed class NativeBackendTests
         var library = new FakeNativeLibrary { Document = Encoding.UTF8.GetBytes(PagesDocument) };
         using var handle = OcrEngineHandle.Create(library, [1], [2], null);
 
-        handle.RecognizePdf([1, 2], 150, 2, 4);
+        handle.RecognizePdf([1, 2], new OcrPdfOptions { Dpi = 150 }, 2, 4);
 
         Assert.Equal(150u, library.LastDpi);
         Assert.Equal(2u, library.LastFirstPage);
@@ -215,8 +215,8 @@ public sealed class NativeBackendTests
 
         handle.Dispose();
 
-        Assert.Throws<ObjectDisposedException>(() => handle.Recognize([1]));
-        Assert.Throws<ObjectDisposedException>(() => handle.RecognizePdf([1], 300, 0, 0));
+        Assert.Throws<ObjectDisposedException>(() => handle.Recognize([1], new OcrOptions()));
+        Assert.Throws<ObjectDisposedException>(() => handle.RecognizePdf([1], new OcrPdfOptions(), 0, 0));
     }
 
     [Fact]
@@ -225,7 +225,7 @@ public sealed class NativeBackendTests
         var library = new FakeNativeLibrary { Document = Encoding.UTF8.GetBytes(ImageDocument) };
         using var engine = new OcrEngine(NativeOcrBackend.Create(OcrEngineHandle.Create(library, [1], [2], null)));
 
-        var result = engine.Recognize([1, 2, 3]);
+        var result = Assert.IsType<OcrResult>(engine.Recognize([1, 2, 3]));
 
         Assert.Equal("hello world", result.Text);
         Assert.Equal(100, result.Width);
@@ -249,7 +249,7 @@ public sealed class NativeBackendTests
         Assert.Equal(3u, library.LastFirstPage);
         Assert.Equal(0u, library.LastPageCount);
         Assert.Equal([0, 1], pages.Select(page => page.PageIndex));
-        Assert.Equal("one", pages[0].Text);
+        Assert.Equal("one", Assert.IsType<OcrPageResult>(pages[0]).Text);
     }
 
     [Fact]

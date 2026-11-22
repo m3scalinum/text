@@ -138,11 +138,21 @@ internal sealed unsafe class NativeLibraryOcr : IOcrNative
     public uint EngineLiveCount() => NativeMethods.EngineLiveCount();
 
     /// <inheritdoc />
-    public int EngineRecognize(IntPtr engine, byte[] image, out NativeBuffer json, out IntPtr error)
+    public int EngineRecognize(
+        IntPtr engine,
+        byte[] image,
+        double pageConfidence,
+        double wordConfidence,
+        double maxRejectedWordRatio,
+        out NativeBuffer json,
+        out IntPtr error)
     {
         fixed (byte* pixels = image)
         {
-            return NativeMethods.EngineRecognize(engine, pixels, (nuint)image.Length, out json, out error);
+            return NativeMethods.EngineRecognize(
+                engine, pixels, (nuint)image.Length,
+                pageConfidence, wordConfidence, maxRejectedWordRatio,
+                out json, out error);
         }
     }
 
@@ -153,13 +163,18 @@ internal sealed unsafe class NativeLibraryOcr : IOcrNative
         uint dpi,
         uint firstPage,
         uint pageCount,
+        double pageConfidence,
+        double wordConfidence,
+        double maxRejectedWordRatio,
         out NativeBuffer json,
         out IntPtr error)
     {
         fixed (byte* bytes = pdf)
         {
             return NativeMethods.EngineRecognizePdf(
-                engine, bytes, (nuint)pdf.Length, dpi, firstPage, pageCount, out json, out error);
+                engine, bytes, (nuint)pdf.Length, dpi, firstPage, pageCount,
+                pageConfidence, wordConfidence, maxRejectedWordRatio,
+                out json, out error);
         }
     }
 
@@ -214,21 +229,37 @@ internal sealed class OcrEngineHandle : IDisposable
         return new OcrEngineHandle(library, handle);
     }
 
-    internal byte[] Recognize(byte[] image)
+    internal byte[] Recognize(byte[] image, OcrOptions options)
     {
         var handle = Handle();
 
-        var status = _library.EngineRecognize(handle, image, out var json, out var error);
+        var status = _library.EngineRecognize(
+            handle,
+            image,
+            options.MinimumPageConfidence,
+            options.MinimumWordConfidence,
+            options.MaximumRejectedWordRatio,
+            out var json,
+            out var error);
 
         return Take(status, json, error);
     }
 
-    internal byte[] RecognizePdf(byte[] pdf, uint dpi, uint firstPage, uint pageCount)
+    internal byte[] RecognizePdf(byte[] pdf, OcrPdfOptions options, uint firstPage, uint pageCount)
     {
         var handle = Handle();
 
         var status = _library.EngineRecognizePdf(
-            handle, pdf, dpi, firstPage, pageCount, out var json, out var error);
+            handle,
+            pdf,
+            (uint)options.Dpi,
+            firstPage,
+            pageCount,
+            options.MinimumPageConfidence,
+            options.MinimumWordConfidence,
+            options.MaximumRejectedWordRatio,
+            out var json,
+            out var error);
 
         return Take(status, json, error);
     }

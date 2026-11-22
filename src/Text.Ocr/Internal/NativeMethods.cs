@@ -44,11 +44,14 @@ internal static partial class NativeMethods
 
     [LibraryImport(LibraryName, EntryPoint = "to_engine_recognize")]
     internal static unsafe partial int EngineRecognize(
-        IntPtr engine, byte* image, nuint length, out NativeBuffer json, out IntPtr error);
+        IntPtr engine, byte* image, nuint length,
+        double pageConfidence, double wordConfidence, double maxRejectedWordRatio,
+        out NativeBuffer json, out IntPtr error);
 
     [LibraryImport(LibraryName, EntryPoint = "to_engine_recognize_pdf")]
     internal static unsafe partial int EngineRecognizePdf(
         IntPtr engine, byte* pdf, nuint length, uint dpi, uint firstPage, uint pageCount,
+        double pageConfidence, double wordConfidence, double maxRejectedWordRatio,
         out NativeBuffer json, out IntPtr error);
 
     internal static string ReadUtf8(IntPtr pointer)

@@ -17,7 +17,7 @@ use std::ffi::{CString, c_char};
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use engine::Engine;
+use engine::{Engine, Thresholds};
 use ffi::{ToBuffer, ToError, guard_buffer, guard_ptr, read_bytes};
 
 /// The opaque engine handle. It owns both models.
@@ -57,14 +57,14 @@ pub extern "C" fn to_engine_live_count() -> u32 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn to_abi_version() -> u32 {
-    1
+    2
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn to_abi_version_string() -> *const c_char {
     static VERSION: OnceLock<CString> = OnceLock::new();
     VERSION
-        .get_or_init(|| CString::new("1.0.0").expect("literal has no interior NUL"))
+        .get_or_init(|| CString::new("2.0.0").expect("literal has no interior NUL"))
         .as_ptr()
 }
 
@@ -190,6 +190,12 @@ pub unsafe extern "C" fn to_engine_free(engine: *mut ToEngine) {
 
 /// Recognises an encoded image (PNG, JPEG, BMP, GIF, TIFF or WebP).
 ///
+/// The three thresholds are the ones `M3scalinum.Text.Ocr`'s `OcrOptions` carries:
+/// a page confidence minimum, a word confidence minimum and the tolerated
+/// proportion of flagged words, each in [0, 1]. A threshold outside that range is
+/// refused as `invalid_argument`; it is never silently ignored, because ignoring it
+/// would turn a refusal rule off.
+///
 /// On success `out_json` holds the result document and the return value is `TO_OK`;
 /// on failure the return value is the error code and `out_error` holds the error.
 ///
@@ -201,6 +207,9 @@ pub unsafe extern "C" fn to_engine_recognize(
     engine: *mut ToEngine,
     image: *const u8,
     length: usize,
+    page_confidence: f64,
+    word_confidence: f64,
+    max_rejected_word_ratio: f64,
     out_json: *mut ToBuffer,
     out_error: *mut *mut ToError,
 ) -> i32 {
@@ -218,14 +227,22 @@ pub unsafe extern "C" fn to_engine_recognize(
             if bytes.is_empty() {
                 return Err(ToError::invalid_argument("image is empty"));
             }
-            handle.engine.recognize_image(&bytes)
+            handle.engine.recognize_image(
+                &bytes,
+                Thresholds {
+                    page: page_confidence,
+                    word: word_confidence,
+                    max_rejected_ratio: max_rejected_word_ratio,
+                },
+            )
         })
     }
 }
 
 /// Renders and recognises a PDF.
 ///
-/// `first_page` is zero-based; `page_count` 0 means "to the end".
+/// `first_page` is zero-based; `page_count` 0 means "to the end". Each page is
+/// assessed on its own with the same thresholds as [`to_engine_recognize`].
 ///
 /// # Safety
 /// Same contract as [`to_engine_recognize`].
@@ -237,6 +254,9 @@ pub unsafe extern "C" fn to_engine_recognize_pdf(
     dpi: u32,
     first_page: u32,
     page_count: u32,
+    page_confidence: f64,
+    word_confidence: f64,
+    max_rejected_word_ratio: f64,
     out_json: *mut ToBuffer,
     out_error: *mut *mut ToError,
 ) -> i32 {
@@ -254,9 +274,17 @@ pub unsafe extern "C" fn to_engine_recognize_pdf(
             if bytes.is_empty() {
                 return Err(ToError::invalid_argument("pdf is empty"));
             }
-            handle
-                .engine
-                .recognize_pdf(&bytes, dpi, first_page, page_count)
+            handle.engine.recognize_pdf(
+                &bytes,
+                dpi,
+                first_page,
+                page_count,
+                Thresholds {
+                    page: page_confidence,
+                    word: word_confidence,
+                    max_rejected_ratio: max_rejected_word_ratio,
+                },
+            )
         })
     }
 }
@@ -278,8 +306,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn abi_version_is_one() {
-        assert_eq!(to_abi_version(), 1);
+    fn abi_version_is_two() {
+        assert_eq!(to_abi_version(), 2);
     }
 
     #[test]

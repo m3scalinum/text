@@ -14,52 +14,104 @@ namespace M3scalinum.Text.Ocr.Internal;
 /// </remarks>
 internal static class ResultParser
 {
-    /// <summary>Parses <c>{"width", "height", "text", "meanConfidence", "lines"}</c>.</summary>
-    internal static OcrResult ParseImage(byte[] json)
+    /// <summary>
+    /// Parses <c>{"width", "height", "status", "text", "meanConfidence", "lines"}</c>,
+    /// plus <c>refusal</c> when the native side refused the page.
+    /// </summary>
+    internal static OcrRecognition ParseImage(byte[] json)
     {
         using var document = JsonDocument.Parse(json);
         var root = document.RootElement;
 
         var width = root.GetProperty("width").GetInt32();
         var height = root.GetProperty("height").GetInt32();
+        var meanConfidence = Confidence(root);
+
+        if (IsUnreadable(root))
+        {
+            return new OcrUnreadable(width, height, meanConfidence, ParseRefusal(root));
+        }
 
         return new OcrResult(
             Text(root),
             ParseLines(root, width, height),
-            Confidence(root),
+            meanConfidence,
             width,
             height);
     }
 
     /// <summary>Parses <c>{"pages": [...]}</c>.</summary>
-    internal static IReadOnlyList<OcrPageResult> ParsePages(byte[] json)
+    internal static IReadOnlyList<OcrPageOutcome> ParsePages(byte[] json)
     {
         using var document = JsonDocument.Parse(json);
 
-        var pages = new List<OcrPageResult>();
+        var pages = new List<OcrPageOutcome>();
         foreach (var page in document.RootElement.GetProperty("pages").EnumerateArray())
         {
+            var pageIndex = page.GetProperty("pageIndex").GetInt32();
             var width = page.GetProperty("width").GetInt32();
             var height = page.GetProperty("height").GetInt32();
+            var dpi = page.GetProperty("dpi").GetInt32();
+            var meanConfidence = Confidence(page);
+
+            if (IsUnreadable(page))
+            {
+                pages.Add(new OcrPageUnreadable(
+                    pageIndex, width, height, dpi, meanConfidence, ParseRefusal(page)));
+                continue;
+            }
 
             pages.Add(new OcrPageResult(
-                page.GetProperty("pageIndex").GetInt32(),
+                pageIndex,
                 Text(page),
                 ParseLines(page, width, height),
-                Confidence(page),
+                meanConfidence,
                 width,
                 height,
-                page.GetProperty("dpi").GetInt32()));
+                dpi));
         }
 
         return pages;
     }
 
+    /// <summary>
+    /// Whether the native side refused the page.
+    /// </summary>
+    /// <remarks>
+    /// An absent <c>status</c> is a reading: a document written before the refusal
+    /// existed can only ever describe one, and reading it as a refusal would turn an
+    /// older native library into a page of nothing.
+    /// </remarks>
+    private static bool IsUnreadable(JsonElement element)
+        => element.TryGetProperty("status", out var status)
+            && status.ValueKind == JsonValueKind.String
+            && status.GetString() == "unreadable";
+
+    private static OcrRefusal ParseRefusal(JsonElement element)
+    {
+        var refusal = element.GetProperty("refusal");
+        var raw = refusal.GetProperty("reason").GetString();
+
+        var reason = raw switch
+        {
+            "blank_page" => OcrRefusalReason.BlankPage,
+            "mean_confidence" => OcrRefusalReason.MeanConfidence,
+            "rejected_words" => OcrRefusalReason.RejectedWords,
+            _ => throw new JsonException($"unknown refusal reason '{raw}'"),
+        };
+
+        return new OcrRefusal(
+            reason,
+            refusal.GetProperty("threshold").GetDouble(),
+            refusal.GetProperty("observed").GetDouble(),
+            refusal.GetProperty("wordCount").GetInt32());
+    }
+
     private static string Text(JsonElement element)
-        => element.GetProperty("text").GetString() ?? string.Empty;
+        => element.TryGetProperty("text", out var text) ? text.GetString() ?? string.Empty : string.Empty;
 
     private static double Confidence(JsonElement element)
-        => element.GetProperty("meanConfidence").GetDouble();
+        => element.TryGetProperty("meanConfidence", out var confidence) ? confidence.GetDouble() : 0.0;
 
     /// <summary>
     /// Reads the lines of one image or page and normalises them against the page: every
@@ -79,7 +131,8 @@ internal static class ResultParser
                 words.Add(new OcrWord(
                     word.GetProperty("text").GetString() ?? string.Empty,
                     BoxMath.Clip(ParseBox(word.GetProperty("bounds")), pageWidth, pageHeight),
-                    word.GetProperty("confidence").GetDouble()));
+                    word.GetProperty("confidence").GetDouble(),
+                    IsRejected(word)));
             }
 
             var ordered = BoxMath.InReadingOrder(words);
@@ -103,6 +156,14 @@ internal static class ResultParser
 
         return lines;
     }
+
+    /// <summary>
+    /// Whether the native side flagged the word. An absent flag is a reliable word: a
+    /// document without it predates the threshold, and nothing in it was flagged.
+    /// </summary>
+    private static bool IsRejected(JsonElement word)
+        => word.TryGetProperty("rejected", out var rejected)
+            && rejected.ValueKind == JsonValueKind.True;
 
     private static OcrBox ParseBox(JsonElement bounds) => new(
         bounds.GetProperty("x").GetInt32(),

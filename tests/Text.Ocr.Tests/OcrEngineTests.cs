@@ -41,8 +41,9 @@ public sealed class OcrEngineTests
     {
         using var engine = new OcrEngine(new FakeOcrBackend());
 
-        var result = engine.Recognize([1, 2, 3]);
+        var result = Assert.IsType<OcrResult>(engine.Recognize([1, 2, 3]));
 
+        Assert.Equal(OcrOutcome.Recognized, result.Outcome);
         Assert.Equal("first line\nsecond line", result.Text);
         Assert.Equal(2, result.Lines.Count);
         Assert.Equal(2480, result.Width);
@@ -55,7 +56,7 @@ public sealed class OcrEngineTests
     {
         using var engine = new OcrEngine(new FakeOcrBackend());
 
-        var line = engine.Recognize([1, 2, 3]).Lines[0];
+        var line = Assert.IsType<OcrResult>(engine.Recognize([1, 2, 3])).Lines[0];
 
         Assert.Equal("first line", line.Text);
         Assert.Equal(10, line.Bounds.X);
@@ -78,6 +79,77 @@ public sealed class OcrEngineTests
 
         Assert.Same(image, backend.LastImage);
         Assert.Equal(1, backend.RecognizeCalls);
+    }
+
+    [Fact]
+    public void Recognize_carries_the_default_thresholds_when_none_are_given()
+    {
+        var backend = new FakeOcrBackend();
+        using var engine = new OcrEngine(backend);
+
+        engine.Recognize([1]);
+
+        var options = Assert.IsType<OcrOptions>(backend.LastOptions);
+        Assert.Equal(0.6, options.MinimumPageConfidence);
+        Assert.Equal(0.5, options.MinimumWordConfidence);
+        Assert.Equal(0.5, options.MaximumRejectedWordRatio);
+    }
+
+    [Fact]
+    public void Recognize_hands_the_thresholds_the_caller_set_to_the_backend()
+    {
+        var backend = new FakeOcrBackend();
+        using var engine = new OcrEngine(backend);
+
+        engine.Recognize(
+            [1],
+            new OcrOptions
+            {
+                MinimumPageConfidence = 0.9,
+                MinimumWordConfidence = 0.8,
+                MaximumRejectedWordRatio = 0.1,
+            });
+
+        var options = backend.LastOptions!;
+        Assert.Equal(0.9, options.MinimumPageConfidence);
+        Assert.Equal(0.8, options.MinimumWordConfidence);
+        Assert.Equal(0.1, options.MaximumRejectedWordRatio);
+    }
+
+    [Theory]
+    [InlineData(-0.01)]
+    [InlineData(1.01)]
+    public void Recognize_rejects_a_page_threshold_out_of_range(double threshold)
+    {
+        using var engine = new OcrEngine(new FakeOcrBackend());
+
+        var error = Assert.Throws<ArgumentOutOfRangeException>(
+            () => engine.Recognize([1], new OcrOptions { MinimumPageConfidence = threshold }));
+
+        Assert.Equal("MinimumPageConfidence", error.ParamName);
+    }
+
+    [Fact]
+    public void A_nan_threshold_is_refused_rather_than_disabling_the_refusal()
+    {
+        using var engine = new OcrEngine(new FakeOcrBackend());
+
+        var error = Assert.Throws<ArgumentOutOfRangeException>(
+            () => engine.Recognize([1], new OcrOptions { MinimumWordConfidence = double.NaN }));
+
+        Assert.Equal("MinimumWordConfidence", error.ParamName);
+    }
+
+    [Fact]
+    public void A_recognised_image_reports_no_rejected_word_by_default()
+    {
+        using var engine = new OcrEngine(new FakeOcrBackend());
+
+        var result = Assert.IsType<OcrResult>(engine.Recognize([1]));
+
+        Assert.Equal(0, result.RejectedWordCount);
+        Assert.Equal(0.0, result.RejectedWordRatio);
+        Assert.All(result.Lines, line => Assert.All(line.Words, word => Assert.False(word.Rejected)));
     }
 
     [Fact]
@@ -124,7 +196,7 @@ public sealed class OcrEngineTests
 
         engine.RecognizePdf([1]);
 
-        var options = Assert.IsType<OcrPdfOptions>(backend.LastOptions);
+        var options = Assert.IsType<OcrPdfOptions>(backend.LastPdfOptions);
         Assert.Equal(300, options.Dpi);
         Assert.Equal(0, options.FirstPage);
         Assert.Null(options.LastPage);
@@ -139,7 +211,7 @@ public sealed class OcrEngineTests
         var pages = engine.RecognizePdf([1], new OcrPdfOptions { Dpi = 150 });
 
         Assert.Equal([0, 1], pages.Select(p => p.PageIndex));
-        Assert.Equal(150, backend.LastOptions!.Dpi);
+        Assert.Equal(150, backend.LastPdfOptions!.Dpi);
         Assert.Equal(1, backend.RecognizePdfCalls);
     }
 
@@ -148,7 +220,7 @@ public sealed class OcrEngineTests
     {
         using var engine = new OcrEngine(new FakeOcrBackend());
 
-        var page = engine.RecognizePdf([1])[0];
+        var page = Assert.IsType<OcrPageResult>(engine.RecognizePdf([1])[0]);
 
         Assert.Equal(2480, page.Width);
         Assert.Equal(3508, page.Height);
@@ -167,9 +239,9 @@ public sealed class OcrEngineTests
         engine.RecognizePdf(pdf, new OcrPdfOptions { Dpi = 200, FirstPage = 1, LastPage = 3 });
 
         Assert.Same(pdf, backend.LastPdf);
-        Assert.Equal(200, backend.LastOptions!.Dpi);
-        Assert.Equal(1, backend.LastOptions.FirstPage);
-        Assert.Equal(3, backend.LastOptions.LastPage);
+        Assert.Equal(200, backend.LastPdfOptions!.Dpi);
+        Assert.Equal(1, backend.LastPdfOptions.FirstPage);
+        Assert.Equal(3, backend.LastPdfOptions.LastPage);
     }
 
     [Fact]
@@ -234,7 +306,7 @@ public sealed class OcrEngineTests
     {
         using var engine = new OcrEngine(new FakeOcrBackend());
 
-        var result = engine.Recognize([1]);
+        var result = Assert.IsType<OcrResult>(engine.Recognize([1]));
         var line = result.Lines[0];
 
         Assert.Equal("first line\nsecond line", result.ToString());

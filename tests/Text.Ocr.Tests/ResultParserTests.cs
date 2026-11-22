@@ -41,7 +41,7 @@ public sealed class ResultParserTests
     [Fact]
     public void An_image_document_carries_the_text_the_size_and_the_mean_confidence()
     {
-        var result = ResultParser.ParseImage(Bytes(ImageDocument));
+        var result = Reading(Bytes(ImageDocument));
 
         Assert.Equal("INVOICE 2026\nTotal 42", result.Text);
         Assert.Equal(2480, result.Width);
@@ -52,7 +52,7 @@ public sealed class ResultParserTests
     [Fact]
     public void An_image_document_carries_each_line_with_its_box_and_words()
     {
-        var result = ResultParser.ParseImage(Bytes(ImageDocument));
+        var result = Reading(Bytes(ImageDocument));
 
         Assert.Equal(2, result.Lines.Count);
 
@@ -76,22 +76,25 @@ public sealed class ResultParserTests
         var pages = ResultParser.ParsePages(Bytes(PagesDocument));
 
         Assert.Equal(2, pages.Count);
-        Assert.Equal(0, pages[0].PageIndex);
-        Assert.Equal(300, pages[0].Dpi);
-        Assert.Equal("page one", pages[0].Text);
-        Assert.Single(pages[0].Lines);
 
-        Assert.Equal(2, pages[1].PageIndex);
-        Assert.Equal(150, pages[1].Dpi);
-        Assert.Equal(1240, pages[1].Width);
-        Assert.Empty(pages[1].Lines);
-        Assert.Equal(string.Empty, pages[1].Text);
+        var first = Assert.IsType<OcrPageResult>(pages[0]);
+        Assert.Equal(0, first.PageIndex);
+        Assert.Equal(300, first.Dpi);
+        Assert.Equal("page one", first.Text);
+        Assert.Single(first.Lines);
+
+        var second = Assert.IsType<OcrPageResult>(pages[1]);
+        Assert.Equal(2, second.PageIndex);
+        Assert.Equal(150, second.Dpi);
+        Assert.Equal(1240, second.Width);
+        Assert.Empty(second.Lines);
+        Assert.Equal(string.Empty, second.Text);
     }
 
     [Fact]
     public void A_page_with_no_text_reads_as_empty_rather_than_failing()
     {
-        var result = ResultParser.ParseImage(Bytes(
+        var result = Reading(Bytes(
             """{"width":10,"height":10,"text":"","meanConfidence":0.0,"lines":[]}"""));
 
         Assert.Empty(result.Lines);
@@ -102,17 +105,17 @@ public sealed class ResultParserTests
     [Fact]
     public void A_malformed_document_is_refused_rather_than_half_read()
         => Assert.ThrowsAny<JsonException>(
-            () => ResultParser.ParseImage(Bytes("""{"width":2480,""")));
+            () => Reading(Bytes("""{"width":2480,""")));
 
     [Fact]
     public void A_document_missing_a_field_the_shape_promises_is_refused()
-        => Assert.Throws<KeyNotFoundException>(() => ResultParser.ParseImage(Bytes(
+        => Assert.Throws<KeyNotFoundException>(() => Reading(Bytes(
             """{"width":10,"height":10,"text":"","meanConfidence":0.0}""")));
 
     [Fact]
     public void A_field_the_native_side_gains_later_is_ignored()
     {
-        var result = ResultParser.ParseImage(Bytes(
+        var result = Reading(Bytes(
             """
             {"engine":"ocrs","elapsedMs":12,"width":10,"height":10,"text":"a","meanConfidence":0.5,
              "lines":[{"kind":"text","text":"a","bounds":{"x":0,"y":0,"width":5,"height":5},
@@ -127,7 +130,7 @@ public sealed class ResultParserTests
     [Fact]
     public void A_box_that_runs_off_the_page_is_clipped_to_it()
     {
-        var line = Assert.Single(ResultParser.ParseImage(Bytes(
+        var line = Assert.Single(Reading(Bytes(
             """
             {"width":100,"height":50,"text":"e","meanConfidence":0.5,
              "lines":[{"text":"e","bounds":{"x":90,"y":40,"width":50,"height":20},"confidence":0.5,
@@ -142,7 +145,7 @@ public sealed class ResultParserTests
     [Fact]
     public void A_line_box_with_no_area_takes_the_box_that_holds_its_words()
     {
-        var line = Assert.Single(ResultParser.ParseImage(Bytes(
+        var line = Assert.Single(Reading(Bytes(
             """
             {"width":100,"height":50,"text":"ab","meanConfidence":0.5,
              "lines":[{"text":"ab","bounds":{"x":20,"y":10,"width":0,"height":0},"confidence":0.5,
@@ -158,7 +161,7 @@ public sealed class ResultParserTests
     [Fact]
     public void A_line_with_no_words_and_no_area_stays_an_empty_box()
     {
-        var line = Assert.Single(ResultParser.ParseImage(Bytes(
+        var line = Assert.Single(Reading(Bytes(
             """
             {"width":100,"height":50,"text":"","meanConfidence":0.0,
              "lines":[{"text":"","bounds":{"x":0,"y":0,"width":0,"height":0},"confidence":0.0,
@@ -171,7 +174,7 @@ public sealed class ResultParserTests
     [Fact]
     public void The_words_of_a_line_come_back_in_reading_order()
     {
-        var line = Assert.Single(ResultParser.ParseImage(Bytes(
+        var line = Assert.Single(Reading(Bytes(
             """
             {"width":100,"height":50,"text":"c a b","meanConfidence":0.5,
              "lines":[{"text":"c a b","bounds":{"x":10,"y":10,"width":80,"height":10},
@@ -190,4 +193,7 @@ public sealed class ResultParserTests
     private static int[] Boxes(OcrBox box) => [box.X, box.Y, box.Width, box.Height];
 
     private static byte[] Bytes(string document) => Encoding.UTF8.GetBytes(document);
+
+    /// <summary>The parsed reading, asserted to be one: these documents are all accepted.</summary>
+    private static OcrResult Reading(byte[] document) => Assert.IsType<OcrResult>(ResultParser.ParseImage(document));
 }

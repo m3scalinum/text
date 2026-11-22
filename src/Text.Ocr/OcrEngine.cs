@@ -65,13 +65,22 @@ public sealed class OcrEngine : IDisposable
     /// <summary>
     /// Recognises the text of one encoded image: PNG, JPEG, BMP, GIF, TIFF or WebP.
     /// </summary>
+    /// <remarks>
+    /// A reading that fails a threshold is not returned as text: the result is then an
+    /// <see cref="OcrUnreadable"/> naming the rule that refused it.
+    /// </remarks>
     /// <param name="imageBytes">The image file, as it would be read from disk.</param>
-    /// <returns>The text, the lines, and their boxes in image pixels.</returns>
+    /// <param name="options">
+    /// The confidence thresholds; defaults to <see cref="OcrOptions"/>'s defaults, which
+    /// leave a correct scan untouched.
+    /// </param>
+    /// <returns>Either the text, the lines and their boxes, or a typed refusal.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="imageBytes"/> is null.</exception>
     /// <exception cref="ArgumentException"><paramref name="imageBytes"/> is empty.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">A threshold is outside 0–1.</exception>
     /// <exception cref="ObjectDisposedException">The engine was disposed.</exception>
     /// <exception cref="OcrException">The image could not be decoded or read.</exception>
-    public OcrResult Recognize(byte[] imageBytes)
+    public OcrRecognition Recognize(byte[] imageBytes, OcrOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(imageBytes);
         ThrowIfDisposed();
@@ -81,7 +90,10 @@ public sealed class OcrEngine : IDisposable
             throw new ArgumentException("The image is empty.", nameof(imageBytes));
         }
 
-        return _backend.Recognize(imageBytes);
+        options ??= new OcrOptions();
+        options.Validate();
+
+        return _backend.Recognize(imageBytes, options);
     }
 
     /// <summary>
@@ -90,17 +102,22 @@ public sealed class OcrEngine : IDisposable
     /// <remarks>
     /// The rendering happens in the native library, which carries its own CPU PDF
     /// rasteriser: this package never references <c>M3scalinum.Text.Pdf</c>, and a
-    /// scanned document needs no text layer to be read.
+    /// scanned document needs no text layer to be read. Each page is assessed on its
+    /// own: a page that fails a threshold comes back as an <see cref="OcrPageUnreadable"/>
+    /// while the pages around it stay readings.
     /// </remarks>
     /// <param name="pdf">The document bytes.</param>
-    /// <param name="options">The resolution and page range; defaults to 300 DPI from the first page.</param>
-    /// <returns>One result per page, in page order.</returns>
+    /// <param name="options">
+    /// The resolution, the page range and the confidence thresholds; defaults to 300 DPI
+    /// from the first page, with <see cref="OcrOptions"/>'s default thresholds.
+    /// </param>
+    /// <returns>One outcome per page, in page order.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="pdf"/> is null.</exception>
     /// <exception cref="ArgumentException"><paramref name="pdf"/> is empty.</exception>
     /// <exception cref="ArgumentOutOfRangeException">The options are out of range.</exception>
     /// <exception cref="ObjectDisposedException">The engine was disposed.</exception>
     /// <exception cref="OcrException">The document could not be read or rendered.</exception>
-    public IReadOnlyList<OcrPageResult> RecognizePdf(byte[] pdf, OcrPdfOptions? options = null)
+    public IReadOnlyList<OcrPageOutcome> RecognizePdf(byte[] pdf, OcrPdfOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(pdf);
 
