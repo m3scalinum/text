@@ -234,6 +234,9 @@ public sealed record HtmlExportOptions
 Two constraints come from Typst and are surfaced as `TypstExportException` rather than silently
 worked around: a page range cannot be combined with tagged output, and PDF/A needs a document date.
 
+Fonts are deliberately absent from this table: the writer embeds a subset of every face it uses and
+exposes no switch for it. §13 covers what that means and how to measure it.
+
 ### 4.2 The bundle target
 
 `#asset` and `#document` are only valid in the bundle target, so a document that uses them cannot
@@ -586,3 +589,122 @@ that returns one JSON object per document handle:
 The symbol is added to ABI revision 2 without changing `TN_ABI_VERSION`: every revision 2 symbol keeps
 its name and signature, and a host that never asks for metrics never calls it. The managed decoder
 treats an empty payload as zeros, so a library that does not answer still produces a usable result.
+
+## 13. Font subsetting and what it costs
+
+### 13.1 What Typst offers, and what it does not
+
+Typst's PDF writer has no switch for font subsetting. `typst_pdf::PdfOptions` in 0.15.1 carries
+`ident`, `creator`, `timestamp`, `page_ranges`, `standards`, `tagged` and `pretty` — nothing about
+fonts — and the writer it delegates embedding to (`krilla` 0.8.2) calls the subsetter for every face
+it embeds, with no parameter to turn it off: `krilla::configure::Configuration` holds a PDF version
+and a validator set, nothing else. Three consequences follow, and they are properties of the writer
+rather than settings this layer chose:
+
+- **Every face is embedded.** Nothing is left as a reference to a system font, which is what makes
+  the output portable and what makes a system font's licence matter at export time.
+- **Every embedded face is a subset.** Its PDF name is `TAG+PostScriptName`, where `TAG` is a
+  six-letter hash of the glyph set; two documents that use the same glyphs of the same face produce
+  the same tag.
+- **There is no whole-font mode and no per-range control.** Asking for "embed the font in full", or
+  for a subset bounded by a Unicode range, would need a change in `krilla`; an option here that
+  flipped a flag nothing reads would be a lie with a documented default.
+
+`Tagged` remains the one PDF setting that changes the file's size without changing the document —
+turning it off drops the structure tree (~800 bytes on the sample below) and keeps the fonts
+untouched, so it is not a substitute for a subsetting control.
+
+### 13.2 What the API gives instead
+
+The measurement, which is the half a caller can act on:
+
+```csharp
+using var result = compiler.Compile(world);
+
+PdfFontInventory inventory = result.MeasurePdfFonts();
+
+foreach (var font in inventory.Fonts)
+{
+    Report("{Name}: {Bytes} B, {Format}, subset={Subset}",
+        font.Name, font.Bytes, font.Format, font.IsSubset);
+}
+```
+
+| Member | Meaning |
+| --- | --- |
+| `Bytes` | Total size of the PDF the inventory was read from |
+| `FontBytes` | Bytes the embedded font files occupy |
+| `FontShare` | `FontBytes / Bytes`, between 0 and 1 |
+| `Fonts` | One `PdfEmbeddedFont` per embedded font file, in the file's order |
+
+`PdfEmbeddedFont` carries `Name` (the PDF name, tag included), `Family` (the name without the tag),
+`SubsetTag` (`null` for a whole font), `IsSubset`, `Format` (`PdfFontFormat`: `TrueType`, `Cff`,
+`OpenType`, `Type1`, `Unknown`) and `Bytes`.
+
+`MeasurePdfFonts` takes the same `PdfExportOptions` as the export it describes, and it **encodes the
+document** — the numbers come from the bytes, so it is a second export when the caller already holds
+the PDF. It never populates `LastExport`: nothing was handed to the caller. Call it on a measurement
+or a template-review path, not per request.
+
+### 13.3 What it measures
+
+Four documents, exported on one machine with the embedded fonts only. Sizes are the encoded PDF and
+the font streams inside it, which is what the file pays — the same face costs several times more once
+inflated.
+
+| Document | PDF | Font bytes | Share | Faces |
+| --- | --- | --- | --- | --- |
+| Title + one paragraph | 14 519 B | 7 219 B | 49.7 % | `LibertinusSerif-Regular` 5 229 B, `LibertinusSerif-Bold` 1 990 B |
+| The same, `Tagged = false` | 13 740 B | 7 219 B | 52.5 % | unchanged |
+| Title + one paragraph, wide repertoire | 18 379 B | 10 818 B | 58.9 % | `LibertinusSerif-Regular` 9 015 B, `Bold` 1 803 B |
+| Ten paragraphs of the same text | 16 070 B | 7 219 B | 44.9 % | unchanged |
+
+Three readings worth stating:
+
+- **A text document is about half type.** On a one-page document the two faces are 49.7 % of the
+  bytes; a caller budgeting a PDF has little left to shave elsewhere.
+- **The subset tracks the glyph set, not the text length.** Ten paragraphs of the same paragraph
+  embed exactly the same 7 219 B: the layout reuses the same glyphs, and the subset is a property of
+  the repertoire. A wider repertoire — Greek, Cyrillic, maths, symbols — grows the same face from
+  5 229 B to 9 015 B.
+- **The whole font is nowhere near the file.** The world holds 9 683 068 B of font data across 17
+  faces; the document embeds 7 219 B of it. Subsetting is doing most of the work already, which is
+  why "embed fewer bytes" is not the lever it looks like — the lever is which faces the template
+  uses at all. A body face and its bold cost 7 kB; asking for a third family for a footer costs the
+  same order again.
+
+The measurement is deterministic: the same document exported twice produces the same 14 519 bytes and
+the same subset tags.
+
+### 13.4 ABI
+
+The inventory is a second export format, not a second symbol: `tn_document_export` accepts
+`"pdf-fonts"` alongside `"pdf"`, encodes the document with the same options and returns one JSON
+object instead of the file.
+
+```json
+{"bytes":14519,"fontBytes":7219,"fonts":[
+  {"name":"PLPXUO+LibertinusSerif-Regular","family":"LibertinusSerif-Regular","subsetTag":"PLPXUO",
+   "subset":true,"format":"cff","bytes":5229},
+  {"name":"RMDPCX+LibertinusSerif-Bold","family":"LibertinusSerif-Bold","subsetTag":"RMDPCX",
+   "subset":true,"format":"cff","bytes":1990}]}
+```
+
+`format` is `truetype` (`/FontFile2`), `cff` (`/FontFile3` with `/CIDFontType0C`), `opentype`
+(`/FontFile3` with `/OpenType`) or `type1` (`/FontFile`); a value this layer does not know decodes as
+`PdfFontFormat.Unknown` rather than throwing. The reader walks the objects, skips stream bodies by
+their `/Length`, and pairs each font descriptor's `/FontName` with the stream its `/FontFile*` entry
+points at, so binary font data cannot pose as an object.
+
+### 13.5 Out of reach
+
+- **Embedding a whole font.** No flag exists in `typst-pdf` or `krilla`; exposing one means changing
+  the writer, not this layer.
+- **Per-Unicode-range subsetting.** The subset is the glyph set the layout used. There is no way to
+  say "include U+0020–U+007F" and no way to omit a glyph the document set.
+- **Variable fonts.** krilla subsets with variations, keeping the variation data of the instance the
+  document used. A caller cannot ask for a static instance, nor for the whole variation space.
+- **Which glyphs were kept.** The inventory reports a face and its bytes, not a glyph coverage map.
+- **Predicting the size before encoding.** The subset exists only after the encode; there is no
+  estimate to read from the layout.
+
