@@ -44,6 +44,7 @@ file names, to find what you want.
 | 26 | [26-pdfa-conversion.md](26-pdfa-conversion.md) | `PdfAConverter`: turning an existing PDF into PDF/A, and refusing when it cannot |
 | 31 | [31-pdf-attachments.md](31-pdf-attachments.md) | `PdfAttachments`: listing, extracting, adding and removing embedded files, and what that implies for PDF/A-4f |
 | 33 | [33-archive-integrity.md](33-archive-integrity.md) | `PdfBatchManifest`: sealing a batch of files as SHA-256 fingerprints, and verifying it incrementally |
+| 36 | [36-trust-lists.md](36-trust-lists.md) | `PdfLotl`: reading the European LOTL and national trust lists, and what a verifier concludes from them |
 
 ## Other formats and engines
 
