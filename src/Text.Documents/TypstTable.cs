@@ -25,7 +25,10 @@ public sealed class TypstTable
         return this;
     }
 
-    /// <summary>Adds the header row.</summary>
+    /// <summary>
+    /// Adds the header row. It is emitted as <c>table.header(…)</c>, which repeats on every page a
+    /// table spans and which Typst tags as header cells scoped to their column.
+    /// </summary>
     public TypstTable HeaderRow(params TypstContent[] cells)
     {
         ArgumentNullException.ThrowIfNull(cells);
@@ -39,7 +42,10 @@ public sealed class TypstTable
         return this;
     }
 
-    /// <summary>Adds a header row whose cells can span columns or rows.</summary>
+    /// <summary>
+    /// Adds a header row whose cells can span columns or rows, and whose
+    /// <see cref="TypstTableCell.HeaderScope"/> marks a corner cell as belonging to both.
+    /// </summary>
     public TypstTable HeaderRow(params TypstTableCell[] cells)
     {
         ArgumentNullException.ThrowIfNull(cells);

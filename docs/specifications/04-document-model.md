@@ -44,6 +44,7 @@ var doc = TypstDocument.Create()
         .Row("Support", "800 EUR"))
     .Figure(f => f
         .Image("charts/revenue.png", TypstLength.Percent(80))
+        .Alt("Bar chart: revenue rises every month of the quarter.")
         .WithCaption("Revenue by month")
         .WithLabel("fig:revenue"))
     .Paragraph(c => c.Text("See ").Reference("fig:revenue").Text(" for the monthly split."));
@@ -67,8 +68,8 @@ public one.
 | `BulletList(items)` | `- item` per line | Nesting via `BulletList` inside an item, indented 2 spaces per level |
 | `NumberedList(items)` | `+ item` per line | Same nesting rule |
 | `TermList(terms)` | `/ term: description` | |
-| `Table` | `#table(columns: (…), [..], …)` | Cells are content blocks; the header row is `table.header(…)`; `TypstTableCell` adds `colspan`/`rowspan` |
-| `Figure` | `#figure(image(…), caption: [..]) <label>` | Caption and label are optional |
+| `Table` | `#table(columns: (…), [..], …)` | Cells are content blocks; the header row is `table.header(…)`; `TypstTableCell` adds `colspan`/`rowspan`, and `HeaderScope` marks a header cell and its scope |
+| `Figure` | `#figure(image(…), alt: "…", caption: [..]) <label>` | Alternative text, caption and label are optional |
 | `Image(path, width?, height?, fit?)` | `#image("path", width: …)` | `path` is a virtual asset path; the method lives on `TypstFigure` |
 | `CodeBlock(language, code)` | fenced block with language tag | Public: `TypstDocument.Code(language, code)`. Code is emitted verbatim, never escaped |
 | `InlineCode(code)` | `` `code` `` | Public: `TypstContent.Code(code)`. Backticks inside are handled by using a longer fence |
@@ -114,6 +115,59 @@ is the supported way to use a Typst feature the model does not cover.
 
 The complete mapping between the Typst reference and this node set — including what is
 deliberately left to `Raw` — is in [11-reference-coverage.md](11-reference-coverage.md).
+
+### Alternative text, table headers and language
+
+An accessible PDF has to state three things a reader cannot infer from the page: what an image
+shows, which cells are headers and what they label, and the natural language of the text. The
+model carries all three. Each is opt-in, so a document that says nothing about accessibility emits
+exactly the markup it emitted before.
+
+```csharp
+var doc = TypstDocument.Create()
+    .Metadata(m => m.Language("en"))
+    .Figure(f => f
+        .Image("charts/revenue.png")
+        .Alt("Bar chart: revenue rises every quarter of 2026.")
+        .WithCaption("Revenue by quarter"))
+    .Table(t => t
+        .Columns(TypstLength.Fr(1), TypstLength.Fr(2))
+        .HeaderRow(
+            new TypstTableCell("Quarter") { HeaderScope = TypstHeaderScope.Both },
+            new TypstTableCell("Revenue"))
+        .Row(new TypstTableCell("Q1") { HeaderScope = TypstHeaderScope.Row }, new TypstTableCell("1 200")));
+```
+
+| Call | Emitted Typst | What the PDF gets |
+| --- | --- | --- |
+| `TypstFigure.Alt(description)` | `alt: "…"` inside `#figure(…)` | the `/Figure` structure element carries `/Alt`; `PDFUA.FIGURE_ALT_MISSING` clears |
+| `TypstTable.HeaderRow(…)` | `table.header(…)` | `/TH` cells, scoped to their column |
+| `TypstTableCell.HeaderScope` = `Column`, `Row` or `Both` | `pdf.header-cell(scope: "…")[…]` | `/TH` with `/A <</O /Table /Scope /Column|/Row|/Both>>`; `PDFUA.TABLE_HEADER_MISSING` and `PDFUA.TABLE_HEADER_SCOPE_MISSING` clear |
+| `TypstMetadata.Language(language)` | `#set text(lang: "fr")` | the catalog's `/Lang`; `PDFUA.LANG_MISSING` clears |
+
+The exact control in [15-pdf-conformance.md](15-pdf-conformance.md) §6 is by code, and
+`PdfConformance.CheckAccessibility` is the checker.
+
+- **Alternative text is prose.** `Alt` escapes and quotes it like any string argument; it is never
+  parsed as markup. A figure without `Alt` emits no `alt` argument at all, and the check still
+  reports it, which is the honest outcome: the model cannot invent a description. `Alt` refuses a
+  blank description for the same reason — a decorative image needs an artifact marker, not an
+  empty `/Alt`, and the model has no marker for that yet.
+- **A header row is a header row.** `HeaderRow` emits `table.header(…)`, which Typst repeats across
+  pages and tags as a header, so body rows stay data rows. The cells inside it are column headers
+  without further marking; `HeaderScope` is only needed for a corner cell (`Both`), a header
+  column (`Row` on the first cell of each body row) or an explicit `Column` on a lone header cell.
+- **A marked cell is a cell object.** `Row` and `HeaderRow` each take one element type, either
+  `TypstContent` or `TypstTableCell`, so a row that holds a header cell wraps all of its cells in
+  `TypstTableCell`.
+- **`pdf.header-cell` is Typst's `a11y-extras` function.** The compiler in this suite enables every
+  Typst feature ([02](02-native-abi.md), the `World` builds `Library` with `Feature::all()`), and
+  Typst requires PDF 1.5 or later for the scope attribute. Markup built with `HeaderScope` therefore
+  needs a compiler with that feature on; Typst without it reports `unknown variable: pdf`.
+- **Language is emitted once, at the top.** `Language` is a top-level `#set text(lang: …)` rule, which
+  is what Typst turns into the catalog's `/Lang`. The model has no default: a document that never
+  sets a language compiles to a PDF whose catalog carries none, and PDF/UA export refuses that with
+  `missing document language`. Say what the document is written in.
 
 ## 4. Inline content
 
