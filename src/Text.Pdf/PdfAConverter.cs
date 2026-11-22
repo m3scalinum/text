@@ -30,6 +30,13 @@ namespace M3scalinum.Text.Pdf;
 /// refuses with one issue per page. A font with no embedded program is refused for the same reason.
 /// </para>
 /// <para>
+/// PDF/A-4f is produced only from a document that already carries embedded files. Each one must
+/// state an <c>/AFRelationship</c>; the catalog gains an <c>/AF</c> array listing them, and the
+/// <c>/EmbeddedFiles</c> name tree is rewritten in the order a name tree requires. A document with
+/// nothing embedded is refused — the profile is defined by the file it carries — and so is one whose
+/// attachment states no relationship, because a relationship cannot be invented for it.
+/// </para>
+/// <para>
 /// The result is checked, never asserted: <see cref="PdfAConversionResult.IsConformant"/> is the
 /// verdict of <see cref="PdfConformance.Check"/> on the bytes this method produced. A file this
 /// converter rewrote may still fail a rule it could not reach — a missing language, a figure without
@@ -140,6 +147,75 @@ public static class PdfAConverter
                 + $"removed by rewriting the objects, so the result could not honestly be claimed as "
                 + $"{requirements.Name}. Produce it from a PDF {targetVersion} source, or convert to a flavour "
                 + "that allows the version the file declares");
+        }
+
+        // PDF/A-4f is not a stricter PDF/A-4: it is the level that permits embedded files of any
+        // type, on condition that each one states how it relates to the document. The three
+        // conditions the profile adds are checked before anything is copied, so a document that
+        // cannot be 4f is refused with the reason rather than rewritten into a file that claims it.
+        List<EmbeddedFile> embedded = target is PdfConformanceStandard.PdfA4f or PdfConformanceStandard.PdfA4
+            ? EmbeddedFiles(file)
+            : [];
+
+        if (target is PdfConformanceStandard.PdfA4f)
+        {
+            if (embedded.Count == 0)
+            {
+                return Refuse(
+                    PdfAConversionCodes.A4fWithoutEmbeddedFile,
+                    "embedded files",
+                    "PDF/A-4f is PDF/A-4 with embedded files, and ISO 19005-4 Annex A requires at least one: "
+                    + "this document carries none, so the most it can honestly be is PDF/A-4. Add an attachment "
+                    + "(PdfAttachments.Add) before converting, or target PDF/A-4");
+            }
+
+            foreach (var attachment in embedded)
+            {
+                if (string.IsNullOrEmpty(attachment.Relationship))
+                {
+                    refusals.Add(new PdfAConversionRefusal(
+                        PdfAConversionCodes.A4fAttachmentWithoutRelationship,
+                        $"attachment '{attachment.Name}'",
+                        "the attachment declares no /AFRelationship: PDF/A-4f requires every embedded file to state "
+                        + "how it relates to the document (/Source, /Data, /Alternative or /Supplement). Nothing was "
+                        + "written, because a relationship the document does not state cannot be invented for it"));
+                }
+                else if (!KnownRelationship(attachment.Relationship))
+                {
+                    refusals.Add(new PdfAConversionRefusal(
+                        PdfAConversionCodes.A4fRelationshipUnknown,
+                        $"attachment '{attachment.Name}'",
+                        $"the attachment declares /AFRelationship /{attachment.Relationship}, which is not one of "
+                        + "the relationships ISO 32000-2 defines (/Source, /Data, /Alternative, /Supplement, "
+                        + "/Unspecified), not /Schema, and not a second-class name"));
+                }
+            }
+
+            if (refusals.Count > 0)
+            {
+                return new PdfAConversionResult(target, [], null, changes, refusals);
+            }
+        }
+
+        if (target is PdfConformanceStandard.PdfA4)
+        {
+            // Base PDF/A-4 allows an embedded file only when that file is itself PDF/A. Whether it is
+            // would take a full conformance run on a document inside the document, which a rewrite of
+            // this catalog cannot perform, so the claim is refused rather than made.
+            foreach (var attachment in embedded)
+            {
+                refusals.Add(new PdfAConversionRefusal(
+                    PdfAConversionCodes.A4WithEmbeddedFiles,
+                    $"attachment '{attachment.Name}'",
+                    "PDF/A-4 permits only embedded files that are themselves PDF/A-1, PDF/A-2 or PDF/A-4, and a "
+                    + $"rewrite cannot establish that of '{attachment.Name}'. Convert to PDF/A-4f, which permits an "
+                    + "embedded file of any type, or remove the attachment first"));
+            }
+
+            if (refusals.Count > 0)
+            {
+                return new PdfAConversionResult(target, [], null, changes, refusals);
+            }
         }
 
         if (requirements.RequiresTaggedStructure && !Tagged(file, catalog))
@@ -269,6 +345,11 @@ public static class PdfAConverter
         AddMetadata(file, catalog, requirements, converted, writer, changes);
         AddOutputIntent(options, converted, writer, changes);
 
+        if (target is PdfConformanceStandard.PdfA4f)
+        {
+            AddAssociatedFiles(copier, converted, embedded, writer, changes);
+        }
+
         // A document that carries structure elements must say so, at every conformance level: the
         // entry is a single boolean about the catalog, not structure inferred from a page.
         if (converted["StructTreeRoot"] is not null && !Marked(writer, converted))
@@ -351,6 +432,252 @@ public static class PdfAConverter
         }
 
         return version;
+    }
+
+    /// <summary>One embedded file the document carries, as the profile has to see it.</summary>
+    /// <param name="Name">The name a reader shows: the name tree key, or the file specification's own name.</param>
+    /// <param name="Specification">The file specification, as it appears in the name tree or in <c>/AF</c>.</param>
+    /// <param name="Relationship">The <c>/AFRelationship</c> the document states, or <see langword="null"/>.</param>
+    private sealed record EmbeddedFile(string Name, PdfValue Specification, string? Relationship);
+
+    /// <summary>The relationships ISO 32000-2 defines, plus the one PDF/A-4 adds.</summary>
+    /// <remarks>
+    /// ISO 32000-2 Table 43 names <c>Source</c>, <c>Data</c>, <c>Alternative</c>, <c>Supplement</c>
+    /// and <c>Unspecified</c>; ISO 19005-4 recommends <c>Schema</c> for a RELAX-NG schema associated
+    /// with the document. Any other value is either a second-class name — a registered name with an
+    /// underscore, which PDF 2.0 permits — or a value this converter does not know.
+    /// </remarks>
+    private static readonly HashSet<string> Relationships = new(StringComparer.Ordinal)
+    {
+        "Source",
+        "Data",
+        "Alternative",
+        "Supplement",
+        "Unspecified",
+        "Schema",
+    };
+
+    /// <summary>Whether <paramref name="relationship"/> is a relationship this converter can vouch for.</summary>
+    private static bool KnownRelationship(string relationship)
+        => Relationships.Contains(relationship) || relationship.Contains('_', StringComparison.Ordinal);
+
+    /// <summary>
+    /// Every embedded file the document carries, from the name tree and from the catalog's
+    /// <c>/AF</c> array, each once, in the order the document names them.
+    /// </summary>
+    /// <remarks>
+    /// The two routes are not the same list: a document may list a file in the name tree and never
+    /// associate it, or associate a file and never name it. PDF/A-4f needs both views to agree, so
+    /// both are read, and the name tree wins the name when a file appears in each.
+    /// </remarks>
+    private static List<EmbeddedFile> EmbeddedFiles(PdfFile file)
+    {
+        var files = new List<EmbeddedFile>();
+        var specs = new HashSet<int>();
+        var names = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var (name, specification) in EmbeddedNameTree(file))
+        {
+            if (!names.Add(name))
+            {
+                continue;
+            }
+
+            if (specification is PdfReference reference)
+            {
+                specs.Add(reference.Number);
+            }
+
+            files.Add(Describe(file, name, specification));
+        }
+
+        foreach (var specification in AssociatedFiles(file))
+        {
+            if (specification is PdfReference reference && !specs.Add(reference.Number))
+            {
+                continue;
+            }
+
+            if (file.ResolveDictionary(specification) is not { } dictionary)
+            {
+                continue;
+            }
+
+            var name = TextOf(file, dictionary["UF"]) ?? TextOf(file, dictionary["F"]) ?? string.Empty;
+            if (name.Length == 0 || !names.Add(name))
+            {
+                continue;
+            }
+
+            files.Add(Describe(file, name, specification));
+        }
+
+        return files;
+    }
+
+    /// <summary>Reads one file specification into the name it carries and the relationship it states.</summary>
+    private static EmbeddedFile Describe(PdfFile file, string name, PdfValue specification)
+    {
+        var dictionary = file.ResolveDictionary(specification);
+        var stream = EmbeddedStream(file, dictionary);
+
+        // ISO 32000-2 puts /AFRelationship on the file specification; a producer that wrote it on the
+        // embedded file stream instead is read too, because it is the same statement in another place.
+        var relationship = (file.Resolve(dictionary?["AFRelationship"]) as PdfName)?.Value
+            ?? (file.Resolve(stream?.Dictionary["AFRelationship"]) as PdfName)?.Value;
+
+        return new EmbeddedFile(name, specification, relationship);
+    }
+
+    /// <summary>The embedded file stream a file specification points at, or <see langword="null"/>.</summary>
+    private static PdfStream? EmbeddedStream(PdfFile file, PdfDictionary? specification)
+        => file.ResolveDictionary(specification?["EF"]) is { } embedded
+            ? file.ResolveStream(embedded["F"]) ?? file.ResolveStream(embedded["UF"])
+            : null;
+
+    /// <summary>The <c>/Names /EmbeddedFiles</c> name tree's entries, in the order it lists them.</summary>
+    private static List<(string Name, PdfValue Specification)> EmbeddedNameTree(PdfFile file)
+    {
+        var entries = new List<(string Name, PdfValue Specification)>();
+
+        if (file.ResolveDictionary(file.Catalog?["Names"]) is not { } names ||
+            names["EmbeddedFiles"] is not { } root)
+        {
+            return entries;
+        }
+
+        Walk(root, 0);
+
+        return entries;
+
+        void Walk(PdfValue? node, int depth)
+        {
+            // A name tree is a balanced structure a few levels deep; the bound stops a cyclic /Kids
+            // from turning the walk into an infinite one.
+            if (depth > 16 || file.ResolveDictionary(node) is not { } dictionary)
+            {
+                return;
+            }
+
+            foreach (var kid in file.ResolveArray(dictionary["Kids"]))
+            {
+                Walk(kid, depth + 1);
+            }
+
+            var items = file.ResolveArray(dictionary["Names"]);
+            for (var index = 0; index + 1 < items.Count; index += 2)
+            {
+                if (TextOf(file, items[index]) is { Length: > 0 } name)
+                {
+                    entries.Add((name, items[index + 1]));
+                }
+            }
+        }
+    }
+
+    /// <summary>The document's associated files, whether <c>/AF</c> is an array or a single value.</summary>
+    private static List<PdfValue> AssociatedFiles(PdfFile file)
+    {
+        var value = file.Catalog?["AF"];
+
+        return file.Resolve(value) switch
+        {
+            null => [],
+            PdfArray array => array.Items,
+            _ => [value!],
+        };
+    }
+
+    /// <summary>Reads a text string or a name as text, or returns <see langword="null"/>.</summary>
+    private static string? TextOf(PdfFile file, PdfValue? value) => file.Resolve(value) switch
+    {
+        PdfString text => text.Decode(),
+        PdfName name => name.Value,
+        _ => null,
+    };
+
+    /// <summary>
+    /// Writes the catalog's <c>/AF</c> array and the <c>/Names /EmbeddedFiles</c> tree the profile
+    /// requires, each file listed once with the relationship it states.
+    /// </summary>
+    private static void AddAssociatedFiles(
+        PdfObjectCopier copier,
+        PdfDictionary converted,
+        IReadOnlyList<EmbeddedFile> files,
+        PdfObjectWriter writer,
+        List<PdfAConversionChange> changes)
+    {
+        var array = new PdfArray();
+        var named = new List<(string Name, PdfValue Specification)>();
+
+        foreach (var embedded in files)
+        {
+            var copied = copier.Copy(embedded.Specification);
+            array.Items.Add(copied);
+            named.Add((embedded.Name, copied));
+
+            // A relationship stated on the embedded file stream is legal plain PDF and does not
+            // satisfy the profile, which reads it from the file specification. It is stated in both
+            // places rather than moved, so nothing the source said is dropped.
+            if (copied is PdfReference reference &&
+                writer.Get(reference.Number) is PdfDictionary specification &&
+                specification["AFRelationship"] is null &&
+                embedded.Relationship is { Length: > 0 } relationship)
+            {
+                specification.Entries["AFRelationship"] = new PdfName(relationship);
+            }
+        }
+
+        converted.Entries["AF"] = array;
+
+        changes.Add(new PdfAConversionChange(
+            PdfAConversionCodes.A4fAssociatedFiles,
+            "catalog",
+            $"/AF lists {files.Count.ToString(System.Globalization.CultureInfo.InvariantCulture)} associated "
+            + "file(s), each of which states its /AFRelationship"));
+
+        WriteEmbeddedFilesTree(converted, named, writer, changes);
+    }
+
+    /// <summary>Writes a fresh, ordered <c>/EmbeddedFiles</c> tree over the copied one.</summary>
+    /// <remarks>
+    /// A name tree's keys are sorted by their byte strings, and the profile requires the tree to hold
+    /// every embedded file. Rebuilding it from the files this conversion listed makes both true at
+    /// once, and keeps any other name tree — destinations, JavaScript, structure — untouched.
+    /// </remarks>
+    private static void WriteEmbeddedFilesTree(
+        PdfDictionary converted,
+        List<(string Name, PdfValue Specification)> files,
+        PdfObjectWriter writer,
+        List<PdfAConversionChange> changes)
+    {
+        var items = new PdfArray();
+        foreach (var (name, specification) in files.OrderBy(entry => entry.Name, StringComparer.Ordinal))
+        {
+            items.Items.Add(Text(name));
+            items.Items.Add(specification);
+        }
+
+        var tree = new PdfDictionary();
+        tree.Entries["Names"] = items;
+        var reference = new PdfReference(writer.Add(tree));
+
+        if (Dereference(writer, converted["Names"]) is PdfDictionary names)
+        {
+            names.Entries["EmbeddedFiles"] = reference;
+        }
+        else
+        {
+            var catalogNames = new PdfDictionary();
+            catalogNames.Entries["EmbeddedFiles"] = reference;
+            converted.Entries["Names"] = new PdfReference(writer.Add(catalogNames));
+        }
+
+        changes.Add(new PdfAConversionChange(
+            PdfAConversionCodes.A4fEmbeddedFilesTree,
+            "catalog",
+            $"the /Names /EmbeddedFiles tree was written with {files.Count.ToString(System.Globalization.CultureInfo.InvariantCulture)} "
+            + "name(s), sorted as a name tree requires"));
     }
 
     /// <summary>Whether the catalog carries the structure a tagged document needs.</summary>

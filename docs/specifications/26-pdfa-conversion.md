@@ -239,3 +239,114 @@ anything, and the honest use is to run veraPDF on the result before depositing i
 The untagged fixture is the compiler's PDF/A-2b with `/StructTreeRoot` and `/MarkInfo` removed and
 `/StructParents` dropped from the pages: that is what the same producer writes when it is asked for
 no standard, and the test project has no reference on the compiler to ask it again.
+
+## 6. PDF/A-4f: PDF/A-4 that carries its files
+
+### 6.1 The profile
+
+PDF/A-4f is ISO 19005-4 Annex A, "Requirements for a PDF/A with Embedded Files". It is not a
+stricter PDF/A-4 and it is not a level of conformance like `a`, `b` or `u`: it is the level that
+**permits** embedded files of any type — a PDF/A-4 file may only embed a file that is itself PDF/A —
+and, in exchange, **requires at least one**. The profile adds three conditions to the base level:
+
+1. the document catalog's `/Names` dictionary carries an `/EmbeddedFiles` name tree holding at
+   least one file, so a claim of 4f over a document with nothing embedded is a false claim;
+2. every embedded file is an *associated file*: its file specification states an `/AFRelationship`,
+   the name that says how it relates to the document — `/Source`, `/Data`, `/Alternative`,
+   `/Supplement`, `/Unspecified`, or the `/Schema` value ISO 19005-4 adds for a RELAX-NG schema;
+3. the catalog's `/AF` array lists those associated files, so a reader that follows the association
+   array finds what a reader that follows the name tree finds.
+
+The last point is where the profile's wording and this checker differ, and the difference is stated
+rather than hidden: the standard requires each embedded file to be associated, and this checker
+reads that as *every file in the name tree appears in `/AF`*. It does **not** require the reverse,
+because a file associated with an annotation or a page is a legitimate associated file that the
+catalog's array has no reason to list.
+
+Because 4f includes PDF/A-4, the file must also be PDF 2.0 with `pdfaid:part 4` and
+`pdfaid:conformance F` in its XMP. Both are written by the same steps as any other target.
+
+### 6.2 What the converter does, and what it refuses
+
+There is no activation flag. `Target = PdfConformanceStandard.PdfA4f` either produces 4f or refuses
+with the reason; a document with nothing embedded is refused rather than silently downgraded to
+PDF/A-4 and labelled 4f.
+
+| Situation | Outcome | Code |
+| --- | --- | --- |
+| One embedded file or more, each with a known relationship | Converted; `/AF` and a sorted `/EmbeddedFiles` tree are written; the XMP declares part 4, level F | `PDFA.A4F_ASSOCIATED_FILES`, `PDFA.A4F_EMBEDDED_FILES_TREE` |
+| No embedded file at all | Refused, nothing written: 4f requires at least one | `PDFA.A4F_WITHOUT_EMBEDDED_FILE` |
+| An embedded file states no `/AFRelationship` | Refused, one refusal per file, naming the file | `PDFA.A4F_ATTACHMENT_WITHOUT_RELATIONSHIP` |
+| An embedded file states a relationship this package does not know | Refused, naming the value observed | `PDFA.A4F_RELATIONSHIP_UNKNOWN` |
+| Files only in `/AF`, none in the name tree | Converted; the `/EmbeddedFiles` tree is written from the association array | `PDFA.A4F_EMBEDDED_FILES_TREE` |
+| Target `PdfA4` with embedded files | Refused: base 4 permits only embedded files that are themselves PDF/A, which a rewrite cannot establish | `PDFA.A4_WITH_EMBEDDED_FILES` |
+
+A relationship is *known* when it is one of the values ISO 32000-2 Table 43 defines (`Source`,
+`Data`, `Alternative`, `Supplement`, `Unspecified`), the `Schema` value of ISO 19005-4, or a
+second-class name — a registered name with an underscore, such as C2PA's `/C2PA_Manifest`. Anything
+else is refused, because a relationship the document does not state is not something a converter may
+invent, and an unrecognised one cannot be checked.
+
+The relationship is read from the file specification, which is where ISO 32000-2 puts it, and from
+the embedded file stream as a fallback: a producer that wrote it there made the same statement in
+another place, and the conversion restates it on the specification rather than dropping it.
+
+Attachments are **read** through the public `PdfAttachments` API's view of the document — the name
+tree and the association array, each file once — and written into the rebuilt document, not
+re-attached: the conversion copies objects, so the embedded file stream's bytes are the same bytes
+under a new object number. Tests assert that `PdfAttachments.Read` on the produced file returns the
+same name, role and content.
+
+### 6.3 What the checker verifies for 4f
+
+`PdfConformance.Check(bytes, PdfConformanceStandard.PdfA4f)` runs every PDF/A-4 rule and, on top,
+the 4f rules:
+
+| Rule | Code | What is read |
+| --- | --- | --- |
+| The catalog has an `/AF` array | `PDFA4F.AF_MISSING` | `catalog /AF` |
+| The `/EmbeddedFiles` tree holds at least one entry | `PDFA4F.EMBEDDED_FILES_MISSING` | the name tree, including `/Kids` branches |
+| Every embedded file states a relationship | `PDFA4F.RELATIONSHIP_MISSING` | the file specification, then the embedded file stream |
+| The relationship is one this checker knows | `PDFA4F.RELATIONSHIP_UNKNOWN` | the `/AFRelationship` name |
+| The two views agree | `PDFA4F.AF_INCONSISTENT` | name tree entries against `/AF` entries, by object number and by name; an entry with no embedded file stream; an `/AF` item that is not a file specification |
+
+**What it does not verify.** Conformance of the embedded file itself — a PDF/A-4f file may carry
+anything, and the profile that governs what is inside the attachment is the attachment's own. Colour,
+transparency, glyph coverage, the exact XMP schema forms and the reading order of a structure tree:
+the rules listed in [15](15-pdf-conformance.md) §5 that need a renderer. Whether the name tree is
+*balanced* rather than merely ordered, and whether every `/AF` entry also appears in the name tree —
+the profile does not require the second, and this checker does not check it.
+
+### 6.4 veraPDF remains the reference
+
+This suite is **not** a reference validator, and nothing in this section changes that. The checker
+establishes declarations — a tree exists, an array exists, a name is one of six — not that a file is
+PDF/A-4f as ISO 19005-4 defines it. The honest use is to run veraPDF with `--flavour 4f` on the
+produced bytes before depositing them; the codes above are what this package can tell a caller
+without one, and they are all it claims.
+
+### 6.5 Tests
+
+`tests/Text.Pdf.Tests/PdfA4fTests.cs`. The fixtures are hand-written PDFs so that the name tree, the
+file specification and the association array are visible in the test itself.
+
+| Test | What it establishes |
+| --- | --- |
+| `A_document_with_a_related_attachment_becomes_a_conformant_PDF_A_4f` | The conversion is conformant by the checker, the header is 2.0 and the XMP says part 4, level F. |
+| `The_catalog_exposes_both_the_AF_array_and_the_EmbeddedFiles_name_tree` | `/AF` and the tree name the same file specification. |
+| `The_attachment_bytes_and_name_survive_the_rewrite` | `PdfAttachments.Read` on the output returns the same name, role and bytes. |
+| `An_attachment_without_a_relationship_is_refused_by_name` | `PDFA.A4F_ATTACHMENT_WITHOUT_RELATIONSHIP`, naming the file, nothing written. |
+| `An_unknown_relationship_is_refused` | `PDFA.A4F_RELATIONSHIP_UNKNOWN`, naming the value observed. |
+| `A_second_class_relationship_is_accepted` | `/C2PA_Manifest` converts and passes the checker. |
+| `A_4f_target_without_an_embedded_file_says_why` | `PDFA.A4F_WITHOUT_EMBEDDED_FILE`: the reason, not a bare PDF/A-4 presented as 4f. |
+| `A_document_without_attachments_still_converts_to_base_PDF_A_4` | Non-regression: PDF/A-4 needs no file and still converts. |
+| `An_embedded_file_under_base_PDF_A_4_is_refused` | `PDFA.A4_WITH_EMBEDDED_FILES`, naming the file. |
+| `An_attachment_named_only_in_AF_gains_the_EmbeddedFiles_tree` | The tree is written from the association array when the source had none. |
+| `The_checker_reports_a_claimed_4f_with_no_embedded_file` | `PDFA4F.EMBEDDED_FILES_MISSING` and `PDFA4F.AF_MISSING` on a 4f claim with nothing embedded. |
+| `The_checker_reports_a_named_file_that_is_not_an_associated_file` | `PDFA4F.AF_INCONSISTENT` naming the file. |
+| `The_checker_reports_a_missing_relationship_even_when_the_file_is_associated` | `PDFA4F.RELATIONSHIP_MISSING` reported once for a file reached through both routes. |
+| `The_checker_reports_an_unknown_relationship` | `PDFA4F.RELATIONSHIP_UNKNOWN` on a value outside the table. |
+| `A_relationship_stated_on_the_stream_is_restated_on_the_specification` | A relationship written on the embedded file stream is copied onto the file specification, where the profile reads it. |
+| `The_checker_reports_a_name_tree_entry_with_no_embedded_file_stream` | `PDFA4F.AF_INCONSISTENT` on a file specification whose `/EF` names nothing. |
+| `A_name_tree_with_branches_is_read_and_written_as_one_flat_tree` | A `/Kids`-branched tree is read and rewritten with its entry intact. |
+| `The_checker_reports_an_AF_entry_that_is_not_a_file_specification` | `PDFA4F.AF_INCONSISTENT` on an `/AF` item that names nothing. |
