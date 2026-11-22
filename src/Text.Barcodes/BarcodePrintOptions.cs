@@ -79,6 +79,27 @@ public sealed class BarcodePrintOptions
     /// </summary>
     public BarcodeErrorCorrection ErrorCorrection { get; init; } = BarcodeErrorCorrection.Default;
 
+    /// <summary>
+    /// The module colour, or <see langword="null"/> for black, under the same contrast rule as
+    /// <see cref="BarcodeOptions.Foreground"/>.
+    /// </summary>
+    public BarcodeColor? Foreground { get; init; }
+
+    /// <summary>
+    /// The background colour, quiet zone included, or <see langword="null"/> for white.
+    /// </summary>
+    public BarcodeColor? Background { get; init; }
+
+    /// <summary>
+    /// A square centre reserved for a logo, or <see langword="null"/> for none. QR Code only, and
+    /// read back with this package's own decoder before the raster is returned — see
+    /// <see cref="BarcodeOptions.Logo"/>.
+    /// </summary>
+    public BarcodeLogo? Logo { get; init; }
+
+    /// <summary>Whether any style option is set, which picks the styled ABI call.</summary>
+    internal bool HasStyle => Foreground is not null || Background is not null || Logo is not null;
+
     /// <summary>Validates the numeric ranges the managed side owns, before the native call.</summary>
     /// <exception cref="BarcodeException">A value is outside its accepted range, or both sizing
     /// options are set.</exception>
@@ -132,6 +153,8 @@ public sealed class BarcodePrintOptions
                 BarcodeErrorCode.InvalidArgument,
                 $"BarHeight must be between 1 and 1024 modules, got {BarHeight}");
         }
+
+        Logo?.Validate();
     }
 
     /// <summary>The width to pass to the native call: zero when the module size sizes the symbol.</summary>

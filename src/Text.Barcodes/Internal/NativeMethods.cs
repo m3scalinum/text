@@ -69,6 +69,46 @@ internal static partial class NativeMethods
     internal static partial int BarcodePng(
         IntPtr barcode, uint scale, out NativeBuffer png, out IntPtr error);
 
+    [LibraryImport(LibraryName, EntryPoint = "bt_barcode_svg_styled")]
+    internal static partial int BarcodeSvgStyled(
+        IntPtr barcode,
+        int foreground,
+        int background,
+        double logoFraction,
+        int logoFill,
+        out NativeBuffer svg,
+        out IntPtr error);
+
+    [LibraryImport(LibraryName, EntryPoint = "bt_barcode_png_styled")]
+    internal static partial int BarcodePngStyled(
+        IntPtr barcode,
+        uint scale,
+        int foreground,
+        int background,
+        double logoFraction,
+        int logoFill,
+        out NativeBuffer png,
+        out IntPtr error);
+
+    [LibraryImport(LibraryName, EntryPoint = "bt_barcode_print_styled", StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial int BarcodePrintStyled(
+        string symbology,
+        string payload,
+        int quietZone,
+        int barHeight,
+        string? errorCorrection,
+        double dpi,
+        double widthMillimetres,
+        double moduleMillimetres,
+        uint widthModules,
+        int foreground,
+        int background,
+        double logoFraction,
+        int logoFill,
+        out NativeBuffer png,
+        out NativeBuffer geometry,
+        out IntPtr error);
+
     [LibraryImport(LibraryName, EntryPoint = "bt_barcode_print", StringMarshalling = StringMarshalling.Utf8)]
     internal static partial int BarcodePrint(
         string symbology,

@@ -34,6 +34,39 @@ public static class Barcode
     /// </remarks>
     public const int MaxPayloadBytes = 4096;
 
+    /// <summary>
+    /// The lowest contrast ratio, module against background, a styled symbol renders.
+    /// </summary>
+    /// <remarks>
+    /// 4.5:1 is the AA requirement of WCAG 2.1 success criterion 1.4.5, <em>Contrast (Minimum)</em> —
+    /// the one written for text, not the 3:1 of 1.4.11 <em>Non-text Contrast</em>. A module is a few
+    /// tenths of a millimetre wide when printed and is read through a camera lens, so the weaker
+    /// graphic floor is not enough. See <see cref="ContrastRatio"/> for the measurement and
+    /// <see cref="BarcodeOptions.Foreground"/> for what is refused.
+    /// </remarks>
+    public const double MinimumContrastRatio = 4.5;
+
+    /// <summary>
+    /// The contrast ratio between two colours, from 1:1 to 21:1, as WCAG 2.1 defines it.
+    /// </summary>
+    /// <param name="first">One colour.</param>
+    /// <param name="second">The other.</param>
+    /// <returns>The ratio, symmetric: black on white and white on black both measure 21:1.</returns>
+    /// <remarks>
+    /// <c>(L1 + 0.05) / (L2 + 0.05)</c>, with the lighter of the two relative luminances on top. The
+    /// luminances are computed here from the sRGB bytes by the definition, so the ratio a caller
+    /// measures in its own tests and the ratio the renderer refuses on are the same number.
+    /// </remarks>
+    public static double ContrastRatio(BarcodeColor first, BarcodeColor second)
+    {
+        var a = first.RelativeLuminance();
+        var b = second.RelativeLuminance();
+        var lighter = Math.Max(a, b);
+        var darker = Math.Min(a, b);
+
+        return (lighter + 0.05) / (darker + 0.05);
+    }
+
     /// <summary>The symbologies this package writes and reads, as the native library lists them.</summary>
     /// <remarks>
     /// Read from the library rather than declared here: a build whose native half is older than the
@@ -138,7 +171,11 @@ public static class Barcode
                 options.Dpi,
                 options.EffectiveWidthMillimetres,
                 options.EffectiveModuleMillimetres(MinimumModuleSize(symbology)),
-                options.WidthModules ?? 0);
+                options.WidthModules ?? 0,
+                options.HasStyle
+                    ? BarcodeNative.StyleArguments.From(
+                        options.Foreground, options.Background, options.Logo)
+                    : null);
 
             return ParsePrint(symbology, payload, png, json);
         }
@@ -310,8 +347,22 @@ public static class Barcode
                 options.BarHeight ?? -1,
                 options.ErrorCorrection.ToAbiName());
 
-            var svg = BarcodeNative.Svg(handle);
-            var png = BarcodeNative.Png(handle, options.Scale);
+            string svg;
+            byte[] png;
+
+            if (options.HasStyle)
+            {
+                var style = BarcodeNative.StyleArguments.From(
+                    options.Foreground, options.Background, options.Logo);
+
+                svg = BarcodeNative.SvgStyled(handle, style);
+                png = BarcodeNative.PngStyled(handle, options.Scale, style);
+            }
+            else
+            {
+                svg = BarcodeNative.Svg(handle);
+                png = BarcodeNative.Png(handle, options.Scale);
+            }
 
             return new BarcodeImage(
                 symbology, payload, svg, png, handle.ModuleWidth, handle.ModuleHeight);

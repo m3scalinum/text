@@ -33,14 +33,17 @@ public sealed class BarcodeImage
     public string Payload { get; }
 
     /// <summary>
-    /// The symbol as SVG, one user-space unit per module, with a white background and a single
-    /// black <c>&lt;path&gt;</c>. Ready to be embedded in a document or scaled by a layout engine.
+    /// The symbol as SVG, one user-space unit per module, with a background <c>&lt;rect&gt;</c> and a
+    /// single <c>&lt;path&gt;</c> for the modules. Black on white by default; a
+    /// <see cref="BarcodeOptions"/> that names a style colours both and draws the reserved centre as
+    /// one more <c>&lt;rect&gt;</c>. Ready to be embedded in a document or scaled by a layout engine.
     /// </summary>
     public string Svg { get; }
 
     /// <summary>
-    /// The symbol as an 8-bit greyscale PNG, <see cref="BarcodeOptions.Scale"/> pixels per module,
-    /// black and white only. A second pass decodes it back to <see cref="Payload"/>.
+    /// The symbol as a PNG, <see cref="BarcodeOptions.Scale"/> pixels per module: 8-bit greyscale,
+    /// black and white only, unless a style names colours or a logo, in which case it is 8-bit RGB in
+    /// exactly those colours. A second pass decodes it back to <see cref="Payload"/>.
     /// </summary>
     public byte[] Png { get; }
 

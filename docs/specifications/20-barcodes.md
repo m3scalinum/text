@@ -830,3 +830,152 @@ zero leaves the layout check out. The geometry JSON is
 | Rust, `print.rs` | The floor is applied per family (QR, DataMatrix, Aztec, PDF417, Code 128, EAN-13, EAN-8, UPC-A, Code 39, ITF, Codabar); a quiet zone below the floor and one past the ceiling are refused; a width target rounds down and a module target rounds to whole pixels; a module below the family floor is refused; a reserved width one module short is refused and the exact width is accepted; less than one pixel per module, more than 64, both sizing options and an out-of-range DPI are refused; the PNG is exactly the geometry's pixels. |
 | Rust, `lib.rs` | `bt_barcode_print` returns the PNG and the geometry, and refuses a three-module QR quiet zone. |
 | C# | `Print` reports the size it really prints, the raster matches, the symbol decodes back; the floors are the specification's; the refusals surface as `BarcodeException` with the specification named; `AddToDocument` emits a figure whose markup carries an `image(…)` and an `alt:`; the default alternative text is the symbology and the payload; the asset name is deterministic and payload-specific; a GS1 symbol uses the human-readable form; two symbols land as two figures. |
+
+## 11. A styled symbol: colour, contrast and a reserved centre
+
+A QR Code that leaves the logistics world stops being a black square: it carries a brand colour and
+a mark in the middle. Both are appearance, not data, so nothing here touches the module matrix the
+decoder reads — the encoder's matrix stays the truth and the renderer paints it. That separation is
+what makes the two rules below stateable, and testable, at all.
+
+### 11.1 The options
+
+`BarcodeOptions` and `BarcodePrintOptions` gain the same three properties:
+
+| Property | Type | Default |
+| --- | --- | --- |
+| `Foreground` | `BarcodeColor?` | `null`, black |
+| `Background` | `BarcodeColor?` | `null`, white |
+| `Logo` | `BarcodeLogo?` | `null`, nothing reserved |
+
+`BarcodeColor` is a `readonly record struct` of three `byte`s — sRGB, the space WCAG defines its
+coefficients in, so no conversion happens anywhere between the caller's bytes and the raster.
+`BarcodeColor.FromHex("#1f3a93")` and `ToHex()` are the text form. `BarcodeLogo` is
+`{ double Fraction, BarcodeColor? Fill }` with two factories, `BarcodeLogo.Cleared(fraction)` for a
+region cleared to the background and `BarcodeLogo.Solid(fraction, colour)` for a flat plate.
+
+Nothing is a flag: an option that is not set is not rendered, the default raster is the same
+greyscale PNG byte for byte, and naming the defaults explicitly gives the same bytes back —
+`The_default_rendering_is_unchanged_by_naming_the_default_colours` asserts it.
+
+### 11.2 The contrast rule, and its source
+
+The module must stay **darker** than the background — a QR Code is dark modules on a light ground
+(ISO/IEC 18004), so white on black is refused even at 21:1 — and the pair must clear a ratio of
+**4.5:1**. The ratio is the WCAG 2.1 one, `(L1 + 0.05) / (L2 + 0.05)` with the lighter relative
+luminance on top, and each luminance is computed by the definition from the sRGB bytes: linearise
+with the 0.03928 threshold, then weight 0.2126, 0.7152 and 0.0722 (the ITU-R BT.709 coefficients).
+
+The floor is 4.5:1, WCAG 2.1 success criterion **1.4.5 Contrast (Minimum)** — the criterion written
+for text — and not the 3:1 of **1.4.11 Non-text Contrast**. A module is a few tenths of a millimetre
+wide when printed and is read through a camera lens at an angle; the weaker graphic floor is not
+enough for that. It is a floor, not a target: black on white measures 21:1 and is what most symbols
+should use.
+
+Refusals carry the number they measured, because the caller's next move depends on it:
+
+```
+the module colour #9e9e9e on the background #ffffff measures a contrast of 2.68:1,
+below the 4.5:1 floor (WCAG 2.1 SC 1.4.5, Contrast (Minimum)): darken the module or
+lighten the background
+```
+
+`Barcode.ContrastRatio(a, b)` and `Barcode.MinimumContrastRatio` are the same arithmetic, public, so
+a caller can check a palette before it encodes anything.
+
+### 11.3 The reserved centre
+
+`Fraction` is the share of the symbol's **area** the square covers, between 0 and 1; its side is the
+square root of that share, rounded to whole modules so the region aligns with the module grid. It is
+centred on the symbol, quiet zone excluded, and its colour is `Fill` or the background.
+
+Three bounds apply, and the lowest wins:
+
+1. **The level's capacity.** The nominal shares — 7 % at L, 15 % at M, 25 % at Q, 30 % at H — are the
+   error correction capacities of ISO/IEC 18004 Table 9, which is where every QR table gets them. A
+   share past the level's own figure is refused before anything is rendered.
+2. **The timing patterns.** Both timing lines sit on module 6 of the symbol, so a reserved centre can
+   start no earlier than module 7 and end no later than `side - 8`: at most `side - 14` modules,
+   which is `(side - 14)² / side²` of the area. A 21-module symbol — version 1 — therefore holds
+   about 11 %, and a share the symbol has no room for is refused with the room it does have.
+3. **The read-back.** The raster is decoded with this build's own engine before it is returned, and a
+   style whose payload does not come out is refused:
+
+   ```
+   a 25-module reserved centre leaves a symbol this package's own decoder cannot read
+   back at error correction H: the level's nominal capacity is a per-codeword figure,
+   and a rectangle also destroys every codeword it only partly covers, so the share it
+   really tolerates is lower. Use a smaller logo, a longer payload or a higher level
+   ```
+
+   This is the third bound because the first is a promise about *codewords* and a rectangle spends
+   more than its area: every codeword the square only partly covers is lost too, so the effective
+   damage is the area plus a perimeter term, and the perimeter term matters most on small symbols.
+   The nominal figure is a ceiling, in other words, not a budget.
+
+**Measured.** The largest share that read back, on symbols from 21 to 57 modules, with the engine's
+own reader: about **5 % at L, 10 % at M, 15 % at Q and 20 % at H**, and a light fill costs a couple of
+points against a dark one of the same size (a cleared square at 20 % on a 45-module symbol does not
+read back; a brand plate of the same 20 % does). **30 % at H did not read back at any of the eleven
+symbol sizes measured** — 21, 25, 29, 33, 37, 41, 45, 49, 53 and 57 modules — so the shipped
+behaviour is the nominal ceiling plus the read-back, and a 30 % request at H is refused with the
+message above rather than rendered into a symbol a scanner misses. That gap between "the level
+repairs 30 % of the codewords" and "a 30 % square still reads" is the reason the read-back exists.
+
+The region is a *reservation*: this package clears it, and the caller's mark is composited in the
+caller's own layout, or over the raster. Nothing is blended here.
+
+### 11.4 What the style does not do
+
+- **No gradients, no background image, no per-module colour.** Two colours and one flat rectangle.
+  A gradient spends contrast unevenly, and no single ratio describes it.
+- **No error correction on read.** The level is a property of the symbol, set when it is written; a
+  reader is told nothing and repairs what it finds. A logo spends that capacity, it does not add to
+  it.
+- **No image compositing.** `LogoFill` is a colour. A photograph or a logotype with counters is the
+  caller's to draw over the reserved region — and the SVG carries the same flat rectangle, so the
+  vector and the raster cannot disagree.
+- **No resampling, ever.** The raster scales by an integer number of pixels per module and the vector
+  is one unit per module. Scaling a styled symbol after the fact blurs its module edges, which is the
+  one thing no contrast rule can undo.
+- **No logo on a one-dimensional symbol, a DataMatrix, an Aztec or a PDF417.** A Code 128 has no
+  centre to spare and no level to spend: clearing anything from it destroys data nothing repairs.
+  The call is refused and names the symbology.
+
+### 11.5 The ABI additions
+
+```c
+int32_t bt_barcode_png_styled(const BtBarcode *barcode, uint32_t scale,
+                              int32_t foreground, int32_t background,
+                              double logo_fraction, int32_t logo_fill,
+                              BtBuffer *out_png, BtError **out_error);
+
+int32_t bt_barcode_svg_styled(const BtBarcode *barcode,
+                              int32_t foreground, int32_t background,
+                              double logo_fraction, int32_t logo_fill,
+                              BtBuffer *out_svg, BtError **out_error);
+
+int32_t bt_barcode_print_styled(const char *symbology, const char *payload,
+                                int32_t quiet_zone, int32_t bar_height,
+                                const char *error_correction,
+                                double dpi, double width_mm, double module_mm,
+                                uint32_t reserved_modules,
+                                int32_t foreground, int32_t background,
+                                double logo_fraction, int32_t logo_fill,
+                                BtBuffer *out_png, BtBuffer *out_json, BtError **out_error);
+```
+
+Colours are `0xRRGGBB`, and a negative value takes the default (black for the module, white for the
+background); `logo_fraction` of zero or less is no logo; a negative `logo_fill` paints the reserved
+centre in the background colour. The level the logo bounds are read from is the one the handle was
+encoded with, so `bt_barcode_encode` did not change and neither did `bt_barcode_png` — the plain path
+is the same call it always was.
+
+### 11.6 Tests
+
+| Layer | What is asserted |
+| --- | --- |
+| Rust, `style.rs` | Black on white is 21:1 and #767676 on white clears 4.5:1 while #777777 does not; a dark brand blue is accepted and a pale module is refused with "2.68" and "4.5" in the message; a background darker than the module is refused even at 21:1; the level ceiling is 7/15/25/30 % and a share past it is refused with both numbers and the ISO reference; a logo on Code 128 is refused by name; the symbol box is the quiet-zone-free square; a centred 30 % region is centred, inside the ceiling and clear of both timing lines; a share a 21-module symbol cannot hold is refused with the seven modules it has; the same 19-module square reads back one module after the timing line and not on it, which is the measurement the guard exists for; the default style is the plain raster, byte for byte; a coloured raster carries exactly its three colours and its reserved centre; the coloured SVG carries the fills and one reserved rect. |
+| Rust, `tests/styled.rs` | A logo reads back through `decode_png_all` at L, M, Q and H; 20 % reads back at H on a 45-module symbol; 30 % at H is refused with "cannot read back"; 30 % at Q is refused with "exceeds the 25% ceiling"; a brand module on cream renders in those colours and decodes; refusals for contrast, inversion, and the styled SVG. |
+| Rust, `print.rs`, `lib.rs` | A styled print keeps its geometry and reads back; the styled ABI entry points write a PNG this build decodes and an SVG carrying the fill; a pale module is `BT_ERR_INVALID_ARGUMENT` across the ABI. |
+| C# | A brand module on a light ground renders as a truecolour PNG and decodes with `DecodeAll`; the default rendering is unchanged byte for byte; a logo reads back at L, M, Q and H and at 20 % on H; a 30 % logo at H and 30 % at Q are refused with their messages; a pale module and an inverted pair are refused; a logo on Code 128 is a `BarcodeUnsupportedException`; the ratio is the WCAG one and the floor is 4.5; a styled `Print` and a styled `AddToDocument` figure decode back; `FromHex`/`ToHex` round trip and reject malformed text. |

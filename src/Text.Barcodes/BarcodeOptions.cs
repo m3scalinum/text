@@ -35,6 +35,39 @@ public sealed class BarcodeOptions
     /// </summary>
     public BarcodeErrorCorrection ErrorCorrection { get; init; } = BarcodeErrorCorrection.Default;
 
+    /// <summary>
+    /// The module colour, or <see langword="null"/> for black.
+    /// </summary>
+    /// <remarks>
+    /// It must stay darker than <see cref="Background"/>, and the pair must clear a contrast ratio of
+    /// 4.5:1 — the WCAG 2.1 AA requirement for text, which a module a few tenths of a millimetre wide
+    /// needs more than the 3:1 of the graphics criterion. <see cref="Barcode.ContrastRatio"/>
+    /// measures it; <see cref="Barcode.Encode"/> refuses a pair below the floor and names the ratio it
+    /// measured. A QR Code is dark modules on a light ground (ISO/IEC 18004), so white on black is
+    /// refused even at 21:1.
+    /// </remarks>
+    public BarcodeColor? Foreground { get; init; }
+
+    /// <summary>
+    /// The background colour, quiet zone included, or <see langword="null"/> for white.
+    /// </summary>
+    public BarcodeColor? Background { get; init; }
+
+    /// <summary>
+    /// A square centre reserved for a logo, or <see langword="null"/> for none. QR Code only.
+    /// </summary>
+    /// <remarks>
+    /// The region is cleared of modules, so it spends error correction: it is bounded by
+    /// <see cref="ErrorCorrection"/>'s capacity and by the symbol's room between its timing patterns,
+    /// and the raster is read back with this package's own decoder before it is returned. A design
+    /// that does not read back is refused with a message saying so — the alternative would be a
+    /// pretty symbol a scanner cannot get past.
+    /// </remarks>
+    public BarcodeLogo? Logo { get; init; }
+
+    /// <summary>Whether any of the style options is set, which is what picks the styled ABI call.</summary>
+    internal bool HasStyle => Foreground is not null || Background is not null || Logo is not null;
+
     /// <summary>Validates the options against a symbology, throwing before the native call.</summary>
     internal void Validate(BarcodeSymbology symbology)
     {
@@ -65,5 +98,7 @@ public sealed class BarcodeOptions
                 BarcodeErrorCode.InvalidArgument,
                 $"ErrorCorrection applies to a QR Code only; {symbology} has no error correction level in these terms");
         }
+
+        Logo?.Validate();
     }
 }

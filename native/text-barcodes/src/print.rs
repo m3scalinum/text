@@ -16,6 +16,7 @@
 
 use crate::encode::{self, EncodeOptions, Encoded, MAX_RASTER_PIXELS};
 use crate::ffi::{BT_ERR_LIMIT, BtError};
+use crate::style::{self, Style};
 use crate::symbology::Symbology;
 
 /// Millimetres in an inch; the only place the two units meet.
@@ -59,6 +60,9 @@ pub struct PrintRequest {
     pub bar_height: Option<u32>,
     /// Error correction, as rxing spells it.
     pub error_correction: Option<String>,
+    /// The module colour, the background and the reserved centre. The default is the historic
+    /// black on white with nothing reserved.
+    pub style: Style,
 }
 
 /// The physical size a symbol prints at, and the raster that carries it.
@@ -158,7 +162,8 @@ pub fn render(
 
     let encoded = encode::encode(symbology, payload, &options)?;
     let geometry = geometry(&encoded, quiet_zone, request)?;
-    let png = encode::to_png(&encoded, geometry.module_pixels)?;
+    let level = style::level_name(request.error_correction.as_deref());
+    let png = style::png(&encoded, geometry.module_pixels, &request.style, level)?;
 
     Ok(PrintOutput { png, geometry })
 }
@@ -499,5 +504,43 @@ mod tests {
 
         assert_eq!(decoded.width(), output.geometry.width_pixels);
         assert_eq!(decoded.height(), output.geometry.height_pixels);
+    }
+
+    #[test]
+    fn a_styled_print_keeps_the_geometry_and_still_reads_back() {
+        let payload = "https://m3scalinum.example/products/07?lot=42&serial=0001234567";
+        let request = PrintRequest {
+            dpi: 300.0,
+            module_mm: Some(0.6),
+            error_correction: Some("H".to_string()),
+            style: Style {
+                foreground: crate::style::Rgb {
+                    r: 0x1f,
+                    g: 0x3a,
+                    b: 0x93,
+                },
+                background: crate::style::Rgb::WHITE,
+                logo: Some(crate::style::Logo::solid(
+                    0.15,
+                    crate::style::Rgb {
+                        r: 0x1f,
+                        g: 0x3a,
+                        b: 0x93,
+                    },
+                )),
+            },
+            ..PrintRequest::default()
+        };
+
+        let output = render(Symbology::QrCode, payload, &request).expect("styled print");
+
+        let image =
+            image::load_from_memory_with_format(&output.png, image::ImageFormat::Png).expect("png");
+        assert_eq!(image.width(), output.geometry.width_pixels);
+        assert_eq!(image.height(), output.geometry.height_pixels);
+
+        let decoded = crate::decode::decode_png(&output.png).expect("decode");
+        assert!(decoded.success, "{:?}", decoded.error);
+        assert_eq!(decoded.text, payload);
     }
 }

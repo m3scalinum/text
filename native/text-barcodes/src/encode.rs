@@ -288,7 +288,7 @@ fn validate_payload(symbology: Symbology, payload: &str) -> Result<(), BtError> 
     Ok(())
 }
 
-fn checked_scale(encoded: &Encoded, scale: u32) -> Result<u32, BtError> {
+pub(crate) fn checked_scale(encoded: &Encoded, scale: u32) -> Result<u32, BtError> {
     if scale == 0 || scale > 64 {
         return Err(BtError::invalid_argument(format!(
             "scale must be between 1 and 64, got {scale}"
