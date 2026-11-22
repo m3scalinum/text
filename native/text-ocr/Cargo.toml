@@ -2,8 +2,9 @@
 name = "sharp-text-ocr"
 version = "0.1.0"
 edition = "2024"
-# hayro 0.9 declares Rust 1.92, which is therefore the floor of this crate.
-rust-version = "1.92"
+# `rten` 0.28 declares Rust 1.94, ahead of the 1.92 that `hayro` 0.9 asks for, so 1.94 is the
+# floor of this crate.
+rust-version = "1.94"
 publish = false
 description = "C ABI over ocrs, for M3scalinum.Text.Ocr"
 license = "Apache-2.0"

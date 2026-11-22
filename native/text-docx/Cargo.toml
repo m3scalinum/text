@@ -2,8 +2,8 @@
 name = "sharp-text-docx"
 version = "0.1.0"
 edition = "2024"
-# `zip` 9.8 asks for 1.88; edition 2024 asks for 1.85. The higher floor wins.
-rust-version = "1.88"
+# `zip` 9.8.1 asks for 1.89; edition 2024 asks for 1.85. The higher floor wins.
+rust-version = "1.89"
 publish = false
 description = "C ABI over a DOCX reader, for M3scalinum.Text.Docx"
 license = "Apache-2.0"
