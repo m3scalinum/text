@@ -19,8 +19,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>true</IsPackable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <PackageId>M3scalinum.Text.Pdf</PackageId>
-    <Description>Sign a PDF with PAdES, and post-process the documents M3scalinum.Text.Typst produces.</Description>
+    <Description>Sign a PDF with PAdES, read its text and outline, and render a page as a PNG preview; post-process the documents M3scalinum.Text.Typst produces.</Description>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
 
     <PkcsVersion Condition="'$(TargetFramework)' == 'net8.0'">8.0.2</PkcsVersion>
@@ -44,6 +45,37 @@
 
   <ItemGroup>
     <None Include="..\..\README.md" Pack="true" PackagePath="/" />
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="/" />
+    <None Include="..\..\NOTICE" Pack="true" PackagePath="/" />
+    <None Include="..\..\THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="/" Condition="Exists('..\..\THIRD-PARTY-NOTICES.md')" />
+  </ItemGroup>
+
+  <!--
+    The page rasteriser is a Rust cdylib of its own, `native/text-pdf`, packed under the standard
+    runtimes/<rid>/native/ layout. The rest of this package is managed code; the six files are
+    produced by the native matrix of ci-text.yml, and a checkout without them still builds, because a
+    managed build never depends on a Rust toolchain. `linux-musl-x64` is a staticlib linked by hand
+    with `musl-gcc`, exactly as the compiler's is: Rust cannot emit a cdylib for a musl target.
+  -->
+  <ItemGroup>
+    <None Include="$(NativeArtifactsDir)\win-x64\sharp_text_pdf.dll"
+          Pack="true" PackagePath="runtimes/win-x64/native/" Visible="false"
+          Condition="Exists('$(NativeArtifactsDir)\win-x64\sharp_text_pdf.dll')" />
+    <None Include="$(NativeArtifactsDir)\win-arm64\sharp_text_pdf.dll"
+          Pack="true" PackagePath="runtimes/win-arm64/native/" Visible="false"
+          Condition="Exists('$(NativeArtifactsDir)\win-arm64\sharp_text_pdf.dll')" />
+    <None Include="$(NativeArtifactsDir)\linux-x64\libsharp_text_pdf.so"
+          Pack="true" PackagePath="runtimes/linux-x64/native/" Visible="false"
+          Condition="Exists('$(NativeArtifactsDir)\linux-x64\libsharp_text_pdf.so')" />
+    <None Include="$(NativeArtifactsDir)\linux-arm64\libsharp_text_pdf.so"
+          Pack="true" PackagePath="runtimes/linux-arm64/native/" Visible="false"
+          Condition="Exists('$(NativeArtifactsDir)\linux-arm64\libsharp_text_pdf.so')" />
+    <None Include="$(NativeArtifactsDir)\linux-musl-x64\libsharp_text_pdf.so"
+          Pack="true" PackagePath="runtimes/linux-musl-x64/native/" Visible="false"
+          Condition="Exists('$(NativeArtifactsDir)\linux-musl-x64\libsharp_text_pdf.so')" />
+    <None Include="$(NativeArtifactsDir)\osx\libsharp_text_pdf.dylib"
+          Pack="true" PackagePath="runtimes/osx/native/" Visible="false"
+          Condition="Exists('$(NativeArtifactsDir)\osx\libsharp_text_pdf.dylib')" />
   </ItemGroup>
 
   <ItemGroup>

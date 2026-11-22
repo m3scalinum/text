@@ -453,10 +453,12 @@ POSSIBILITY OF SUCH DAMAGE.
 ================================================================================
 The native libraries that are not Typst
 ================================================================================
-`M3scalinum.Text.Barcodes`, `M3scalinum.Text.Ocr`, `M3scalinum.Text.Docx` and
-`M3scalinum.Text.Xlsx` each embed a Rust library of their own rather than the compiler. Every crate
+`M3scalinum.Text.Barcodes`, `M3scalinum.Text.Ocr`, `M3scalinum.Text.Docx`, `M3scalinum.Text.Xlsx` and
+`M3scalinum.Text.Pdf` each embed a Rust library of their own rather than the compiler. Every crate
 below is pinned in the `Cargo.lock` beside the library that uses it, and every one is reproduced
-under the licence its own package declares.
+under the licence its own package declares. `M3scalinum.Text.Pdf`'s library, `native/text-pdf`, adds
+no crate this table does not already name: it renders through `hayro` 0.9.0, the same release
+`M3scalinum.Text.Ocr` carries, and takes only `serde` and `serde_json` besides.
 
 | Crate | Version | Licence | Source |
 | --- | --- | --- | --- |

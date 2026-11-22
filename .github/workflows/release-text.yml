@@ -20,7 +20,7 @@ permissions:
 
 # Everything in the suite that does not embed the compiler: M3scalinum.Text.Pdf, .Templates, .Mcp,
 # .Barcodes, .Ocr, .Docx and .Xlsx. These packages do not version themselves after Typst, they follow TextVersion, so
-# they need their own tag namespace and their own workflow. The four native ones are the reason the
+# they need their own tag namespace and their own workflow. The five native ones are the reason the
 # `native` job below exists: they ship six RIDs each, built here and packed by `pack`.
 
 jobs:
@@ -33,7 +33,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        crate: [text-barcodes, text-ocr, text-docx, text-xlsx]
+        crate: [text-barcodes, text-ocr, text-docx, text-xlsx, text-pdf]
         include:
           - { os: windows-latest, rid: win-x64, target: "" }
           - { os: windows-11-arm, rid: win-arm64, target: "" }
@@ -46,7 +46,7 @@ jobs:
           - { os: macos-15-intel, rid: osx, target: "" }
     env:
       CRT_TARGET: ${{ matrix.target != '' && format('--target {0}', matrix.target) || '' }}
-      # None of the four crates vendors a C library, so the musl entry only needs the linker.
+      # None of the five crates vendors a C library, so the musl entry only needs the linker.
       RUSTFLAGS: ${{ matrix.target != '' && '-C linker=musl-gcc' || '' }}
     steps:
       - uses: actions/checkout@v7
@@ -75,6 +75,7 @@ jobs:
             text-ocr)      prefix=to_ ;;
             text-docx)     prefix=td_ ;;
             text-xlsx)     prefix=tx_ ;;
+            text-pdf)      prefix=tp_ ;;
           esac
           archive=$(ls native/${{ matrix.crate }}/target/${{ matrix.target }}/release/libsharp_text_*.a)
           library=$(basename "$archive" .a)
@@ -136,6 +137,7 @@ jobs:
           M3SCALINUM_OCR_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/linux-x64/libsharp_text_ocr.so
           SHARPTEXTDOCX_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/linux-x64/libsharp_text_docx.so
           SHARPTEXTXLSX_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/linux-x64/libsharp_text_xlsx.so
+          SHARPTEXTPDF_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/linux-x64/libsharp_text_pdf.so
         run: |
           dotnet build -c Release --no-restore
           dotnet test tests/Text.Pdf.Tests -c Release --no-build
@@ -211,9 +213,11 @@ jobs:
           dotnet pack src/Text.Xlsx -c Release --no-restore \
             -o artifacts/packages -p:CoreVersion="$core" "${version_args[@]}"
       - name: Verify the packages
+        # `--native`: this job downloads every crate's six RIDs, so a package that ships without one
+        # of its libraries is caught here rather than by a consumer's DllNotFoundException.
         run: |
           for package in artifacts/packages/*.nupkg; do
-            python3 tests/verify-package.py "$package"
+            python3 tests/verify-package.py "$package" --native
           done
       - name: Generate the SBOMs
         # One CycloneDX SBOM per .nupkg, built from the package itself: the .nuspec names the

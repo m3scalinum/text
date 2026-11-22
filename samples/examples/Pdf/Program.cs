@@ -74,8 +74,20 @@ if (!signedText.Contains(Marker, StringComparison.Ordinal))
 }
 
 Report("read signed", $"{signedText.Length} chars, marker present");
+
+// The one native entry point of this package: a page rendered as a PNG. On the Alpine job this is
+// what proves the musl-linked library loads and draws, rather than merely links.
+var preview = PdfRaster.Render(pdf, 1);
+
+if (preview.Bytes.Length < 8 || preview.Bytes[0] != 0x89 || preview.Bytes[1] != 0x50)
+{
+    throw new InvalidOperationException("the rendered page does not start like a PNG");
+}
+
+Report("render", $"{preview.Width}x{preview.Height} at {preview.Dpi} dpi, {preview.Bytes.Length} bytes");
+
 Console.WriteLine();
-Console.WriteLine("M3scalinum.Text.Pdf: read, sign and verify all ran on bytes the package alone produced.");
+Console.WriteLine("M3scalinum.Text.Pdf: read, sign, verify and render all ran on bytes the package alone produced.");
 
 static void Report(string step, string detail) => Console.WriteLine($"  {step,-11} {detail}");
 
