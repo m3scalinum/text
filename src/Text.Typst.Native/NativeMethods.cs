@@ -85,6 +85,9 @@ internal static partial class NativeMethods
     [LibraryImport(LibraryName, EntryPoint = "tn_document_diagnostics")]
     internal static partial int DocumentDiagnostics(IntPtr document, out NativeBuffer json, out IntPtr error);
 
+    [LibraryImport(LibraryName, EntryPoint = "tn_document_metrics")]
+    internal static partial int DocumentMetrics(IntPtr document, out NativeBuffer json, out IntPtr error);
+
     [LibraryImport(LibraryName, EntryPoint = "tn_document_export", StringMarshalling = StringMarshalling.Utf8)]
     internal static partial int DocumentExport(
         IntPtr document, string format, string? optionsJson, out NativeBuffer output, out IntPtr error);

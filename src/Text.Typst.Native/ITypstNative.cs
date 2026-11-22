@@ -45,4 +45,10 @@ internal interface ITypstNative
     TypstWorldHandle CloneWorld(TypstWorldHandle world);
 
     string GetDiagnostics(TypstDocumentHandle document);
+
+    /// <summary>
+    /// What the compilation cost, as the JSON object <c>tn_document_metrics</c> returns: the time
+    /// inside Typst, the pages, the fonts and their bytes.
+    /// </summary>
+    byte[] Metrics(TypstDocumentHandle document);
 }

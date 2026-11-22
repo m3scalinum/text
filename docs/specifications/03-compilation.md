@@ -462,3 +462,127 @@ The bundled Typst version is fixed by the Rust crate version and exposed as
 carries it: `0.15.1.<revision>` (see [08 §7](08-build-and-packaging.md#7-versioning-and-releases)).
 Supporting a second Typst version means publishing a second package line (`M3scalinum.Text.Typst` 0.16.x
 against Typst 0.16), not loading two compilers in one process.
+
+## 12. Compilation metrics
+
+Every `CompilationResult` carries `Metrics`, a `CompilationMetrics` describing what the compilation
+cost and what it had to load. The numbers are read once, when the result is built, and are attached
+to the document they describe.
+
+```csharp
+using var result = compiler.Compile(world);
+
+var m = result.Metrics;
+Report("compiled {Pages} page(s) in {Total} ms ({Compile} ms in Typst), {Fonts} font(s), {Bytes} B",
+    m.PageCount, m.TotalDuration.TotalMilliseconds, m.CompileDuration.TotalMilliseconds,
+    m.FontCount, m.FontBytes);
+
+byte[] pdf = result.ExportPdf();
+Report("pdf: {Bytes} B in {Duration} ms",
+    result.LastExport!.Bytes, result.LastExport.Duration.TotalMilliseconds);
+```
+
+### 12.1 What is measured
+
+| Member | Source | Meaning |
+| --- | --- | --- |
+| `TotalDuration` | managed, `Stopwatch` | the whole `Compile` call, after the queue wait |
+| `CompileDuration` | native, `Instant` | `typst::compile`, plus the bundle export for a bundle |
+| `PageCount` | native, layout | pages produced; `0` for HTML and bundle documents |
+| `FontCount` | native, world | fonts the world could resolve |
+| `EmbeddedFontCount` | native, world | how many of them are in the binary |
+| `HostFontCount` | managed, derived | `FontCount - EmbeddedFontCount` |
+| `FontBytes` | native, world | bytes of font data, each file counted once |
+| `ErrorCount`, `WarningCount`, `HintCount` | managed | diagnostics of the document, by severity |
+| `DiagnosticCount` | managed, derived | the three above, summed |
+| `result.LastExport` | managed, `Stopwatch` | format, bytes and duration of the last successful export |
+
+`TotalDuration` and `CompileDuration` differ by design: the first is what the caller waited, the
+second is what Typst spent. A gap that grows between two releases is the managed layer or the
+marshalling regressing; a `CompileDuration` that grows is the template or the compiler.
+
+`LastExport` is separate from `Metrics` for one reason: a document's size does not exist before it is
+encoded. Attaching a size to a compilation would mean encoding a PDF nobody asked for, so the export
+reports its own numbers, and the last successful one wins. A failed export writes nothing and leaves
+the previous reading in place rather than reporting a zero-byte document.
+
+`FontBytes` counts each underlying buffer once. A font collection exposes one face per face over the
+same file, so summing per face would over-report a `ttc` by its face count.
+
+### 12.2 What is not measured
+
+- **Memory.** The layout's peak allocation is not observable from inside the compiler, and the
+  process working set is process-wide and platform-dependent — it cannot be attributed to one
+  compilation. Budget `FontBytes` plus an allowance per page instead, and measure the process with
+  your own tools if that matters.
+- **Time per stage.** The library measures the compile as one span. Sub-stage timings (parse,
+  evaluate, layout, encode) are Typst internals with no stable hooks; a number named after a stage
+  would be a lie the next time the compiler changes. Use the two totals and the export durations.
+- **Cache hits.** Whether Typst reused a memoised result is not exposed.
+- **Failed compilations.** A compile that fails throws `TypstCompilationException` carrying the
+  diagnostics, so no `CompilationMetrics` exists; `ErrorCount` on a result is therefore always zero,
+  and the count is there so a caller can assert that rather than assume it.
+
+### 12.3 Why a return value, not a collector
+
+The metrics travel with the result rather than through a static registry or an `ActivityListener`.
+Compilations run in parallel — a pool compiles one document per request — and a process-wide "last
+metrics" slot would have every concurrent compilation overwrite another one's page count and
+duration. A static collector would also need a flag to turn it off, a reset to keep it from growing,
+and it would still be wrong under concurrency. A value returned with the document has none of those
+properties: it is true for exactly the compilation that produced it, and it costs nothing when it is
+ignored.
+
+`TypstInstrumentation` (Spec 07) remains the process-wide view: spans and histograms for a dashboard.
+`CompilationMetrics` is the per-document view, for the caller that has to make a decision about
+*this* document.
+
+### 12.4 Using it to size a pool and to alert
+
+Sizing. A caller that caps concurrency with `new TypstCompiler(maxConcurrency)` can pick the cap from
+what a compilation actually costs. `CompileDuration` gives the time side:
+
+```csharp
+// A cap is a statement about the queue: with a measured p95 compile time T and a request
+// budget B, the slots you can afford are B / T, and never fewer than one.
+var slots = (int)(budget.TotalMilliseconds / p95Compile.TotalMilliseconds);
+new TypstCompiler(slots < 1 ? 1 : slots);
+```
+
+`FontBytes` gives the memory side: every live world holds its font buffers, and a host that loads
+its own fonts pays them once per world that loads them. Neither number was reachable from the public
+API before, which is why a cap used to be a guess.
+
+Alerting. A regression is a change in a ratio, not in an absolute duration:
+
+```csharp
+if (m.CompileDuration > baseline.CompileDuration * 1.5)
+{
+    alert($"compile of {root} took {m.CompileDuration.TotalMilliseconds:F0} ms, "
+        + $"baseline {baseline.CompileDuration.TotalMilliseconds:F0} ms");
+}
+
+if (m.PageCount != baseline.PageCount)
+{
+    // A template that starts paginating differently is a defect before it is a performance issue.
+    alert($"{root} produced {m.PageCount} pages, baseline {baseline.PageCount}");
+}
+```
+
+Keep a baseline per document kind and per root, recorded from a run you trust, and compare
+`CompileDuration` (not `TotalDuration`, which includes the machine's own load) against it. The
+diagnostic counts make the same series catch a template that started warning: a jump in
+`WarningCount` is usually the first symptom of an edited include.
+
+### 12.5 ABI
+
+`CompilationMetrics` is filled from `tn_document_metrics`, an additive symbol of the native library
+that returns one JSON object per document handle:
+
+```json
+{"compileNanos":1500000,"pages":3,"fontsTotal":12,"fontsEmbedded":10,"fontBytes":2048576}
+```
+
+The symbol is added to ABI revision 2 without changing `TN_ABI_VERSION`: every revision 2 symbol keeps
+its name and signature, and a host that never asks for metrics never calls it. The managed decoder
+treats an empty payload as zeros, so a library that does not answer still produces a usable result.
