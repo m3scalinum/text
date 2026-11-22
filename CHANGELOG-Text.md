@@ -236,6 +236,26 @@ Not yet published.
   is exposed as resources (`m3scalinum://templates/{id}`, read-only, manifest as content). The HTTP
   transport validates `Origin` against a configured list and answers 403 before reading the body — a
   browser origin is refused by default, a request without one is served.
+- A shipping label: `ShippingLabel` lays out a 100 × 150 mm page — the stock a thermal printer takes —
+  with the code, the address, the reference and the SSCC in clear text, and writes the PDF page itself,
+  so the package gains no dependency. An SSCC whose check digit does not fall right is refused with both
+  digits named, and the test rasterises the page and decodes the symbol back to the eighteen digits.
+- The symbology list is held to the specification by a test that enumerates both and fails whichever side
+  has a member the other does not. It exists because the question came up: `rxing` 0.9.4 has no Aztec Rune
+  format at all and writes no MaxiCode, so the list stays at nineteen symbols and the specification says
+  where the answer would change.
+- `PdfSignatureVerifier` authenticates the revocation evidence it reads: an OCSP response must be signed by
+  the issuer, or by a delegated responder that issuer certified for `id-kp-OCSPSigning`, and a CRL must be
+  signed by the authority it names — offline, over the chain already built. Each response is reported as
+  valid, unsigned or signed by an unexpected party, with the certificate concerned.
+- `PdfLotl` verifies the XML signature of the trust list itself against the anchors the LOTL publishes for
+  its operator, and a qualification verdict now says what it rests on: a verified and current list, a
+  verified but stale one, or an unverified one. No verdict calls a service qualified on an unverified list.
+- An image handed to the OCR is admitted against a pixel ceiling and a byte ceiling read from the format's
+  header, so a file claiming a gigapixel is refused before anything is allocated. The ceilings are 64
+  megapixels and 256 MiB, an option can only lower them, and the refusal is its own typed error naming the
+  size observed and the ceiling — `OcrUnreadable` is for a page that was read and could not be, not for one
+  that was never let in.
 
 ### Security
 

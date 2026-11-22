@@ -410,8 +410,12 @@ separately: `sharptypst-v0.15.1.42` and `v0.1.0`.
 - `win-x64`, `win-arm64`, `linux-x64`, `linux-arm64`, `linux-musl-x64` (Alpine), `osx` (universal,
   Intel and Apple Silicon)
 
-The native compiler ships inside `M3scalinum.Text.Typst` for each of these. The suite packages
-ship managed assemblies only, so they run wherever .NET does.
+The native compiler ships inside `M3scalinum.Text.Typst` for each of these. The five format packages that
+carry a Rust library of their own — `M3scalinum.Text.Barcodes`, `.Ocr`, `.Docx`, `.Xlsx` and `.Pdf` — ship
+one native asset per identifier too: `win-x64`, `win-arm64`, `linux-x64`, `linux-arm64`,
+`linux-musl-x64`, `linux-musl-arm64` and `osx`. The remaining suite packages (`Templates`, `Mcp`,
+`Documents`, `Typst.DependencyInjection`, `Templates.Generator`) are managed assemblies and run wherever
+.NET does.
 
 ## Documentation
 
