@@ -1,9 +1,9 @@
 # Changelog — the suite train
 
 All notable changes to the packages that do not embed the Typst compiler are documented in this
-file: `M3scalinum.Text.Pdf`, `M3scalinum.Text.Templates`, `M3scalinum.Text.Mcp`, and the three that
-carry a Rust library of their own — `M3scalinum.Text.Barcodes`, `M3scalinum.Text.Ocr` and
-`M3scalinum.Text.Docx`. They are released from `v*` tags by
+file: `M3scalinum.Text.Pdf`, `M3scalinum.Text.Templates`, `M3scalinum.Text.Mcp`, and the four that
+carry a Rust library of their own — `M3scalinum.Text.Barcodes`, `M3scalinum.Text.Ocr`,
+`M3scalinum.Text.Docx` and `M3scalinum.Text.Xlsx`. They are released from `v*` tags by
 `.github/workflows/release-text.yml`, and that workflow takes its release page from here.
 
 The compiler packages have their own file, [CHANGELOG-Typst.md](CHANGELOG-Typst.md); what
@@ -20,7 +20,6 @@ Not yet published.
 
 ### Added
 
-- ### Added
 - `M3scalinum.Text.Barcodes`: ten symbologies in both directions — QR Code, DataMatrix, Aztec, PDF417,
   Code 128, Code 39, EAN-13, EAN-8, ITF and Codabar — encoded to SVG at one unit per module or to a
   PNG at a chosen scale, and decoded back from a PNG. The engine is `rxing` (Apache-2.0), a Rust port
@@ -59,7 +58,9 @@ Not yet published.
   streams whose filter is not implemented. Words are separated by a space where the layout leaves a
   horizontal gap, lines by a newline, and a page with text ends with one newline, the shape the
   compiler's per-page text has. An encrypted document is refused with `PdfTextException` and
-  `PdfTextError.Encrypted`, naming the security handler; decryption is not implemented. What is
+  `PdfTextError.Encrypted`, naming the security handler; a password reaches `PdfEncryption` first,
+  so an AES-128 or AES-256 document renders its text, and a password that does not open it is
+  refused with `PdfTextError.WrongPassword` instead of a raw decryption exception. What is
   recovered is glyph order as the content stream yields it — no reading order, no layout, no OCR —
   and a scanned page comes back empty. Verified on compiler output (two pages with a marker each, a
   table and a footnote) and on a browser-printed document, plus hand-written files for a Type0 CMap
@@ -135,3 +136,27 @@ Not yet published.
   update with the page's earlier annotations kept.
 - `PdfDocumentTimestamp.Add`: an RFC 3161 document timestamp over the whole file, to be added after
   the signatures it covers.
+- `M3scalinum.Text.Xlsx`: an `.xlsx` workbook read into the document model — sheets, typed cells
+  (text, number, boolean, date, duration, error), a formula with its cached value, and the cell
+  range the sheet actually occupies. `ToTypstDocument()` renders a sheet as a table, so an invoice
+  that arrives as a spreadsheet reaches a PDF with no Excel and no Open XML SDK. The reader is
+  `calamine` (MIT) behind a native library of its own; merged cells, cell formats, defined names,
+  charts and the legacy `.xls`/`.xlsb`/`.ods` containers are not read, and a workbook is bounded in
+  bytes and in cells.
+- `PdfConformance.CheckAccessibility`: the usability half of PDF/UA-1, separate from the structural
+  check — table headers and their scope, heading levels that skip a rank, a document that does not
+  ask to display its title, a structure tree that does not drive the tab order, and a role with no
+  entry in `/RoleMap`. `docs/specifications/15-pdf-conformance.md` §6 carries the per-package
+  checklist this implements, names the rules that belong to the document author rather than to the
+  file (contrast, type size), and lists what a screen reader run must still confirm by hand — none
+  has been run, and the specification says so.
+
+### Security
+
+- `M3scalinum.Text.Docx` reads every XML part through one entry point, `xml::parse`, which refuses a
+  DTD or an external entity, an internal entity that would expand past 1 MiB, more than 64 entity
+  declarations, a part over 32 MiB, a depth over 256 elements and more than 2 000 000 nodes per
+  part. The refusal is decided on the bytes, not on the parser's error, so it survives a change of
+  XML parser, and it reaches .NET as `DocxErrorCode.XmlPolicy` with the part and the rule named.
+  Verified with an external entity over a file and over HTTP, a billion-laughs document, an entity
+  loop, a depth and a size past their bound, and a valid document that still reads.
