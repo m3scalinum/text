@@ -70,6 +70,19 @@ the profile's bytes in `IccProfile`, and answer for them. The converter reads th
 space from the ICC signature and writes `/N 3`, `4` or `1` to match. PDF/A-4 and PDF/UA-1 take a
 profile when you give one and do not require one.
 
+## PDF/A-4f is for a document that carries its data
+
+PDF/A-4f is PDF/A-4 plus embedded files, and the converter produces it only from a document that
+already carries them: converting a file with no `/EmbeddedFiles` entry to `PdfA4f` is refused with
+`PdfAConversionCodes.A4fWithoutEmbeddedFile` rather than written as an empty claim. Every embedded
+file must state its `/AFRelationship` — `Source`, `Data`, `Alternative` or `Supplement` — and the
+converter refuses one that states none or one it does not know.
+
+An attachment added through `PdfAttachments.Add(..., role: PdfAttachmentRole.Data)` is exactly the
+shape it needs; the checker reports `PDFA4F.AF_MISSING`, `PDFA4F.EMBEDDED_FILES_MISSING`,
+`PDFA4F.RELATIONSHIP_MISSING` and `PDFA4F.RELATIONSHIP_UNKNOWN` for the cases it refuses. See
+[Outlines and attachments](Pdf-Outlines-and-Attachments).
+
 ## veraPDF is still the reference
 
 The conversion establishes declarations, not conformance. Colour, transparency, glyph coverage,

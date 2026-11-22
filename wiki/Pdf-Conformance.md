@@ -35,13 +35,36 @@ tool produced.
 ## What it does not do
 
 It is a structural checker, not a validator. It reads declarations; it does not interpret the page
-description. Colour spaces, output intents, glyph coverage, reading order, table structure, link
-alternate descriptions, XMP schema validity and the several hundred other rules of ISO 14289-1 are
-out of scope.
+description. Colour spaces, output intents, glyph coverage, reading order, link alternate
+descriptions, XMP schema validity and the several hundred other rules of ISO 14289-1 are out of
+scope. Table headers, heading levels, tab order and role mapping are checked only by
+`CheckAccessibility`, which is opt-in.
 
 **veraPDF remains the reference.** Run it on the produced file before you ship a document that
 claims a standard; `PdfConformance` catches the producer's own mistakes early, in a unit test, with
 no Java and no validator install.
+
+## The accessibility checklist
+
+`PdfConformance.CheckAccessibility(pdf)` is `Check` against PDF/UA-1 plus the usability findings the
+structural rules do not cover:
+
+```csharp
+var report = PdfConformance.CheckAccessibility(pdf);
+
+foreach (var issue in report.Issues)
+{
+    // PDFUA.TABLE_HEADER_MISSING, PDFUA.TABLE_HEADER_SCOPE_MISSING, PDFUA.HEADING_LEVEL_SKIPPED,
+    // PDFUA.TABS_NOT_STRUCTURE, PDFUA.DISPLAY_DOC_TITLE_MISSING, PDFUA.ROLE_NOT_MAPPED, …
+}
+```
+
+It answers whether every table declares its header cells and their scope, whether heading levels skip
+(a level 3 after a level 1), whether the tab order is the structure order, whether the viewer is asked
+to show the document title, and whether a structure role is left unmapped. These are opt-in and not
+part of `Check`: a producer can be conformant by the structural rules and still fail one of them, and
+the specification states for each line whether it is a checker rule, a writing rule or a manual
+verification.
 
 ## Reading the report
 

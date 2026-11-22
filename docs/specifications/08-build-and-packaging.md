@@ -497,6 +497,7 @@ Rules:
 | `dotnet test -p:BuildNative=true` | Full build including Cargo, then all tests |
 | `dotnet run --project samples/Text.Typst.Samples` | Generates the sample outputs into `artifacts/samples/` |
 | `samples/examples/run.sh <example> <package> <version> <feed>` | Compiles and runs one example against a packed package; `--build-only` stops after the compile |
+| `python3 tools/bench-compare.py run --a <rev> --b <rev>` | Alternates the benchmark between two revisions and reports a verdict with a measured noise floor (§13) |
 
 ## 10. Third-party notices
 
@@ -716,3 +717,239 @@ path, for a machine that has none.
 `verify` was shown to fail on an emptied SBOM. No release workflow has been executed for this
 section: no attestation has been issued, and `gh attestation verify` has not returned zero on a real
 asset. That part is proven by the first tagged run, and by nothing here.
+
+## 13. Comparing a change locally
+
+A developer does not need the CI runner to know whether a change is a regression, but the artifact
+that answers that question in CI cannot answer it here: `benchmarks/baseline.json` is a Linux
+number. This section describes the local substitute and, at least as importantly, the cases where it
+declines to answer.
+
+### 13.1 What a local `--check` cannot say
+
+`benchmarks/baseline.json` is recorded by the `benchmarks` job of `ci-sharptypst.yml`, on
+`ubuntu-latest`, against the `linux-x64` native library that same run built. Those numbers are
+absolute milliseconds: `compile-small` at 2.97 ms is a statement about one CPU model, one runtime
+version and one glibc. Replaying `--check` on a developer host compares a Windows or macOS run
+against a Linux reference, and a gaming laptop is not 20 % faster than a GitHub runner in any sense
+that matters — it just is, and the ratio is meaningless.
+
+The second problem is temporal, not spatial. A single run of the harness warms up for ten
+iterations and then measures fifty. On a cold process that warm-up is not enough: the JIT is still
+tiering, the frequency governor still ramping, the page cache still filling. Two runs of *identical*
+code on the same box routinely differ by a few percent, and occasionally by tens. So the naive local
+A/B — build the old revision, run it, build the new one, run it, divide — answers with the machine's
+mood, not with the change.
+
+Running it locally does not merely produce a different number; it produces a wrong verdict. On the
+Windows host this section was written on, `--check benchmarks/baseline.json` against the *unmodified*
+tree reports five scenarios 2× to 50× faster than the Linux baseline and two as regressions —
+`export-png` at ×1.70, `document-model` at ×2.48 — and exits 1:
+
+```
+compile-small          0.07 ms  baseline     2.97 ms  x0.02
+export-png            15.80 ms  baseline     9.27 ms  x1.70
+document-model         4.74 ms  baseline     1.91 ms  x2.48
+export-png regressed by 70%
+document-model regressed by 148%
+```
+
+The same commit is green on CI. A developer who trusted that output would spend an afternoon on a
+regression that does not exist.
+
+The CI gate stays where it is: 1.5× on the minimum, on the Linux runner, against the stored
+baseline. Nothing in this section replaces it, and `--check` is not what a developer should run
+locally.
+
+### 13.2 Why two revisions cannot share a process
+
+The clean experiment is to measure both revisions in one process, alternating them, so that JIT
+warm-up and the machine's state are common to both. It is not available here, for two independent
+reasons:
+
+- **One assembly identity.** `M3scalinum.Text.Typst`, `M3scalinum.Text.Documents` and
+  `M3scalinum.Text.Typst.Native` can exist twice in one process only in two `AssemblyLoadContext`s.
+  That works for pure managed code, but `Text.Typst` reaches the compiler through
+  `Text.Typst.Native`, and `TypstWorldBuilder` hands the native layer managed callbacks. A delegate
+  from the default context cannot be passed to a method compiled against the second context's copy
+  without either reflection on every call — which dominates a 3 ms compile — or a shared interface
+  assembly, which is a refactor of the public surface to serve the benchmark.
+- **One native library per process.** Even with the managed split solved, the Rust side is a single
+  loaded `sharp_typst` with process-global state (the world registry, the font book, the allocator
+  counters). Both revisions would end up calling the same compiler binary, so the A/B would compare
+  managed wrappers over identical native work — precisely not the experiment.
+
+So the two-revisions-in-one-process mode is rejected rather than approximated. What is left is the
+next best thing: **one process per revision, alternated**, which keeps the pairing in time instead
+of in memory.
+
+### 13.3 The campaign
+
+`tools/bench-compare.py run` does the whole thing:
+
+```bash
+# Both checkouts must contain benchmarks/Text.Typst.Benchmarks; the native library is shared.
+export SHARPTYPST_NATIVE_PATH=C:/src/text/native/artifacts/win-x64/sharp_typst.dll
+
+python3 tools/bench-compare.py run \
+  --a C:/src/text-main --b C:/src/text-change \
+  --rounds 7 --out artifacts/bench-ab
+```
+
+It builds each checkout once into its own output directory
+(`dotnet build -c Release -o <out>/bin/a`), then runs the two harnesses alternately — round 1
+`A B`, round 2 `B A`, round 3 `A B`… — one process per revision per round, each writing
+`--samples <out>/results/{a,b}-<n>.json`. Building first matters: `dotnet run` re-evaluates the
+project on every invocation, and a build check inside the measurement window is noise that costs
+nothing to remove.
+
+The reversal is not cosmetic. A fixed `A B A B` order biases every pair by whatever the machine does
+between the first and second process — a turbo budget spent, a background indexer waking up, an
+allocator's cache warming — and that bias would be attributed to B every time. Reversing it each
+round turns the bias into a difference between rounds, which the noise floor absorbs.
+
+Each round also passes `--min-iteration-ms 1`, which makes the harness time a **block** of repeated
+calls rather than one call for scenarios whose single call is far below a millisecond:
+`compile-small` is 30 µs to 100 µs on a modern host, and a ratio computed on 30 µs is a
+measurement of the scheduler. The harness calibrates the repeat count after warm-up, executes the
+body that many times inside one timed iteration, and writes the count into the samples file, so both
+sides are measured at the same scale and a reader can see what the number means. `--write` and
+`--check` never repeat: the baseline keeps its one-call-per-iteration semantics, and CI is
+unaffected.
+
+Each `--samples` file carries the raw per-iteration timings, the summary statistics, the repeat
+count, the runtime version, the OS, the architecture and the processor count, plus the `--label` the
+script passes so the report can name the revision. That is enough for the comparison to detect a campaign that mixed
+machines, which it warns about instead of dividing through.
+
+`compare` reads files produced elsewhere, for a campaign split across two machines or resumed later:
+
+```bash
+python3 tools/bench-compare.py compare \
+  --a results/a-0.json results/a-1.json results/a-2.json \
+  --b results/b-0.json results/b-1.json results/b-2.json
+```
+
+`--samples` is also the harness's own interface, for a campaign driven by something else:
+
+```bash
+dotnet build -c Release benchmarks/Text.Typst.Benchmarks
+dotnet benchmarks/Text.Typst.Benchmarks/bin/Release/net11.0/Text.Typst.Benchmarks.dll \
+  --samples artifacts/a.json --label main --iterations 50 --warmup 10
+```
+
+### 13.4 What the verdict means
+
+For each scenario:
+
+| Quantity | How it is computed | Why |
+| --- | --- | --- |
+| per-run value | median of the iteration timings of that run | the minimum is the luckiest iteration; the median is what a user would experience and is stable across runs |
+| effect | median over rounds of `candidate_median / baseline_median`, paired by round | a ratio above 1 is slower; pairing removes the machine's state from the ratio |
+| noise floor | median absolute relative difference between *adjacent* runs of the *same* revision | the only honest source for it: identical code, this machine, this session. Adjacent, because two consecutive runs of one revision are separated by the same slice of machine time as the two sides of a round, so their disagreement is the null of exactly this comparison |
+| interval | 2 000-sample percentile bootstrap on the paired ratio, 95 % | with 7 rounds the interval is coarse, and it is printed so that this stays visible |
+| resolution | `max(noise, half-width of the interval)` | the smallest effect this campaign could have seen |
+
+A scenario gets one of five verdicts, and only two of them are conclusions about the code:
+
+- **REGRESSION** — the whole 95 % interval is above `1 + noise`. The report states the smallest
+  slowdown the data support.
+- **IMPROVEMENT** — the whole interval is below `1 - noise`.
+- **NO CHANGE** — the interval contains 1.0. This is a statement about resolution, not proof of
+  equality: the band is printed, so "+0 % at ±1.4 %" cannot be read as "nothing moved".
+- **INCONCLUSIVE** — the interval excludes 1.0 but stays inside the noise band. An effect is
+  visible, but smaller than the machine's run-to-run spread; it cannot be attributed to the change.
+- **REFUSED** — the resolution is wider than `--max-noise` (default 10 %), or fewer than three
+  paired rounds were supplied. Nobody can be told what a 3 % change means when the campaign can only
+  see 25 %.
+
+The order matters. The two conclusion tests run first, against the noise band, because a large
+effect is decidable even on a noisy host: to explain a 2.5× regression by machine drift, the machine
+would have to drift further than the change itself. Only below that does the budget decide whether
+the campaign was strong enough to answer the question at all.
+
+Exit status: `0` no regression and every scenario concluded, `1` a regression was established, `2`
+at least one scenario could not be concluded (noise, or too few rounds), `3` bad usage. A developer
+who gets `2` re-runs on a quieter machine or with more rounds; a developer who gets `1` reads the
+scenario line and its interval.
+
+The threshold is a budget, not a discovery. One percent is below what this harness resolves on a
+development host — timer granularity, JIT tiering and a shared L3 make a 1 % effect invisible long
+before the statistics matter. Ten percent is where the tool stops pretending: a machine that varies
+that much between two adjacent runs of identical code cannot answer a question about a 5 %
+regression, and the tool says so instead of printing a ratio. `--max-noise` moves the line for a
+known-noisy host; it does not make the host quieter.
+
+### 13.5 What the measurement does not cover
+
+- **Absolute performance.** A local A/B is a delta. It says nothing about whether the build is fast
+  in the sense the CI baseline means; that number belongs to the Linux runner and the 1.5× gate.
+- **Memory.** The harness times wall-clock work and nothing else: no allocation counter, no
+  working-set sample, no GC counts. A change that halves the time and doubles the allocations looks
+  like an improvement here.
+- **Tail latency.** Per-iteration timings are recorded, so p95 is in the `--samples` file, but the
+  verdict is computed on the median. A change that leaves the median alone and ruins the tail of a
+  server workload is invisible to this tool — and to `--check`, which compares minima.
+- **Cross-machine and cross-runtime deltas.** Two `--samples` files from different hosts produce a
+  warning and a ratio that is not a measurement. A different .NET version, `Debug` instead of
+  `Release`, and a build running in the background invalidate a campaign the same way.
+- **Anything smaller than the noise floor.** The resolution is measured per campaign and per
+  scenario, never promised: it is the larger of the machine's run-to-run spread and the width of
+  the interval. Below it the tool refuses to name a direction, which is the point.
+
+### 13.6 What was measured, and where the limits showed up
+
+Two campaigns on the host this section was written on: Windows 11, x64, eight logical cores, with
+an IDE, a source-control GUI and another build all resident — a normal developer desktop, not a
+quiet one. Nine rounds each, `--min-iteration-ms 1`.
+
+*The null.* The same commit on both sides, built twice into two directories:
+
+```
+scenario            base ms  cand ms   ratio  95% CI              noise  verdict
+compile-small          0.95     1.07   1.151  [0.695, 1.922]      37.3%  REFUSED
+compile-report         1.07     1.12   1.017  [0.707, 1.294]      25.3%  REFUSED
+export-pdf             1.63     1.54   0.918  [0.693, 1.174]      34.5%  REFUSED
+export-png            10.29     9.45   0.910  [0.576, 1.093]      23.9%  REFUSED
+export-html            1.13     1.24   1.017  [0.946, 1.427]      25.7%  REFUSED
+export-markdown        1.18     1.18   0.940  [0.606, 1.333]      46.7%  REFUSED
+document-model         2.26     2.13   1.185  [0.752, 1.999]      47.3%  REFUSED
+```
+
+Seven refusals, no invented verdict, on code that had not changed at all. That is the failure mode
+the tool exists to avoid: a naive A/B on this box would have read "compile-small 15 % slower".
+
+*The regression.* A second campaign, same host, with a deliberately wasteful re-serialisation of the
+markup added to `TypstDocument.ToMarkup` — a measurement fixture, never committed:
+
+```
+scenario            base ms  cand ms   ratio  95% CI              noise  verdict
+compile-small          0.90     0.88   0.953  [0.701, 2.200]      38.1%  REFUSED
+compile-report         1.09     1.04   0.967  [0.798, 1.237]      18.1%  REFUSED
+export-pdf             1.57     1.18   0.736  [0.688, 1.040]      20.6%  REFUSED
+export-png             8.11     8.89   1.050  [0.782, 1.369]      26.1%  REFUSED
+export-html            1.14     1.05   0.992  [0.828, 1.288]      21.1%  REFUSED
+export-markdown        1.21     1.18   0.941  [0.697, 1.207]      16.9%  REFUSED
+document-model         2.09     4.42   2.501  [1.744, 2.816]      22.2%  REGRESSION
+```
+
+The affected scenario is named with an interval that clears the noise band by a wide margin; the six
+that the change could not move are refused rather than declared clean. Both halves of the design are
+visible in one run: a large effect is decided on a noisy host, a small one is not decided at all.
+
+The honest reading of these numbers is that a shared developer desktop is a poor measurement
+instrument: 20 % to 47 % between two adjacent runs of identical code. A quiet machine, fewer
+resident processes and more rounds lower the floor — nothing else does, and the tool reports the
+floor it actually got rather than the one the reader hopes for. On this host, the verdict that a
+change smaller than a few percent is a regression is not obtainable locally, and the CI job remains
+the only place that can produce it.
+
+### 13.7 A reference container, and why it is not the default
+
+`mcr.microsoft.com/dotnet/runtime:11.0` with the native library mounted would make the *host*
+reproducible, and would be the answer if a team needed baseline-shaped absolute numbers on demand.
+It is not what this section recommends for everyday work: the image is a gigabyte, it needs Docker,
+and it buys nothing for a delta between two revisions on one machine — the A/B in §13.3 already
+cancels the host, because both sides run on it within seconds of each other. Keep the container for
+the case the A/B cannot cover: reproducing a CI disagreement on a developer's desk, where the
+question is "does this number also happen on the runner's glibc", not "did this change regress".

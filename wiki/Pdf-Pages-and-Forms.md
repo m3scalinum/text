@@ -66,6 +66,33 @@ page lists, or a signature field — is left interactive and reported in `Skippe
 that lost its values would look finished and be wrong; one that still has a field is visibly
 unfinished and correct.
 
+## Rendering a page as an image
+
+`PdfRaster` renders one page as a PNG through `hayro`, the pure-Rust CPU rasteriser compiled into the
+package's own native library — no PDF engine on the host, no system poppler, no font installed for
+the page to draw:
+
+```csharp
+PdfPageImage image = PdfRaster.Render(pdf, page: 1);      // a reader's page numbers, from one
+
+File.WriteAllBytes("preview.png", image.Bytes);
+
+image.Width; image.Height; image.Dpi; image.EffectiveDpi; image.PageCount;
+```
+
+`PdfRaster.PageCount(pdf)` answers the page count without rendering anything. The resolution is a
+`PdfRasterOptions` value: `Dpi` defaults to 150 and accepts 72 to 1200, under a pixel ceiling (50
+megapixels) and a memory ceiling (256 MiB), both adjustable up to `PdfRaster.HardMaximumPixels` and
+`PdfRaster.HardMaximumBytes`. A page that would render past a ceiling is refused with
+`PdfRasterException` — the render fails rather than being silently downscaled.
+
+Annotations, form fields, signature appearances and JavaScript are not drawn. An encrypted document
+is refused (`PdfRasterError.Encrypted`) rather than decrypted: call `PdfEncryption.Open` first.
+
+The bytes are the shape `M3scalinum.Text.Barcodes`' `Barcode.DecodeAll` takes, so a delivery note's
+symbols can be read without a second renderer. The specification is
+`docs/specifications/35-pdf-raster.md`.
+
 ## What is refused
 
 An encrypted document is refused by every operation, with a message naming `PdfEncryption.Open`:
