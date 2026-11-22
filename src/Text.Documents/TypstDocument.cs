@@ -10,7 +10,7 @@ namespace M3scalinum.Text.Documents;
 /// A fluent builder that emits Typst source. The model is write-only: it never parses Typst,
 /// and anything it does not cover is one <see cref="Raw"/> call away.
 /// </summary>
-public sealed class TypstDocument
+public sealed partial class TypstDocument
 {
     private readonly List<TypstNode> _body = [];
     private readonly List<string> _preamble = [];

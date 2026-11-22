@@ -148,3 +148,105 @@ C#. Reasons: the tree is a Rust type, crossing it to managed code would mean a s
 of the whole document, and the mapping is a pure function of the tree with no .NET dependency.
 
 The managed side only receives the final UTF-8 bytes.
+
+## 8. Writing Markdown from the document model
+
+Everything above walks the **HTML document**, which exists only after a compilation with
+`DocumentKind.Html`. That is the right path for Typst source, but it is the wrong path for a
+document built in C#: `TypstDocument` already holds the nodes, so paying for layout to recover them
+would be absurd. `TypstDocument.ToMarkdown()` therefore walks the model directly.
+
+The mapping is the same one **§3** gives, applied to nodes instead of HTML tags, with the escaping of
+**§3.2** applied to text nodes only:
+
+| Model node | Markdown |
+| --- | --- |
+| `HeadingNode` (level 1…6) | `#` × level + space + inline content |
+| `ParagraphNode`, `ContentNode` | inline content |
+| `BoldNode` | `**…**` |
+| `EmphasisNode` | `*…*` |
+| `InlineCodeNode` | `` `…` `` with a fence longer than the longest backtick run |
+| `CodeBlockNode` | fenced block, language from the node |
+| `ListNode` (ordered or not) | `- ` / `1. `, nested with 2 spaces per level, blank line between loose items |
+| `QuoteNode` | `> ` prefix on every line |
+| `TableNode` | GitHub pipe table; the header row becomes the header, `TypstTableCell.Align` becomes `:---:` |
+| `LinkNode` | `[text](href)`; bare URL when the text is the destination |
+| `FigureNode` | `![caption](image)` |
+| `MathNode` | `$…$`, `$$…$$` when display |
+| `LineBreakNode` | two trailing spaces + newline |
+| `#divider()` | `---` |
+
+Three facts about the model, as opposed to the HTML tree:
+
+- **Headings are not shifted.** The `h1` → `h2` shift of §3.3 is a property of Typst's HTML output,
+  not of the model: a `HeadingNode` of level 1 is `#`, and reading it back gives the same level.
+- **A figure has no alt text of its own.** Its caption is the only text it carries, so it becomes
+  the alt text: `![caption](image)`. Markup inside the caption is not written — alt text is literal —
+  which is what makes the round trip of an image stable.
+- **Math is written as the model spells it.** The node holds Typst math syntax, not MathML, so
+  `$…$` re-renders exactly; there is no §3.1 reconstruction to do.
+
+### 8.1 What the model can express and Markdown cannot
+
+A construct Markdown cannot spell is **dropped and counted**, never rendered as broken syntax and
+never thrown. The count is keyed by construct, in `TypstMarkdownExportResult.Unrepresentable`:
+
+| Construct | Source |
+| --- | --- |
+| `raw` | `RawNode` — verbatim Typst, and every shape (`#rect`, `#line`, `#circle`, …) |
+| `call` | `CallNode`, `SimpleCallNode`, `BareCallNode` — align, block, box, grid, place, columns, spacing, page and column breaks, assets, includes |
+| the decoration's own name (`strike`, `underline`, `highlight`, `smallcaps`, `sub`, `super`, `upper`, `lower`) | `WrapperNode` — the construct is lost, its text is kept |
+| `outline` | `#outline()` |
+| `footnote` | `FootnoteNode` |
+| `cite` | `CiteNode` |
+| `metadata` | `MetadataNode` |
+| `label`, `reference` | `LabelNode`, `ReferenceNode` |
+| `lorem` | `LoremNode` |
+| `bibliography` | `BibliographyNode` |
+| `term-list` | a term list, which GFM has no syntax for |
+| `table-span` | a cell with `colspan` or `rowspan`, flattened into plain cells |
+| `preamble` | each `#let`, `#import`, `#set`, `#show` line |
+| `page-setup` | `#set page(…)` |
+| `document-metadata` | `#set document(…)` |
+
+### 8.2 Fidelity contract of the model writer
+
+| Property | Guarantee |
+| --- | --- |
+| Text content | Preserved in document order, including the text of a construct that is dropped (except a footnote, a citation and a raw block, whose text is Typst source or a key) |
+| Block structure | Preserved for headings, paragraphs, lists, tables, code, quotes, figures |
+| Inline emphasis | Preserved for strong, emphasis, inline code and links |
+| Heading levels | Preserved exactly; no shift |
+| Table alignment | Preserved through the GFM delimiter row; spans are flattened |
+| Escaping | Every special character of §3.2 escaped in text nodes, and only there |
+| Exact whitespace | Not preserved: blocks are separated by one blank line, output ends with one newline |
+| Math | Preserved as written; the model stores Typst math syntax |
+| Round trip | `FromMarkdown(ToMarkdown())` is stable on canonical Markdown, and the export is idempotent: exporting its own output returns it unchanged |
+
+"Canonical" means what the writer itself emits: `1. ` for every ordered item, a blank line between
+blocks, no escape that is not needed. A document outside that form is normalised by the first pass;
+the second pass is a fixed point.
+
+### 8.3 API
+
+```csharp
+var result = document.ToMarkdown();
+
+Console.WriteLine(result.Markdown);
+
+foreach (var construct in result.Unrepresentable)
+{
+    // "call: 1", "outline: 1", "raw: 3", …
+}
+```
+
+`TypstMarkdownExportResult` mirrors `TypstMarkdownImportResult`: `Markdown`, `Unrepresentable`,
+`UnrepresentableCount` and `CountOf(construct)`. A round trip therefore reports both ends of the
+loss — what the import could not hold, and what the export could not write.
+
+### 8.4 Where the code lives
+
+In C#, unlike §7: `Markdown/TypstMarkdownWriter.cs` walks the nodes, `Markdown/TypstDocument.Markdown.cs`
+carries `ToMarkdown`. The model is write-only — its nodes keep their state in private fields so
+nothing outside the builders can mutate them — so the walker reads those fields through a table it
+builds once per node type, rather than adding a reader to every node.
