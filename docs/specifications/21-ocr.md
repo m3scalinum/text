@@ -248,6 +248,7 @@ ninety-five.
 | A model argument is null or empty | `ArgumentNullException` / `ArgumentException`, before any native call |
 | The bytes are not a model | `OcrException` with `Code == "model"` |
 | The image cannot be decoded | `OcrException` with `Code == "image"` |
+| An image declares more pixels, or occupies more bytes, than a ceiling (§16) | `OcrImageLimitException` with `Code == "image_limit"`, naming the size observed and the ceiling; the input is refused before anything is decoded |
 | The bytes are not a PDF | `OcrException` with `Code == "pdf"` |
 | The DPI is outside 72–1200 | `ArgumentOutOfRangeException` |
 | `LastPage` precedes `FirstPage` | `ArgumentOutOfRangeException` |
@@ -921,3 +922,137 @@ the failure is `OcrException` with `Code == "unsupported"` naming the missing sy
   repository ships none: it is the one claim in this section no test here has watched. What is
   proved is that each page is read by the set its rule names, that the identity on each page is
   that set's, and that a missing set is reported instead of guessed.
+
+## 16. The image ceilings: a header is read, not a page
+
+Every other surface of the suite has had a ceiling of its own; `Text.Barcodes` got its decode ceiling
+in #73, and §5 of [29](29-threat-model.md) said in as many words that the OCR image input had none:
+`image::load_from_memory` ran under the decoder's default `Limits`, 512 MiB of allocation and no width
+or height. An image handed to `Recognize` arrives from whoever sent the document, and nothing in this
+package bounded it. This section is that bound.
+
+### 16.1 The two numbers, and why they are these
+
+| Ceiling | Value | Where | Why this number |
+| --- | --- | --- | --- |
+| Pixels, width × height | 64 000 000 | `limits::HARD_MAXIMUM_PIXELS` | An A4 page at 600 DPI is 4961 × 7016 = 34.8 megapixels, so this is nearly twice the largest page a scanner produces. It is the same ceiling `native/text-barcodes` puts on an image it decodes. |
+| Encoded bytes | 256 MiB | `limits::HARD_MAXIMUM_BYTES` | The same ceiling `text-barcodes` applies, and the same order as the rasteriser's, so an image cannot be small enough to pass one gate and too large for the other. |
+| Decoded allocation | pixels × 4 | `ImageBounds::decoder_limits`, `max_alloc` | The widest eight-bit layout any accepted format produces is RGBA8, so 64 megapixels cannot decode to more than 256 MiB. This is the decoder's own limit, set from the pixel ceiling. |
+
+The PDF page ceiling is 120 megapixels (`pdf::MAX_PIXELS`) and this one is not: a rendered page's size
+comes from the document's own MediaBox at a DPI the caller chose, which is a document *format* fact;
+an encoded image's size comes from a header with no format constraint on either dimension, so the
+tighter ceiling is the honest one. The two are also different units of work: a caller reads a page of
+a document it already decided to read, while an image can be any file at all.
+
+### 16.2 Where the size is read, and what it costs
+
+`limits::admit` runs before the decoder allocates anything, in this order:
+
+1. **The byte ceiling, on the length alone.** Nothing is read: an input that announces two gigabytes is
+   refused by counting the bytes the caller already holds. The count never depends on the contents.
+2. **The dimensions in the header.** `ImageReader::with_guessed_format` recognises the format from the
+   first bytes, then `into_dimensions()` builds that format's decoder and asks it for its size. That
+   reads the header and no image data:
+
+| Format | Where the size is stated |
+| --- | --- |
+| PNG | The `IHDR` chunk: width and height as two big-endian `u32`. |
+| JPEG | The `SOFn` frame header, the first one reached among the markers. |
+| BMP | The `BITMAPINFOHEADER` (or its successor): width and height as two `i32`. |
+| GIF | The logical screen descriptor: width and height as two little-endian `u16`. |
+| TIFF | The first `IFD`'s `ImageWidth` and `ImageLength` tags. |
+| WebP | The `VP8L` bitstream's first four bytes, the `VP8X` canvas size, or the `VP8` frame header. |
+
+3. **The pixel ceiling, on width × height.** Only now, with both numbers in hand, is the product
+   compared with the ceiling. A refusal names the width, the height, the pixel count and the ceiling.
+
+The cost of a refusal is measured, not assumed: a counting global allocator (`allocation_probe`, a
+per-thread high-water mark) records the largest single allocation the refusing call makes. It is one
+decoder read buffer of about 128 KiB — 123 136 bytes for a 320 × 200 image, 131 072 for the 40 000 ×
+40 000 claim — and the test compares the two, so it fails if the cost ever starts to follow the claim.
+The pixel buffer is never produced, because the refusal happens before the step that would produce it.
+
+### 16.3 What the option may change
+
+`OcrOptions.MaximumImagePixels` and `OcrOptions.MaximumImageBytes` carry the caller's own ceilings.
+Both default to 0, which means "the library's", and both may only be **lowered**:
+
+- a value above `OcrOptions.MaximumImagePixelsCeiling` (64 000 000) or
+  `MaximumImageBytesCeiling` (256 MiB) is an `ArgumentOutOfRangeException` naming the hard maximum,
+  before any native call, and the ABI refuses the same request as `invalid_argument`;
+- it is never clamped, because a clamp would report a ceiling the caller never wrote and the exception
+  would name a number that appears nowhere in the call;
+- a value of 0 is a valid request (the library's ceiling), not an absent one.
+
+The managed side takes the `_limited` exports only when a caller asks for a ceiling, so a call that
+names none goes through the path that was already proved, byte for byte. The option does not exist for
+a PDF: `RecognizePdf` rasterises pages, and `pdf::MAX_PIXELS` governs those.
+
+### 16.4 What the bound does not protect
+
+| Not protected | Why, and what follows |
+| --- | --- |
+| A header that lies about its own size | The pixel check sees the claim, not the truth. The decoder's `Limits` — width, height and `max_alloc`, derived from the same ceilings — are the second line, and they refuse rather than allocate. A file whose header understates its size is therefore bounded by the decoder, not by this check, and the refusal it produces is the decoder's `image` error rather than the typed `image_limit` one. |
+| A wide pixel format at the ceiling | `max_alloc` is the pixel ceiling at four bytes per pixel. A 64-megapixel RGBA16 image needs 512 MiB and is refused by the allocation, at half the pixel ceiling, with the decoder's message. Budget 256 MiB per decoded image, not less. |
+| The peak while preprocessing | The decoded RGB8 (3 bytes per pixel) and the preprocessed copy coexist, so a 64-megapixel image costs about 2 × 192 MiB at its peak. The ceilings bound each buffer, not the sum. |
+| Time | Nothing here bounds wall-clock time. A 64-megapixel image within every ceiling is read as slowly as it is read; a host that accepts uploads needs its own timeout and process isolation (threat model §6). |
+| The rest of the file | `to_image_admit` reports the size and refuses past a ceiling. It does not promise the decoder will accept the remaining bytes: a truncated or corrupt image still fails later, as an `image` error. |
+| Pages of a PDF | A page's raster is bounded by `pdf::MAX_PIXELS`, a different ceiling, checked after the pixmap exists. |
+
+### 16.5 The ABI: four additive exports, revision unchanged
+
+| Export | What it adds |
+| --- | --- |
+| `to_image_admit(image, length, maximum_pixels, maximum_bytes, out_json, out_error)` | Reports `{"width","height","pixels","format","maximumPixels","maximumBytes"}` or refuses. It is the same check the recognition path runs, reachable with no engine and no model, which is what lets the managed tests prove the refusal without weights. |
+| `to_engine_recognize_limited` | `to_engine_recognize` with the two ceilings. |
+| `to_engine_recognize_preprocessed_limited` | `to_engine_recognize_preprocessed` with the two ceilings. |
+| `to_engine_recognize_language_limited` | `to_engine_recognize_language` with the two ceilings. |
+
+A refusal crosses as a new status, `TO_ERR_IMAGE_LIMIT` (8), whose code name is `image_limit`. The
+error object carries `limit` (`pixels` or `bytes`), `observed`, `maximum`, and for a pixel refusal the
+`width` and `height` it measured, so a host does not have to parse the sentence. The managed side turns
+that code into `OcrImageLimitException`, which exposes `Limit`, `Observed` and `Maximum` and still
+derives from `OcrException`, so a caller that already catches that keeps working.
+
+No existing signature changed and `to_abi_version` is still **2**: a host of revision 2 sees four new
+symbols and no other difference, and the old entry points keep the default ceilings.
+
+### 16.6 What is proved, and where
+
+- **The refusal happens before the allocation** — `limits.rs`, in
+  `a_png_that_announces_forty_thousand_square_is_refused_before_a_pixel_is_allocated`: the fixture is a
+  PNG whose `IHDR` declares 40 000 × 40 000 with no picture data at all, and the counting allocator
+  shows the refusal allocates one fixed read buffer, the same size as for a 320 × 200 image. The test
+  compares the two measurements, so it fails if the cost ever starts to follow the claim.
+- **The byte ceiling is applied to the length alone** —
+  `an_input_of_two_gibibytes_is_refused_on_bytes_without_being_read` proves the arithmetic at 2 GiB,
+  which no test materialises: the check takes a length, and the refusal names `2147483648` and
+  `268435456`. `an_image_past_the_byte_ceiling_is_refused_before_its_header_is_read` pins the same
+  ceiling end to end, on a real PNG one byte past a lowered ceiling.
+- **A normal image passes, and a lowered ceiling refuses one that passed** —
+  `a_normal_image_is_admitted_and_decoded` and `a_lowered_ceiling_refuses_an_image_that_passed_the_default`,
+  which asserts `observed: 800` and `maximum: 100` in the error object and both numbers in the sentence.
+- **Every accepted format is measured from its header** —
+  `every_format_this_build_accepts_is_measured_from_its_header` covers PNG, JPEG, BMP, GIF, TIFF and
+  WebP (a hand-written lossless header, because `image` encodes no WebP), and
+  `the_header_of_every_format_is_read_without_allocating_pixels` measures the cost of each.
+- **The option may only lower** — `a_ceiling_above_the_hard_maximum_is_refused_rather_than_clamped`,
+  `zero_takes_the_default_ceiling`, `a_ceiling_below_the_hard_maximum_is_honoured`, and the decoder
+  limits they produce.
+- **The bound is load-bearing** — with `check_pixels` removed from `admit`, five tests fail (the 40 000
+  square refusal, the WebP one, the lowered-ceiling one, the `prepare_image` one and the ABI one).
+- **The ABI maps** — `admitting_a_forty_thousand_square_png_is_a_typed_refusal_through_the_abi` and
+  `admitting_a_normal_image_reports_the_size_its_header_states` in `lib.rs`; managed-side in
+  `tests/Text.Ocr.Tests/ImageLimitTests.cs`: eleven tests. Seven need no native library — five for the
+  option's range rules, and two driven through a recording `IOcrNative` that prove a lowered ceiling
+  reaches the limited export with the numbers the caller wrote and that a call naming none keeps the
+  plain one. Four run against the real library when it is loadable: the typed exception with both
+  numbers, the header report, the byte refusal, and a ceiling above the maximum.
+- **Counts** — `cargo test --lib` in `native/text-ocr`: 94 passed, 0 failed (76 before this change);
+  `dotnet test tests/Text.Ocr.Tests -c Release` with the native library present: 222 total, 218 passed,
+  0 failed, 4 skipped by their own guards (211 before, and the 11 new tests).
+- **What is not proved here** — that a *real* 64-megapixel scan reads: that needs models, and this
+  repository ships none. That a real WebP file decodes: only its header path is proved. And that the
+  2 GiB byte ceiling refuses a real 2 GiB buffer: the buffer is never produced, so the arithmetic is
+  what is proved.
