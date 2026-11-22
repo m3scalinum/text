@@ -20,11 +20,23 @@ if (!string.IsNullOrEmpty(models))
     var image = File.ReadAllBytes(Path.Combine(directory.FullName, "page.png"));
 
     using var engine = OcrEngine.FromModels(detection, recognition);
-    var result = engine.Recognize(image);
+    var outcome = engine.Recognize(image);
 
     Console.WriteLine($"  models       {detection.Length} + {recognition.Length} bytes");
+
+    // A page below a confidence threshold is refused rather than returned as approximate text,
+    // so the caller has to say which of the two it got. That is the whole point of the split.
+    if (outcome is not OcrResult result)
+    {
+        var refusal = ((OcrUnreadable)outcome).Refusal;
+        Console.WriteLine($"  unreadable   {refusal.Message}");
+
+        throw new InvalidOperationException(
+            $"the engine refused the image ({refusal.Reason}): {refusal.Message}");
+    }
+
     Console.WriteLine($"  image        {result.Width}x{result.Height}, {result.Lines.Count} lines,"
-        + $" confidence {result.MeanConfidence:0.00}");
+        + $" confidence {result.MeanConfidence:0.00}, {result.RejectedWordCount} word(s) flagged");
     Console.WriteLine($"  text         '{result.Text.Trim()}'");
 
     if (string.IsNullOrWhiteSpace(result.Text))
