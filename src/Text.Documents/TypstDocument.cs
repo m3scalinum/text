@@ -1072,7 +1072,7 @@ public sealed partial class TypstDocument
     /// Emitted as <c>#block[#set text(dir: …) …]</c>. The rule encloses the paragraphs instead of
     /// sitting in one, because a paragraph resolves <c>dir</c> from its style chain and
     /// <c>#text(dir: …)</c> inside a left-to-right paragraph is an inline directional embedding, not
-    /// a base direction. See [43 §3](../../docs/specifications/43-cjk-and-bidi.md#3-direction).
+    /// a base direction. Spec 43 §4.2 carries the reasoning.
     /// </para>
     /// <para>
     /// A document that does not ask for a direction emits nothing: the compiler's default is left to
