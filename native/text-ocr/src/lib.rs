@@ -15,6 +15,7 @@
 
 mod engine;
 mod ffi;
+mod language;
 mod models;
 mod pdf;
 mod preprocess;
@@ -25,14 +26,15 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use engine::{Engine, Thresholds};
+use engine::{Engine, EngineSet, LanguageEngines, Thresholds};
 use ffi::{ToBuffer, ToError, guard_buffer, guard_ptr, read_bytes};
+use language::{LanguageCatalogue, PageLanguages, normalize_tag};
 use models::{ModelFile, ModelKind, ModelSet};
 use preprocess::PreprocessOptions;
 
-/// The opaque engine handle. It owns both models.
+/// The opaque engine handle. It owns both models, or one pair per language.
 pub struct ToEngine {
-    engine: Engine,
+    engine: EngineSet,
 }
 
 // ---------------------------------------------------------------------------
@@ -50,7 +52,7 @@ impl Drop for ToEngine {
 }
 
 /// The only way a handle is created: counting it here is what keeps the count exact.
-fn engine_handle(engine: Engine) -> Box<ToEngine> {
+fn engine_handle(engine: EngineSet) -> Box<ToEngine> {
     LIVE_ENGINES.fetch_add(1, Ordering::Relaxed);
     Box::new(ToEngine { engine })
 }
@@ -185,7 +187,7 @@ pub unsafe extern "C" fn to_engine_create(
             };
 
             let engine = Engine::new(&detection, &recognition, dictionary)?;
-            Ok(engine_handle(engine))
+            Ok(engine_handle(EngineSet::Single(Box::new(engine))))
         })
     }
 }
@@ -288,7 +290,109 @@ pub unsafe extern "C" fn to_engine_create_from_directory(
             };
 
             let engine = Engine::from_directory(&directory, dictionary)?;
-            Ok(engine_handle(engine))
+            Ok(engine_handle(EngineSet::Single(Box::new(engine))))
+        })
+    }
+}
+
+/// Builds an engine holding one model set per language.
+///
+/// `plan` is a UTF-8 JSON document, not NUL-terminated:
+///
+/// ```json
+/// {"default":"fr","dictionary":null,
+///  "sets":[{"language":"fr","directory":"/srv/models/fr"},
+///          {"language":"en","directory":"/srv/models/en"}]}
+/// ```
+///
+/// `default` names the set that reads a page asking for nothing, or for a language
+/// the plan does not hold; it must itself appear in `sets`. `dictionary` is the
+/// alphabet every recognition model was trained on, or null for the default Latin
+/// one; one dictionary applies to all sets. Each directory is read exactly as
+/// [`to_engine_create_from_directory`] reads it — `detection.rten` and
+/// `recognition.rten`, validated and identified, nothing downloaded. A malformed
+/// plan is `invalid_argument`; a bad directory is the `model` error that call
+/// returns.
+///
+/// The engine this returns holds one copy of the weights per language. The entry
+/// points of revisions 1 and 2 still work on it and read with the default set.
+///
+/// # Safety
+/// `plan` is valid for `length`; `out_error` is null or a caller-owned slot.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn to_engine_create_languages(
+    plan: *const u8,
+    length: usize,
+    out_error: *mut *mut ToError,
+) -> *mut ToEngine {
+    unsafe {
+        guard_ptr(out_error, || {
+            let bytes = read_bytes(plan, length, "language plan")?;
+
+            if bytes.is_empty() {
+                return Err(ToError::invalid_argument("the language plan is empty"));
+            }
+
+            let value: serde_json::Value = serde_json::from_slice(&bytes).map_err(|error| {
+                ToError::invalid_argument(format!("the language plan is not valid JSON: {error}"))
+            })?;
+
+            let default = value
+                .get("default")
+                .and_then(|tag| tag.as_str())
+                .ok_or_else(|| {
+                    ToError::invalid_argument("the language plan has no 'default' language")
+                })?;
+
+            let dictionary = match value.get("dictionary") {
+                None | Some(serde_json::Value::Null) => None,
+                Some(serde_json::Value::String(text)) if text.is_empty() => None,
+                Some(serde_json::Value::String(text)) => Some(text.clone()),
+                Some(_) => {
+                    return Err(ToError::invalid_argument(
+                        "the language plan's 'dictionary' must be a string or null",
+                    ));
+                }
+            };
+
+            let sets = value
+                .get("sets")
+                .and_then(|sets| sets.as_array())
+                .ok_or_else(|| {
+                    ToError::invalid_argument("the language plan has no 'sets' array")
+                })?;
+
+            if sets.is_empty() {
+                return Err(ToError::invalid_argument(
+                    "the language plan holds no model set",
+                ));
+            }
+
+            let mut catalogue_sets = Vec::with_capacity(sets.len());
+
+            for entry in sets {
+                let language = entry
+                    .get("language")
+                    .and_then(|tag| tag.as_str())
+                    .ok_or_else(|| ToError::invalid_argument("a model set has no 'language'"))?;
+
+                let directory = entry
+                    .get("directory")
+                    .and_then(|path| path.as_str())
+                    .ok_or_else(|| {
+                        ToError::invalid_argument(format!(
+                            "the model set for language '{language}' has no 'directory'"
+                        ))
+                    })?;
+
+                let set = ModelSet::from_directory(std::path::Path::new(directory))?;
+                catalogue_sets.push((language.to_string(), set));
+            }
+
+            let catalogue = LanguageCatalogue::new(default, catalogue_sets)?;
+            let engines = LanguageEngines::build(catalogue, dictionary.as_deref())?;
+
+            Ok(engine_handle(EngineSet::Languages(engines)))
         })
     }
 }
@@ -315,7 +419,13 @@ pub unsafe extern "C" fn to_engine_models(
                 return Err(ToError::invalid_argument("engine must not be null"));
             }
 
-            Ok((*engine).engine.models().to_json().to_string().into_bytes())
+            Ok((*engine)
+                .engine
+                .default_engine()
+                .models()
+                .to_json()
+                .to_string()
+                .into_bytes())
         })
     }
 }
@@ -464,6 +574,7 @@ unsafe fn recognize_image(
             }
             handle
                 .engine
+                .default_engine()
                 .recognize_image(&bytes, thresholds, preprocess)
         })
     }
@@ -588,9 +699,216 @@ unsafe fn recognize_pdf(
             }
             handle
                 .engine
+                .default_engine()
                 .recognize_pdf(&bytes, dpi, first_page, page_count, thresholds, preprocess)
         })
     }
+}
+
+/// Recognises an encoded image with the model set of a named language.
+///
+/// `language` is UTF-8 bytes, not NUL-terminated; an empty tag means "no request",
+/// which is the default set. A tag the engine has no set for is **not** an error:
+/// the image is read with the default set and the result carries a `language`
+/// object saying which set was asked for, which one ran, and why. It is never
+/// silent.
+///
+/// The three preprocessing flags are as in [`to_engine_recognize_preprocessed`],
+/// and the engine must have been built by [`to_engine_create_languages`]; one built
+/// from two models is refused as `invalid_argument` rather than guessed at.
+///
+/// # Safety
+/// `engine` is a valid handle; `image` and `language` are valid for their lengths;
+/// `out_json` and `out_error` are null or caller-owned slots.
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn to_engine_recognize_language(
+    engine: *mut ToEngine,
+    image: *const u8,
+    length: usize,
+    page_confidence: f64,
+    word_confidence: f64,
+    max_rejected_word_ratio: f64,
+    language: *const u8,
+    language_len: usize,
+    detect_rotation: i32,
+    deskew: i32,
+    denoise: i32,
+    out_json: *mut ToBuffer,
+    out_error: *mut *mut ToError,
+) -> i32 {
+    unsafe {
+        if engine.is_null() {
+            return guard_buffer(out_error, out_json, || {
+                Err(ToError::invalid_argument("engine must not be null"))
+            });
+        }
+
+        let handle = &*engine;
+
+        guard_buffer(out_error, out_json, || {
+            let languages = handle.engine.languages().ok_or_else(|| {
+                ToError::invalid_argument(
+                    "this engine holds one model set; build it with to_engine_create_languages \
+                     to name a language",
+                )
+            })?;
+
+            let bytes = read_bytes(image, length, "image")?;
+            if bytes.is_empty() {
+                return Err(ToError::invalid_argument("image is empty"));
+            }
+
+            let requested = read_language(language, language_len)?;
+
+            languages.recognize_image(
+                &bytes,
+                Thresholds {
+                    page: page_confidence,
+                    word: word_confidence,
+                    max_rejected_ratio: max_rejected_word_ratio,
+                },
+                PreprocessOptions::from_flags(detect_rotation, deskew, denoise),
+                requested.as_deref(),
+            )
+        })
+    }
+}
+
+/// Renders and recognises a PDF, reading each page with the set of its language.
+///
+/// `page_languages` is a UTF-8 JSON document, not NUL-terminated: an array with one
+/// entry per page of the requested range, in page order, each entry a language tag
+/// or null for "no request":
+///
+/// ```json
+/// ["fr", "en"]
+/// ```
+///
+/// The count must match the number of pages rendered — a misaligned plan is refused
+/// as `invalid_argument` rather than shifted, because a shift would read a page with
+/// another page's language and say nothing. An empty document means every page on
+/// the default set.
+///
+/// Each page of the result carries its own `language` object and its own `models`
+/// identity, because two pages can have been read by two pairs of weights; the root
+/// carries `languages: {default, available}`.
+///
+/// # Safety
+/// `engine` is a valid handle; `pdf` and `page_languages` are valid for their
+/// lengths; `out_json` and `out_error` are null or caller-owned slots.
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn to_engine_recognize_pdf_languages(
+    engine: *mut ToEngine,
+    pdf: *const u8,
+    length: usize,
+    dpi: u32,
+    first_page: u32,
+    page_count: u32,
+    page_confidence: f64,
+    word_confidence: f64,
+    max_rejected_word_ratio: f64,
+    page_languages: *const u8,
+    page_languages_len: usize,
+    detect_rotation: i32,
+    deskew: i32,
+    denoise: i32,
+    out_json: *mut ToBuffer,
+    out_error: *mut *mut ToError,
+) -> i32 {
+    unsafe {
+        if engine.is_null() {
+            return guard_buffer(out_error, out_json, || {
+                Err(ToError::invalid_argument("engine must not be null"))
+            });
+        }
+
+        let handle = &*engine;
+
+        guard_buffer(out_error, out_json, || {
+            let languages = handle.engine.languages().ok_or_else(|| {
+                ToError::invalid_argument(
+                    "this engine holds one model set; build it with to_engine_create_languages \
+                     to choose a language per page",
+                )
+            })?;
+
+            let bytes = read_bytes(pdf, length, "pdf")?;
+            if bytes.is_empty() {
+                return Err(ToError::invalid_argument("pdf is empty"));
+            }
+
+            let plan = read_bytes(page_languages, page_languages_len, "page languages")?;
+            let plan = PageLanguages::parse(&plan)?;
+
+            languages.recognize_pdf(
+                &bytes,
+                dpi,
+                first_page,
+                page_count,
+                Thresholds {
+                    page: page_confidence,
+                    word: word_confidence,
+                    max_rejected_ratio: max_rejected_word_ratio,
+                },
+                PreprocessOptions::from_flags(detect_rotation, deskew, denoise),
+                &plan,
+            )
+        })
+    }
+}
+
+/// The number of pages a PDF holds, as `{"pages":N}`.
+///
+/// A caller needs it to name a language per page when it reads to the end of a
+/// document whose length it does not know. Only the page tree is read: nothing is
+/// rasterised and no model is involved. An empty document is refused, as it is by
+/// every recognition call.
+///
+/// # Safety
+/// `pdf` is valid for `length`; `out_json` and `out_error` are null or caller-owned
+/// slots.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn to_pdf_page_count(
+    pdf: *const u8,
+    length: usize,
+    out_json: *mut ToBuffer,
+    out_error: *mut *mut ToError,
+) -> i32 {
+    unsafe {
+        guard_buffer(out_error, out_json, || {
+            let bytes = read_bytes(pdf, length, "pdf")?;
+            if bytes.is_empty() {
+                return Err(ToError::invalid_argument("pdf is empty"));
+            }
+
+            let pages = pdf::page_count(&bytes)?;
+            Ok(serde_json::json!({ "pages": pages })
+                .to_string()
+                .into_bytes())
+        })
+    }
+}
+
+/// Reads a language tag the caller owns: UTF-8 bytes and a length.
+///
+/// An empty range is "no request", which is not an error: a caller that resolves a
+/// page to no language says so by passing nothing.
+///
+/// # Safety
+/// `pointer` is valid for `length` bytes, or null with a length of 0.
+unsafe fn read_language(pointer: *const u8, length: usize) -> Result<Option<String>, ToError> {
+    let bytes = unsafe { read_bytes(pointer, length, "language") }?;
+
+    if bytes.is_empty() {
+        return Ok(None);
+    }
+
+    let text = std::str::from_utf8(&bytes)
+        .map_err(|_| ToError::invalid_argument("language is not valid UTF-8"))?;
+
+    Ok(normalize_tag(text))
 }
 
 /// Reads a NUL-terminated UTF-8 string the native side owns (a version or build
@@ -748,5 +1066,79 @@ mod tests {
         );
 
         unsafe { to_error_free(error) };
+    }
+
+    #[test]
+    fn a_language_plan_that_is_empty_or_malformed_is_refused_without_a_handle() {
+        let before = to_engine_live_count();
+
+        for plan in [
+            b"".as_slice(),
+            b"not json".as_slice(),
+            b"{}".as_slice(),
+            br#"{"default":"fr"}"#.as_slice(),
+        ] {
+            let mut error: *mut ToError = std::ptr::null_mut();
+
+            let engine =
+                unsafe { to_engine_create_languages(plan.as_ptr(), plan.len(), &mut error) };
+
+            assert!(engine.is_null(), "{:?}", String::from_utf8_lossy(plan));
+            assert!(!error.is_null());
+            assert_eq!(unsafe { (*error).code }, TO_ERR_INVALID_ARGUMENT);
+            unsafe { to_error_free(error) };
+        }
+
+        assert_eq!(to_engine_live_count(), before);
+    }
+
+    #[test]
+    fn a_language_plan_naming_a_missing_directory_is_refused_by_name() {
+        let plan = br#"{"default":"fr","sets":[{"language":"fr","directory":"/nope/ocr-models"}]}"#;
+        let mut error: *mut ToError = std::ptr::null_mut();
+
+        let engine = unsafe { to_engine_create_languages(plan.as_ptr(), plan.len(), &mut error) };
+
+        assert!(engine.is_null());
+
+        let document = unsafe { (*error).json.clone() };
+        assert!(
+            document.contains("\"defect\":\"missing_directory\""),
+            "{document}"
+        );
+
+        unsafe { to_error_free(error) };
+    }
+
+    #[test]
+    fn the_page_count_of_a_document_that_is_not_a_pdf_is_a_pdf_error() {
+        let junk = b"this is not a pdf";
+        let mut json = ToBuffer::empty();
+        let mut error: *mut ToError = std::ptr::null_mut();
+
+        let status = unsafe { to_pdf_page_count(junk.as_ptr(), junk.len(), &mut json, &mut error) };
+
+        assert_eq!(status, crate::ffi::TO_ERR_PDF);
+        assert!(!error.is_null());
+
+        unsafe {
+            to_error_free(error);
+            json.free();
+        }
+    }
+
+    #[test]
+    fn the_page_count_of_an_empty_document_is_an_argument_error() {
+        let mut json = ToBuffer::empty();
+        let mut error: *mut ToError = std::ptr::null_mut();
+
+        let status = unsafe { to_pdf_page_count(std::ptr::null(), 0, &mut json, &mut error) };
+
+        assert_eq!(status, TO_ERR_INVALID_ARGUMENT);
+
+        unsafe {
+            to_error_free(error);
+            json.free();
+        }
     }
 }

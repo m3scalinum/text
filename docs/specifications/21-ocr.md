@@ -735,3 +735,189 @@ behaviour — it now validates before it loads — so no caller changes.
   preflight, refused by the loader as `unparsable_graph`, with no panic.
 - **That a real model still loads and reads** needs the weights; those tests skip, and say so, on
   every machine that holds none.
+
+## 15. A document in two languages: choosing the model set per page
+
+A client folder holds a contract whose first page is French and whose second is the English
+translation. §3 makes the models the caller's, and §14 makes one pair of them an engine — one
+detection model, one recognition model, and one alphabet the recognition model was trained on.
+Read that document with the French engine and the English page comes back as accented noise; read
+it with the English one and the French page loses its diacritics. The two pages need two pairs.
+
+This section is how a page gets the pair it needs, what happens when the pair is not there, and
+what the result says about it.
+
+### 15.1 The set per language, and the default
+
+`OcrLanguageModelSet` pairs a language tag with an `OcrModelSet` — the validated, identified pair of
+§14.4. `OcrEngine.FromLanguages` takes a list of them and one tag as the default:
+
+```csharp
+using var engine = OcrEngine.FromLanguages(
+    "fr",
+    [
+        OcrLanguageModelSet.Load("fr", "/srv/models/fr"),
+        OcrLanguageModelSet.Load("en", "/srv/models/en"),
+    ]);
+
+var pages = engine.RecognizePdf(document, languageForPage: index => index == 1 ? "en" : "fr");
+```
+
+The default tag must itself be one of the sets: a catalogue whose default has no weights would have
+nothing to fall back to. A tag names one set, and one set only. Tags are compared trimmed and
+case-insensitively, so `fr`, `FR` and ` fr ` are the same language; there is no language registry
+here and no BCP-47 expansion — `fr-FR` is not `fr` unless the caller says so.
+
+One alphabet applies to every set, which is what `FromLanguages`'s `characterDictionary` argument
+is: a plan whose recognition models were trained on different alphabets cannot be expressed, and
+that is deliberate — the dictionary is the alphabet of the whole engine in this package, and a host
+that needs two alphabets reads the bytes and builds the sets itself.
+
+### 15.2 The language is the caller's fact, so the caller supplies the rule
+
+`RecognizePdf` takes `Func<int, string?> languageForPage`: a zero-based page index in, a language
+tag (or `null`/empty for "no request") out. `Recognize` takes a single tag. The rule is asked once
+per page, in page order, before the document is rendered, and the answers cross to Rust as an
+aligned list.
+
+The alternative — detect the language from the text of the page before, or from the page's own
+first draft — was rejected, for three reasons:
+
+| Rejected | Why |
+| --- | --- |
+| Detect the language from the previous page's text | It makes a reading depend on the other pages of the document: the same page, alone or in another order, is read by different weights. Nothing in the result would distinguish that from a deterministic read. |
+| Recognise each page with every set and keep the best score | `ocrs` 0.14 exposes no decoder confidence (§4), so "best" would be the detection probability, which measures the ink, not the language. The loop has no fixed point and no honest tie-break. |
+| Guess and re-run on low confidence | The guess fails exactly where it matters — a short page, a table, a page of figures — and it doubles the cost of every page to do it. |
+
+A language is metadata the host already has: the folder it came from, the customer's locale, a
+per-page annotation, a hand-written index. Passing it means the reading is reproducible from the
+call alone, and a wrong answer is traceable to the rule that produced it.
+
+### 15.3 The fallback, and what the result reports
+
+A page whose language has no set is **not** an error, and it is **not** silent. It is read with the
+default set, and the result carries a `language` object:
+
+```json
+{"requested":"de","used":"fr","fallback":true,
+ "reason":"missing_language",
+ "message":"the page asked for language 'de', which has no model set; it was read with the default set 'fr' (missing_language)"}
+```
+
+On the managed side that is `OcrRecognition.Language` (for an image) or `OcrPageOutcome.Language`
+(for a page):
+
+| Member | Meaning |
+| --- | --- |
+| `Requested` | The tag the page asked for, normalised; `null` when the page named none. |
+| `Used` | The tag whose set actually read it — the default, when it fell back. |
+| `FellBack` | Whether the request was substituted. |
+| `Reason` | `OcrLanguageFallbackReason.MissingLanguage` when it was; `Unspecified` otherwise. |
+| `Message` | One sentence naming the request, the set used and the reason; `null` when nothing was substituted. |
+
+Three distinctions the shape is there to keep:
+
+- **No request is not a fallback.** A page that names no language is read with the default set and
+  reports `requested: null, fallback: false`. Nothing was substituted, so nothing is reported as
+  substituted.
+- **A fallback is a real reading.** The text is returned, with its lines and boxes, exactly as a
+  page read with the right set would be. `FellBack` is what says to treat it with suspicion; the
+  alternative — refusing the page — would throw away the text of a language the host simply did not
+  supply.
+- **A reason is a name, not a sentence.** `missing_language` is stable and a host can switch on it;
+  `Message` is for a log or an error message, like every other prose in this package.
+
+A document read through a language plan carries `languages: {default, available}` at its root, so a
+consumer can tell a one-language document from a mistyped tag without reading every page.
+
+### 15.4 The ABI: four additive exports, revision unchanged
+
+```c
+ToEngine *to_engine_create_languages(const uint8_t *plan, size_t length,
+                                     ToError **out_error);
+
+int32_t to_engine_recognize_language(
+    ToEngine *engine, const uint8_t *image, size_t length,
+    double page_confidence, double word_confidence, double max_rejected_word_ratio,
+    const uint8_t *language, size_t language_len,
+    int32_t detect_rotation, int32_t deskew, int32_t denoise,
+    ToBuffer *out_json, ToError **out_error);
+
+int32_t to_engine_recognize_pdf_languages(
+    ToEngine *engine, const uint8_t *pdf, size_t length,
+    uint32_t dpi, uint32_t first_page, uint32_t page_count,
+    double page_confidence, double word_confidence, double max_rejected_word_ratio,
+    const uint8_t *page_languages, size_t page_languages_len,
+    int32_t detect_rotation, int32_t deskew, int32_t denoise,
+    ToBuffer *out_json, ToError **out_error);
+
+int32_t to_pdf_page_count(const uint8_t *pdf, size_t length,
+                          ToBuffer *out_json, ToError **out_error);
+```
+
+Two variable-length shapes have to cross a boundary that admits only scalars and byte ranges, and
+both cross as JSON in a byte buffer:
+
+- **`plan`** is `{"default":"fr","dictionary":null,"sets":[{"language":"fr","directory":"…"}]}`.
+  Each directory is read exactly as `to_engine_create_from_directory` reads it — two fixed file
+  names, validated and identified, nothing downloaded.
+- **`page_languages`** is an array with one entry per page of the rendered range, in page order:
+  `["fr", "en"]`, or `null` for a page that names none. A plan whose entry count does not match the
+  range is `invalid_argument`, never shifted: a shift would read a page with another page's
+  language and say nothing.
+
+`to_pdf_page_count` exists because a caller that reads to the end of a document does not know how
+many pages it holds, and the plan has to be aligned before the render. It reads the page tree and
+rasterises nothing.
+
+`to_abi_version` stays **2**. Nothing that existed moved: every entry point of revisions 1 and 2
+keeps its signature and its behaviour. On a handle built from a language plan they read with the
+**default** set, which is what a call naming no language can honestly mean. A handle built from two
+models refuses `to_engine_recognize_language` and `to_engine_recognize_pdf_languages` as
+`invalid_argument` rather than guessing which set was meant; the managed side refuses earlier, with
+an `InvalidOperationException` naming `FromLanguages`.
+
+The managed side takes the old calls when no language is named, so the common path is the one that
+was already proved, byte for byte. When a language is named and the library predates the exports,
+the failure is `OcrException` with `Code == "unsupported"` naming the missing symbol.
+
+### 15.5 What recognition does not do
+
+| Not done | Why |
+| --- | --- |
+| Detect the language | It is the caller's fact (§15.2). The result reports what it was asked for, never a guess it made. |
+| Split a page between two languages | A set is chosen per page, and the whole page is read with it. A bilingual page — two columns, a French heading over an English body — is read by one model, chosen by the rule. |
+| Pick a set by script | A page of Chinese in a French plan is read with the French set and reports no fallback, because `zh` was never asked for. A caller that cares names `zh` and supplies its set, or gets a fallback. |
+| Share memory between sets | Each set is one loaded engine. Two languages cost two copies of the weights; `FromLanguages` does not deduplicate two directories holding the same bytes. |
+| Change the default per document at read time | The default is fixed when the engine is created. A document that wants another one builds another engine. |
+
+### 15.6 What is proved, and where
+
+- **The routing** is proved in Rust, in `native/text-ocr/src/language.rs`, with no model loaded:
+  page 1 and page 2 of one plan route to two different sets, and the identities the two pages
+  report differ — the fixture builds both from well-formed `RTEN` container headers, so the two
+  sets are genuinely different bytes, and the test would fail if the loop reported one identity for
+  both pages. A language with no set routes to the default and reports `missing_language`; a plan
+  that asks for nothing reads every page with the default; the first page of a range takes the
+  first entry; a plan whose length does not match the range is refused with both counts in the
+  message; a blank tag is a request for nothing; a catalogue with a default that has no set, a
+  repeated tag or an empty default is refused. `cargo test --lib` runs them.
+- **The routing is the loop's**: `LanguageEngines::routes` is what the recognition loop iterates,
+  and it pins each page's identity to the identity of the engine that will actually run it, so the
+  report cannot name a set the loop did not use.
+- **The mapping** — a language reaching `to_engine_recognize_language`, a rule resolved once per
+  page in page order and reaching `to_engine_recognize_pdf_languages`, a `null` answer becoming a
+  null entry, an empty tag taking the old call, and a language on a single-set engine refused rather
+  than ignored — is proved in `tests/Text.Ocr.Tests` against a double, without a model.
+- **The report** — the `language` object becoming `OcrLanguage`, all four of its fields, a page's
+  own `models` winning over the document's, an absent object reading as no language, an unknown
+  reason still reading as a fallback, and a refused page still carrying its language — is proved on
+  the exact documents the native half writes.
+- **The exports** are proved against the real library when it is loadable: the page count of a
+  one-page document is 1, a document that is not a PDF is a `pdf` error, a plan naming a directory
+  that is not there is a `model` error with `missing_directory`, a plan that is not JSON is
+  `invalid_argument`, and every new symbol resolves.
+- **That a two-page French/English PDF now reads correctly** needs two real model pairs, and this
+  repository ships none: it is the one claim in this section no test here has watched. What is
+  proved is that each page is read by the set its rule names, that the identity on each page is
+  that set's, and that a missing set is reported instead of guessed.

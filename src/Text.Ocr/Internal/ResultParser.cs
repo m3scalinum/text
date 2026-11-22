@@ -28,10 +28,12 @@ internal static class ResultParser
         var height = root.GetProperty("height").GetInt32();
         var meanConfidence = Confidence(root);
         var models = ParseModels(root);
+        var language = ParseLanguage(root);
 
         if (IsUnreadable(root))
         {
-            return new OcrUnreadable(width, height, meanConfidence, ParseRefusal(root), models);
+            return new OcrUnreadable(
+                width, height, meanConfidence, ParseRefusal(root), models, language);
         }
 
         return new OcrResult(
@@ -41,7 +43,8 @@ internal static class ResultParser
             width,
             height,
             ParsePreprocess(root),
-            models);
+            models,
+            language);
     }
 
     /// <summary>Parses <c>{"pages": [...]}</c>.</summary>
@@ -60,10 +63,17 @@ internal static class ResultParser
             var dpi = page.GetProperty("dpi").GetInt32();
             var meanConfidence = Confidence(page);
 
+            // A page of a language-set read carries its own identity, because two
+            // pages of one document can have been read by two pairs of weights. A
+            // document with one set carries it at the root only.
+            var pageModels = ParseModels(page) ?? models;
+            var language = ParseLanguage(page);
+
             if (IsUnreadable(page))
             {
                 pages.Add(new OcrPageUnreadable(
-                    pageIndex, width, height, dpi, meanConfidence, ParseRefusal(page), models));
+                    pageIndex, width, height, dpi, meanConfidence, ParseRefusal(page),
+                    pageModels, language));
                 continue;
             }
 
@@ -76,7 +86,8 @@ internal static class ResultParser
                 height,
                 dpi,
                 ParsePreprocess(page),
-                models));
+                pageModels,
+                language));
         }
 
         return pages;
@@ -145,6 +156,63 @@ internal static class ResultParser
             && denoisedElement.ValueKind == JsonValueKind.True;
 
         return new OcrPreprocessReport(rotation, skew, denoised);
+    }
+
+    /// <summary>
+    /// The language verdict a page carries, or <see langword="null"/> when it carries
+    /// none.
+    /// </summary>
+    /// <remarks>
+    /// An absent object means the engine held one model set: there was no choice to
+    /// report, and inventing a tag would claim the page asked for one.
+    /// </remarks>
+    private static OcrLanguage? ParseLanguage(JsonElement element)
+    {
+        if (!element.TryGetProperty("language", out var language)
+            || language.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        var requested = language.TryGetProperty("requested", out var requestedElement)
+            && requestedElement.ValueKind == JsonValueKind.String
+            ? requestedElement.GetString()
+            : null;
+
+        var used = language.TryGetProperty("used", out var usedElement)
+            && usedElement.ValueKind == JsonValueKind.String
+            ? usedElement.GetString() ?? string.Empty
+            : string.Empty;
+
+        var fellBack = language.TryGetProperty("fallback", out var fallbackElement)
+            && fallbackElement.ValueKind == JsonValueKind.True;
+
+        var reason = OcrLanguageFallbackReason.Unspecified;
+
+        if (fellBack
+            && language.TryGetProperty("reason", out var reasonElement)
+            && reasonElement.ValueKind == JsonValueKind.String)
+        {
+            reason = reasonElement.GetString() switch
+            {
+                "missing_language" => OcrLanguageFallbackReason.MissingLanguage,
+                _ => OcrLanguageFallbackReason.Unspecified,
+            };
+        }
+
+        var message = language.TryGetProperty("message", out var messageElement)
+            && messageElement.ValueKind == JsonValueKind.String
+            ? messageElement.GetString()
+            : null;
+
+        return new OcrLanguage(requested, used, fellBack, reason, message);
+    }
+
+    /// <summary>Reads the page count document: <c>{"pages":N}</c>.</summary>
+    internal static uint ParsePageCount(byte[] json)
+    {
+        using var document = JsonDocument.Parse(json);
+        return document.RootElement.GetProperty("pages").GetUInt32();
     }
 
     private static string Text(JsonElement element)

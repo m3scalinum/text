@@ -48,6 +48,82 @@ public sealed class OcrPreprocessReport
 }
 
 /// <summary>
+/// Why a page was read with a model set other than the one it asked for.
+/// </summary>
+public enum OcrLanguageFallbackReason
+{
+    /// <summary>No substitution happened, or the reason was not reported.</summary>
+    Unspecified = 0,
+
+    /// <summary>The requested language has no model set in this engine.</summary>
+    MissingLanguage,
+}
+
+/// <summary>
+/// Which model set read one image or page, and whether that was what the caller asked for.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Present on every result an engine built by <see cref="OcrEngine.FromLanguages"/>
+/// produces, and <see langword="null"/> on an engine that holds one set: there is no
+/// choice to report when there was none. <see cref="Requested"/> is
+/// <see langword="null"/> when the caller named no language for that page, which is
+/// not a fallback — nothing was substituted.
+/// </para>
+/// <para>
+/// When <see cref="FellBack"/> is true the reading is real but was produced by the
+/// default set: <see cref="Used"/> names it, <see cref="Requested"/> names what was
+/// asked for, <see cref="Reason"/> says why, and <see cref="Message"/> says it in a
+/// sentence. It is never silent.
+/// </para>
+/// </remarks>
+public sealed class OcrLanguage
+{
+    internal OcrLanguage(
+        string? requested,
+        string used,
+        bool fellBack,
+        OcrLanguageFallbackReason reason,
+        string? message)
+    {
+        Requested = requested;
+        Used = used;
+        FellBack = fellBack;
+        Reason = reason;
+        Message = message;
+    }
+
+    /// <summary>
+    /// The language the page asked for, exactly as the caller supplied it (trimmed and
+    /// lowercased), or <see langword="null"/> when the page named none.
+    /// </summary>
+    public string? Requested { get; }
+
+    /// <summary>The language whose model set actually read the image or page.</summary>
+    public string Used { get; }
+
+    /// <summary>Whether the request was substituted.</summary>
+    public bool FellBack { get; }
+
+    /// <summary>
+    /// Why the substitution happened, or <see cref="OcrLanguageFallbackReason.Unspecified"/>
+    /// when none did.
+    /// </summary>
+    public OcrLanguageFallbackReason Reason { get; }
+
+    /// <summary>
+    /// One sentence naming the language asked for, the set used and the reason, when
+    /// <see cref="FellBack"/> is true; <see langword="null"/> otherwise.
+    /// </summary>
+    public string? Message { get; }
+
+    /// <inheritdoc />
+    public override string ToString() => FellBack
+        ? Message ?? $"requested {Requested ?? "(none)"}, read with {Used}"
+        : Used;
+}
+
+/// <summary>
 /// Whether a reading was accepted or refused.
 /// </summary>
 public enum OcrOutcome
@@ -149,11 +225,16 @@ public sealed class OcrRefusal
 /// </remarks>
 public abstract class OcrRecognition
 {
-    private protected OcrRecognition(int width, int height, OcrModelIdentity? models)
+    private protected OcrRecognition(
+        int width,
+        int height,
+        OcrModelIdentity? models,
+        OcrLanguage? language = null)
     {
         Width = width;
         Height = height;
         Models = models;
+        Language = language;
     }
 
     /// <summary>The image width, in pixels.</summary>
@@ -172,6 +253,17 @@ public abstract class OcrRecognition
     /// </remarks>
     public OcrModelIdentity? Models { get; }
 
+    /// <summary>
+    /// Which model set read the image, when the engine was built from a language plan;
+    /// <see langword="null"/> on an engine that holds a single set.
+    /// </summary>
+    /// <remarks>
+    /// A page that asked for a language the engine does not hold is read with the
+    /// default set and reports <see cref="OcrLanguage.FellBack"/> with the reason,
+    /// rather than being refused or read silently by the wrong weights.
+    /// </remarks>
+    public OcrLanguage? Language { get; }
+
     /// <summary>Whether this is a reading or a refusal.</summary>
     public abstract OcrOutcome Outcome { get; }
 }
@@ -188,8 +280,9 @@ public sealed class OcrResult : OcrRecognition
         int width,
         int height,
         OcrPreprocessReport? preprocess = null,
-        OcrModelIdentity? models = null)
-        : base(width, height, models)
+        OcrModelIdentity? models = null,
+        OcrLanguage? language = null)
+        : base(width, height, models, language)
     {
         Text = text;
         Lines = lines;
@@ -239,8 +332,9 @@ public sealed class OcrUnreadable : OcrRecognition
         int height,
         double meanConfidence,
         OcrRefusal refusal,
-        OcrModelIdentity? models = null)
-        : base(width, height, models)
+        OcrModelIdentity? models = null,
+        OcrLanguage? language = null)
+        : base(width, height, models, language)
     {
         MeanConfidence = meanConfidence;
         Refusal = refusal;
@@ -343,13 +437,15 @@ public abstract class OcrPageOutcome
         int width,
         int height,
         int dpi,
-        OcrModelIdentity? models)
+        OcrModelIdentity? models,
+        OcrLanguage? language = null)
     {
         PageIndex = pageIndex;
         Width = width;
         Height = height;
         Dpi = dpi;
         Models = models;
+        Language = language;
     }
 
     /// <summary>The zero-based page index in the document.</summary>
@@ -370,6 +466,17 @@ public abstract class OcrPageOutcome
     /// </summary>
     public OcrModelIdentity? Models { get; }
 
+    /// <summary>
+    /// Which model set read the page, when the engine was built from a language plan;
+    /// <see langword="null"/> on an engine that holds a single set.
+    /// </summary>
+    /// <remarks>
+    /// It is per page, not per document: two pages of one PDF can be read with two
+    /// different pairs of weights, and <see cref="OcrPageOutcome.Models"/> names the
+    /// ones that read this page.
+    /// </remarks>
+    public OcrLanguage? Language { get; }
+
     /// <summary>Whether this is a reading or a refusal.</summary>
     public abstract OcrOutcome Outcome { get; }
 }
@@ -388,8 +495,9 @@ public sealed class OcrPageResult : OcrPageOutcome
         int height,
         int dpi,
         OcrPreprocessReport? preprocess = null,
-        OcrModelIdentity? models = null)
-        : base(pageIndex, width, height, dpi, models)
+        OcrModelIdentity? models = null,
+        OcrLanguage? language = null)
+        : base(pageIndex, width, height, dpi, models, language)
     {
         Text = text;
         Lines = lines;
@@ -441,8 +549,9 @@ public sealed class OcrPageUnreadable : OcrPageOutcome
         int dpi,
         double meanConfidence,
         OcrRefusal refusal,
-        OcrModelIdentity? models = null)
-        : base(pageIndex, width, height, dpi, models)
+        OcrModelIdentity? models = null,
+        OcrLanguage? language = null)
+        : base(pageIndex, width, height, dpi, models, language)
     {
         MeanConfidence = meanConfidence;
         Refusal = refusal;

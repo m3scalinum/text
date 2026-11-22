@@ -139,6 +139,56 @@ internal interface IOcrNative
     int EngineModels(IntPtr engine, out NativeBuffer json, out IntPtr error)
         => throw new NotSupportedException("this native backend does not identify its models");
 
+    /// <summary>
+    /// Creates an engine holding one model set per language from a JSON plan.
+    /// </summary>
+    /// <remarks>
+    /// The default refuses, so a double written before language selection existed
+    /// fails loudly rather than pretending an engine it cannot build.
+    /// </remarks>
+    IntPtr EngineCreateLanguages(byte[] plan, out IntPtr error)
+        => throw new NotSupportedException("this native backend cannot load a language plan");
+
+    /// <summary>Recognises an image with the model set of a named language.</summary>
+    /// <remarks>Same default as <see cref="EngineCreateLanguages"/>.</remarks>
+    int EngineRecognizeLanguage(
+        IntPtr engine,
+        byte[] image,
+        double pageConfidence,
+        double wordConfidence,
+        double maxRejectedWordRatio,
+        byte[] language,
+        bool detectRotation,
+        bool deskew,
+        bool denoise,
+        out NativeBuffer json,
+        out IntPtr error)
+        => throw new NotSupportedException("this native backend cannot read in a named language");
+
+    /// <summary>Renders and recognises pages, each with the set of its language.</summary>
+    /// <remarks>Same default as <see cref="EngineCreateLanguages"/>.</remarks>
+    int EngineRecognizePdfLanguages(
+        IntPtr engine,
+        byte[] pdf,
+        uint dpi,
+        uint firstPage,
+        uint pageCount,
+        double pageConfidence,
+        double wordConfidence,
+        double maxRejectedWordRatio,
+        byte[] pageLanguages,
+        bool detectRotation,
+        bool deskew,
+        bool denoise,
+        out NativeBuffer json,
+        out IntPtr error)
+        => throw new NotSupportedException("this native backend cannot choose a language per page");
+
+    /// <summary>The number of pages a PDF holds, as <c>{"pages":N}</c>.</summary>
+    /// <remarks>Same default as <see cref="EngineCreateLanguages"/>.</remarks>
+    int PdfPageCount(byte[] pdf, out NativeBuffer json, out IntPtr error)
+        => throw new NotSupportedException("this native backend cannot count the pages of a PDF");
+
     /// <summary>Frees an error object.</summary>
     void ErrorFree(IntPtr error);
 

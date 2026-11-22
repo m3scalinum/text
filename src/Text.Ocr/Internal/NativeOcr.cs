@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Text;
 using System.Text.Json;
 
@@ -198,6 +199,38 @@ internal static class NativeOcr
 
         return ResultParser.ParseModelSet(Take(library, status, json, error));
     }
+
+    /// <summary>
+    /// The per-page plan the native side parses: a JSON array with one entry per page
+    /// of the range, each a language tag or <c>null</c> for a page that names none.
+    /// </summary>
+    internal static byte[] PageLanguagesJson(IReadOnlyList<string?> languages)
+    {
+        var builder = new StringBuilder("[");
+
+        for (var index = 0; index < languages.Count; index++)
+        {
+            if (index > 0)
+            {
+                builder.Append(',');
+            }
+
+            var language = languages[index];
+
+            if (language is null)
+            {
+                builder.Append("null");
+            }
+            else
+            {
+                builder.Append('"').Append(JsonEncodedText.Encode(language).ToString()).Append('"');
+            }
+        }
+
+        builder.Append(']');
+
+        return Encoding.UTF8.GetBytes(builder.ToString());
+    }
 }
 
 /// <summary>
@@ -373,6 +406,79 @@ internal sealed unsafe class NativeLibraryOcr : IOcrNative
     /// <inheritdoc />
     public int EngineModels(IntPtr engine, out NativeBuffer json, out IntPtr error)
         => NativeMethods.EngineModels(engine, out json, out error);
+
+    /// <inheritdoc />
+    public IntPtr EngineCreateLanguages(byte[] plan, out IntPtr error)
+    {
+        fixed (byte* bytes = plan)
+        {
+            return NativeMethods.EngineCreateLanguages(bytes, (nuint)plan.Length, out error);
+        }
+    }
+
+    /// <inheritdoc />
+    public int EngineRecognizeLanguage(
+        IntPtr engine,
+        byte[] image,
+        double pageConfidence,
+        double wordConfidence,
+        double maxRejectedWordRatio,
+        byte[] language,
+        bool detectRotation,
+        bool deskew,
+        bool denoise,
+        out NativeBuffer json,
+        out IntPtr error)
+    {
+        fixed (byte* pixels = image)
+        fixed (byte* tag = language)
+        {
+            return NativeMethods.EngineRecognizeLanguage(
+                engine, pixels, (nuint)image.Length,
+                pageConfidence, wordConfidence, maxRejectedWordRatio,
+                tag, (nuint)language.Length,
+                detectRotation ? 1 : 0, deskew ? 1 : 0, denoise ? 1 : 0,
+                out json, out error);
+        }
+    }
+
+    /// <inheritdoc />
+    public int EngineRecognizePdfLanguages(
+        IntPtr engine,
+        byte[] pdf,
+        uint dpi,
+        uint firstPage,
+        uint pageCount,
+        double pageConfidence,
+        double wordConfidence,
+        double maxRejectedWordRatio,
+        byte[] pageLanguages,
+        bool detectRotation,
+        bool deskew,
+        bool denoise,
+        out NativeBuffer json,
+        out IntPtr error)
+    {
+        fixed (byte* bytes = pdf)
+        fixed (byte* plan = pageLanguages)
+        {
+            return NativeMethods.EngineRecognizePdfLanguages(
+                engine, bytes, (nuint)pdf.Length, dpi, firstPage, pageCount,
+                pageConfidence, wordConfidence, maxRejectedWordRatio,
+                plan, (nuint)pageLanguages.Length,
+                detectRotation ? 1 : 0, deskew ? 1 : 0, denoise ? 1 : 0,
+                out json, out error);
+        }
+    }
+
+    /// <inheritdoc />
+    public int PdfPageCount(byte[] pdf, out NativeBuffer json, out IntPtr error)
+    {
+        fixed (byte* bytes = pdf)
+        {
+            return NativeMethods.PdfPageCount(bytes, (nuint)pdf.Length, out json, out error);
+        }
+    }
 }
 
 /// <summary>
@@ -428,6 +534,41 @@ internal sealed class OcrEngineHandle : IDisposable
     {
         var handle = library.EngineCreateFromDirectory(
             System.Text.Encoding.UTF8.GetBytes(directory), null, out var error);
+
+        if (handle == IntPtr.Zero)
+        {
+            throw NativeOcr.ToException(library, error);
+        }
+
+        if (error != IntPtr.Zero)
+        {
+            library.ErrorFree(error);
+        }
+
+        return new OcrEngineHandle(library, handle);
+    }
+
+    /// <summary>
+    /// Creates a handle from a UTF-8 JSON language plan. The native side reads every
+    /// directory the plan names, validates each pair and loads it; a refusal crosses
+    /// as the typed model exception, and a malformed plan as an argument error.
+    /// </summary>
+    internal static OcrEngineHandle CreateLanguages(byte[] plan)
+        => CreateLanguages(NativeOcr.Library, plan);
+
+    internal static OcrEngineHandle CreateLanguages(IOcrNative library, byte[] plan)
+    {
+        IntPtr handle;
+        IntPtr error;
+
+        try
+        {
+            handle = library.EngineCreateLanguages(plan, out error);
+        }
+        catch (EntryPointNotFoundException exception)
+        {
+            throw Unsupported(exception, "to_engine_create_languages");
+        }
 
         if (handle == IntPtr.Zero)
         {
@@ -548,8 +689,106 @@ internal sealed class OcrEngineHandle : IDisposable
     }
 
     /// <summary>
-    /// The native library predates the preprocessing exports: an ABI revision 2 library
-    /// built before them loads and recognises, and only this one call is missing.
+    /// Recognises an image with the model set of a named language. The tag reaches the
+    /// native side as UTF-8; a tag the engine has no set for is not an error there — it
+    /// is the reported fallback.
+    /// </summary>
+    internal byte[] RecognizeLanguage(byte[] image, OcrOptions options, string language)
+    {
+        var handle = Handle();
+
+        int status;
+        NativeBuffer json;
+        IntPtr error;
+
+        try
+        {
+            status = _library.EngineRecognizeLanguage(
+                handle,
+                image,
+                options.MinimumPageConfidence,
+                options.MinimumWordConfidence,
+                options.MaximumRejectedWordRatio,
+                Encoding.UTF8.GetBytes(language),
+                options.DetectRotation,
+                options.Deskew,
+                options.Denoise,
+                out json,
+                out error);
+        }
+        catch (EntryPointNotFoundException exception)
+        {
+            throw Unsupported(exception, "to_engine_recognize_language");
+        }
+
+        return Take(status, json, error);
+    }
+
+    /// <summary>
+    /// Renders and recognises pages, each with the set of its language. The plan is
+    /// aligned with the rendered range by the caller.
+    /// </summary>
+    internal byte[] RecognizePdfLanguages(
+        byte[] pdf,
+        OcrPdfOptions options,
+        uint firstPage,
+        uint pageCount,
+        IReadOnlyList<string?> pageLanguages)
+    {
+        var handle = Handle();
+
+        int status;
+        NativeBuffer json;
+        IntPtr error;
+
+        try
+        {
+            status = _library.EngineRecognizePdfLanguages(
+                handle,
+                pdf,
+                (uint)options.Dpi,
+                firstPage,
+                pageCount,
+                options.MinimumPageConfidence,
+                options.MinimumWordConfidence,
+                options.MaximumRejectedWordRatio,
+                NativeOcr.PageLanguagesJson(pageLanguages),
+                options.DetectRotation,
+                options.Deskew,
+                options.Denoise,
+                out json,
+                out error);
+        }
+        catch (EntryPointNotFoundException exception)
+        {
+            throw Unsupported(exception, "to_engine_recognize_pdf_languages");
+        }
+
+        return Take(status, json, error);
+    }
+
+    /// <summary>The number of pages a PDF holds, read from its page tree.</summary>
+    internal uint PageCount(byte[] pdf)
+    {
+        int status;
+        NativeBuffer json;
+        IntPtr error;
+
+        try
+        {
+            status = _library.PdfPageCount(pdf, out json, out error);
+        }
+        catch (EntryPointNotFoundException exception)
+        {
+            throw Unsupported(exception, "to_pdf_page_count");
+        }
+
+        return ResultParser.ParsePageCount(Take(status, json, error));
+    }
+
+    /// <summary>
+    /// The native library predates the exports this call needs: an ABI revision 2
+    /// library built before them loads and recognises, and only that call is missing.
     /// </summary>
     private static OcrException Unsupported(EntryPointNotFoundException exception, string export)
         => new(

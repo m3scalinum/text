@@ -86,6 +86,30 @@ internal static partial class NativeMethods
     internal static partial int EngineModels(
         IntPtr engine, out NativeBuffer json, out IntPtr error);
 
+    [LibraryImport(LibraryName, EntryPoint = "to_engine_create_languages")]
+    internal static unsafe partial IntPtr EngineCreateLanguages(
+        byte* plan, nuint planLength, out IntPtr error);
+
+    [LibraryImport(LibraryName, EntryPoint = "to_engine_recognize_language")]
+    internal static unsafe partial int EngineRecognizeLanguage(
+        IntPtr engine, byte* image, nuint length,
+        double pageConfidence, double wordConfidence, double maxRejectedWordRatio,
+        byte* language, nuint languageLength,
+        int detectRotation, int deskew, int denoise,
+        out NativeBuffer json, out IntPtr error);
+
+    [LibraryImport(LibraryName, EntryPoint = "to_engine_recognize_pdf_languages")]
+    internal static unsafe partial int EngineRecognizePdfLanguages(
+        IntPtr engine, byte* pdf, nuint length, uint dpi, uint firstPage, uint pageCount,
+        double pageConfidence, double wordConfidence, double maxRejectedWordRatio,
+        byte* pageLanguages, nuint pageLanguagesLength,
+        int detectRotation, int deskew, int denoise,
+        out NativeBuffer json, out IntPtr error);
+
+    [LibraryImport(LibraryName, EntryPoint = "to_pdf_page_count")]
+    internal static unsafe partial int PdfPageCount(
+        byte* pdf, nuint length, out NativeBuffer json, out IntPtr error);
+
     internal static string ReadUtf8(IntPtr pointer)
         => Marshal.PtrToStringUTF8(pointer) ?? string.Empty;
 }
