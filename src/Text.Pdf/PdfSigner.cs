@@ -77,6 +77,14 @@ public static class PdfSigner
             throw new PdfSignatureException("the document is empty");
         }
 
+        var kind = ValidateKind(options);
+
+        if (kind == PdfSignatureKind.Seal)
+        {
+            PdfEidasCertificate.RequireSealUsage(certificate);
+        }
+
+        var signedAt = options.SignedAt ?? DateTimeOffset.UtcNow;
         var appearance = options.Appearance;
         appearance?.Validate();
         ValidateTimestamp(options);
@@ -144,20 +152,32 @@ public static class PdfSigner
             }
         }
 
-        var signatureOffset = append.Add(signatureNumber, SignatureBody(options));
+        var signatureOffset = append.Add(signatureNumber, SignatureBody(options, signedAt));
 
         if (dss is not null)
         {
             WriteDssStreams(append, dss, dssCertificates, dssOcsp, dssCrls);
         }
 
-        var signed = Finish(append, document, next, signatureOffset, certificate, options);
+        var signed = Finish(append, document, next, signatureOffset, certificate, options, signedAt);
 
         return new PdfSignatureResult(
             signed,
             Level(options),
             material?.Revocation ?? [],
             material?.Missing ?? []);
+    }
+
+    /// <summary>Refuses a signature kind this writer does not know, and returns the one asked for.</summary>
+    private static PdfSignatureKind ValidateKind(PdfSignatureOptions options)
+    {
+        if (options.Kind is not (PdfSignatureKind.Person or PdfSignatureKind.Seal))
+        {
+            throw new PdfSignatureException(
+                $"the signature kind {(int)options.Kind} is not one this writer knows; use PdfSignatureKind.Person or PdfSignatureKind.Seal");
+        }
+
+        return options.Kind;
     }
 
     /// <summary>The level this call is configured to reach.</summary>
@@ -375,11 +395,12 @@ public static class PdfSigner
         int size,
         int signatureOffset,
         X509Certificate2 certificate,
-        PdfSignatureOptions options)
+        PdfSignatureOptions options,
+        DateTimeOffset signedAt)
         => PdfContents.Seal(
             append.Finish(document, size),
             signatureOffset,
-            signed => ComputeSignature(signed, certificate, options));
+            signed => ComputeSignature(signed, certificate, options, signedAt));
 
     /// <summary>Fails early when a timestamp is asked for without the means to reach the authority.</summary>
     private static void ValidateTimestamp(PdfSignatureOptions options)
@@ -397,7 +418,11 @@ public static class PdfSigner
         }
     }
 
-    private static byte[] ComputeSignature(byte[] content, X509Certificate2 certificate, PdfSignatureOptions options)
+    private static byte[] ComputeSignature(
+        byte[] content,
+        X509Certificate2 certificate,
+        PdfSignatureOptions options,
+        DateTimeOffset signedAt)
     {
         var cms = new SignedCms(new ContentInfo(content), detached: true);
 
@@ -406,6 +431,13 @@ public static class PdfSigner
             IncludeOption = X509IncludeOption.EndCertOnly,
             DigestAlgorithm = new Oid("2.16.840.1.101.3.4.2.1", "SHA-256"),
         };
+
+        // A seal states its claimed signing time inside the signature, which is the attribute a
+        // validator reads as claimedSigningTime. A person's signature is left exactly as it was.
+        if (options.Kind == PdfSignatureKind.Seal)
+        {
+            signer.SignedAttributes.Add(new Pkcs9SigningTime(signedAt.UtcDateTime));
+        }
 
         cms.ComputeSignature(signer);
 
@@ -429,7 +461,7 @@ public static class PdfSigner
         return cms.Encode();
     }
 
-    private static string SignatureBody(PdfSignatureOptions options)
+    private static string SignatureBody(PdfSignatureOptions options, DateTimeOffset signedAt)
     {
         var builder = new StringBuilder("<</Type/Sig/Filter/Adobe.PPKLite/SubFilter/ETSI.CAdES.detached")
             .Append(PdfContents.ByteRangePlaceholder)
@@ -445,7 +477,7 @@ public static class PdfSigner
             builder.Append("/Location(").Append(EscapeString(location)).Append(')');
         }
 
-        builder.Append("/M(").Append(PdfDate(options.SignedAt ?? DateTimeOffset.UtcNow)).Append(')');
+        builder.Append("/M(").Append(PdfDate(signedAt)).Append(')');
         return builder.Append('>').ToString();
     }
 
