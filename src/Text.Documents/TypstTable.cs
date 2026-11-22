@@ -9,6 +9,7 @@ public sealed class TypstTable
     private readonly List<TypstLength> _columns = [];
     private readonly List<TypstTableCell> _header = [];
     private readonly List<IReadOnlyList<TypstTableCell>> _rows = [];
+    private bool _repeatsHeader = true;
 
     internal IReadOnlyList<TypstLength> ColumnWidths => _columns;
 
@@ -17,6 +18,9 @@ public sealed class TypstTable
     internal IReadOnlyList<IReadOnlyList<TypstTableCell>> Rows => _rows;
 
     internal bool HasColumnWidths => _columns.Count > 0;
+
+    /// <summary>Whether the header row repeats on every page the table spans; true unless turned off.</summary>
+    internal bool RepeatsHeader => _repeatsHeader;
 
     /// <summary>
     /// How many columns the table has: as many as <see cref="Columns(TypstLength[])"/> set, or, when
@@ -94,8 +98,8 @@ public sealed class TypstTable
     }
 
     /// <summary>
-    /// Adds the header row. It is emitted as <c>table.header(…)</c>, which repeats on every page a
-    /// table spans and which Typst tags as header cells scoped to their column.
+    /// Adds the header row. It is emitted as <c>table.header(repeat: true, …)</c>, which repeats on
+    /// every page a table spans and which Typst tags as header cells scoped to their column.
     /// </summary>
     public TypstTable HeaderRow(params TypstContent[] cells)
     {
@@ -119,6 +123,27 @@ public sealed class TypstTable
         ArgumentNullException.ThrowIfNull(cells);
         _header.Clear();
         _header.AddRange(cells);
+        return this;
+    }
+
+    /// <summary>
+    /// Decides whether the header row is repeated on every page the table spans, emitted as
+    /// <c>table.header(repeat: …)</c>. It repeats by default, which is what a table crossing a page
+    /// break must do for a reader to know what a column holds.
+    /// </summary>
+    /// <param name="repeat">
+    /// <see langword="true"/> to repeat the header; <see langword="false"/> to draw it on the first
+    /// page only.
+    /// </param>
+    /// <remarks>
+    /// A table with no header row ignores the setting: there is nothing to repeat. Repetition does
+    /// not cost a test its accessibility either way — the header stays a <c>table.header</c>, so
+    /// Typst keeps tagging its cells as column headers, including any
+    /// <c>pdf.header-cell(scope: …)</c> inside it.
+    /// </remarks>
+    public TypstTable RepeatHeader(bool repeat = true)
+    {
+        _repeatsHeader = repeat;
         return this;
     }
 

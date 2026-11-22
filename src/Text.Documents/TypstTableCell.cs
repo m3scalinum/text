@@ -48,6 +48,26 @@ public sealed class TypstTableCell
     /// </remarks>
     public TypstHeaderScope? HeaderScope { get; init; }
 
+    /// <summary>
+    /// Whether the rows this cell covers may be placed on two pages, emitted as
+    /// <c>table.cell(breakable: …)</c>. Null leaves Typst's <c>auto</c> in charge and emits nothing.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <see langword="false"/> is the one a caller wants for a row that must not be cut: Typst then
+    /// keeps the row whole and moves it to the next page when it does not fit, instead of splitting
+    /// a cell down the middle. <see langword="true"/> allows the split, which is what a tall cell
+    /// with several paragraphs needs.
+    /// </para>
+    /// <para>
+    /// Under <c>auto</c>, a cell that spans only fixed-size rows is unbreakable and a cell that
+    /// spans at least one auto-sized row is breakable. A single-row cell therefore follows the row it
+    /// sits in. A row kept whole and taller than a page overflows rather than being split: Typst
+    /// measures an unbreakable row at its full height.
+    /// </para>
+    /// </remarks>
+    public bool? Breakable { get; init; }
+
     /// <summary>How many columns the cell covers.</summary>
     public int Colspan { get; }
 
