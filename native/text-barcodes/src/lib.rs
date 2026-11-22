@@ -8,7 +8,12 @@
 pub mod decode;
 pub mod encode;
 pub mod ffi;
+pub mod gs1;
 pub mod symbology;
+
+/// The `rxing` version this build was compiled against. Reported across the ABI and used in the
+/// messages that explain a capability the engine does not have.
+pub const ENGINE_VERSION: &str = "0.9.4";
 
 use std::ffi::{CString, c_char};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -120,7 +125,7 @@ pub extern "C" fn bt_build_info() -> *const c_char {
 }
 
 fn engine_version() -> &'static str {
-    "0.9.4"
+    ENGINE_VERSION
 }
 
 /// Every symbology name this library writes and reads, as a JSON array of strings.
@@ -137,6 +142,117 @@ pub unsafe extern "C" fn bt_symbologies() -> BtBuffer {
         .collect();
 
     BtBuffer::from_vec(format!("[{}]", names.join(",")).into_bytes())
+}
+
+/// The same list, with the direction each symbology works in: `[{"name":"UPCA","encode":true}…]`.
+///
+/// The name list cannot say this on its own, and the difference matters: a GS1 DataBar can be read
+/// from a label this package did not write, but it cannot be written here, because `rxing` 0.9.4
+/// has no writer for it.
+///
+/// # Safety
+/// The returned buffer is owned by Rust: free it with `bt_buffer_free`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bt_symbology_capabilities() -> BtBuffer {
+    let entries: Vec<String> = symbology::ALL
+        .iter()
+        .map(|s| {
+            format!(
+                "{{\"name\":\"{}\",\"encode\":{}}}",
+                s.name(),
+                s.can_encode()
+            )
+        })
+        .collect();
+
+    BtBuffer::from_vec(format!("[{}]", entries.join(",")).into_bytes())
+}
+
+// ---------------------------------------------------------------------------
+// GS1
+// ---------------------------------------------------------------------------
+
+/// Parses a GS1 element string into its named elements, as JSON.
+///
+/// The input may be the raw form a reader returns (`01…10…`, with `\x1D` separators), the same
+/// form with a symbol identifier in front (`]C1…`), or the printed form `(01)…(10)…`.
+///
+/// # Safety
+/// `raw` must be a NUL-terminated UTF-8 string; the buffer is freed with `bt_buffer_free`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bt_gs1_parse(
+    raw: *const c_char,
+    out_json: *mut BtBuffer,
+    out_error: *mut *mut BtError,
+) -> i32 {
+    unsafe {
+        guard_status(out_error, || {
+            let raw = read_str(raw, "GS1 data")?;
+            let data = gs1::Gs1Data::parse(raw)?;
+            set_buffer(out_json, data.json().into_bytes())
+        })
+    }
+}
+
+/// Builds the GS1 Digital Link URL for a GS1 element string.
+///
+/// # Safety
+/// `raw` and `base_url` must be NUL-terminated UTF-8 strings; the buffer is freed with
+/// `bt_buffer_free`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bt_gs1_digital_link(
+    raw: *const c_char,
+    base_url: *const c_char,
+    out_url: *mut BtBuffer,
+    out_error: *mut *mut BtError,
+) -> i32 {
+    unsafe {
+        guard_status(out_error, || {
+            let raw = read_str(raw, "GS1 data")?;
+            let base_url = read_str(base_url, "base URL")?;
+            let data = gs1::Gs1Data::parse(raw)?;
+            let url = data.to_digital_link(base_url)?;
+            set_buffer(out_url, url.into_bytes())
+        })
+    }
+}
+
+/// Parses a GS1 Digital Link URL back into its elements, as JSON.
+///
+/// # Safety
+/// `url` must be a NUL-terminated UTF-8 string; the buffer is freed with `bt_buffer_free`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bt_gs1_from_digital_link(
+    url: *const c_char,
+    out_json: *mut BtBuffer,
+    out_error: *mut *mut BtError,
+) -> i32 {
+    unsafe {
+        guard_status(out_error, || {
+            let url = read_str(url, "Digital Link URL")?;
+            let data = gs1::Gs1Data::from_digital_link(url)?;
+            set_buffer(out_json, data.json().into_bytes())
+        })
+    }
+}
+
+/// The Application Identifiers this build understands, as JSON.
+///
+/// # Safety
+/// The returned buffer is owned by Rust: free it with `bt_buffer_free`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bt_gs1_identifiers() -> BtBuffer {
+    let entries: Vec<String> = gs1::table()
+        .iter()
+        .map(|spec| {
+            format!(
+                "{{\"ai\":\"{}\",\"title\":\"{}\",\"min\":{},\"max\":{},\"numeric\":{},\"checkDigit\":{},\"primaryKey\":{}}}",
+                spec.ai, spec.title, spec.min, spec.max, spec.numeric, spec.check_digit, spec.primary_key
+            )
+        })
+        .collect();
+
+    BtBuffer::from_vec(format!("[{}]", entries.join(",")).into_bytes())
 }
 
 // ---------------------------------------------------------------------------

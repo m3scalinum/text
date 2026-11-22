@@ -11,7 +11,9 @@ use image::ImageEncoder as _;
 use rxing::common::BitMatrix;
 use rxing::{EncodeHintValue, EncodeHints, MultiFormatWriter, Writer};
 
+use crate::ENGINE_VERSION;
 use crate::ffi::{BT_ERR_LIMIT, BtError};
+use crate::gs1;
 use crate::symbology::Symbology;
 
 /// The largest payload accepted, in bytes of UTF-8. A QR Code tops out around 3 KB and a
@@ -79,7 +81,24 @@ pub fn encode(
         ));
     }
 
-    validate_payload(symbology, payload)?;
+    // `rxing` reads these but cannot write them. Saying so here, by name, is the difference
+    // between a caller who reads the message and one who debugs a mysterious encode failure.
+    if !symbology.can_encode() {
+        return Err(BtError::unsupported(format!(
+            "{} is read only in this build: rxing {} has no writer for it, so it can be decoded but not encoded",
+            symbology.name(),
+            ENGINE_VERSION
+        )));
+    }
+
+    // GS1-128 is Code 128 with the structure added: the Application Identifiers become FNC1 and
+    // field separators, and the parse is where an unknown AI or a bad check digit is refused.
+    let contents = if symbology == Symbology::Gs1_128 {
+        gs1::Gs1Data::parse(payload)?.to_gs1_128()
+    } else {
+        validate_payload(symbology, payload)?;
+        payload.to_string()
+    };
 
     let quiet_zone = options
         .quiet_zone
@@ -113,7 +132,7 @@ pub fn encode(
     };
 
     let modules = MultiFormatWriter
-        .encode_with_hints(payload, &symbology.format(), 0, height, &hints)
+        .encode_with_hints(&contents, &symbology.format(), 0, height, &hints)
         .map_err(|error| {
             BtError::encode(format!(
                 "{} cannot encode this payload: {error}",
@@ -213,6 +232,8 @@ fn validate_payload(symbology: Symbology, payload: &str) -> Result<(), BtError> 
     let expected = match symbology {
         Symbology::Ean13 => Some(13),
         Symbology::Ean8 => Some(8),
+        Symbology::UpcA => Some(12),
+        Symbology::UpcE => Some(8),
         _ => None,
     };
 

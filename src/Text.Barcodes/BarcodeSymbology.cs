@@ -47,6 +47,43 @@ public enum BarcodeSymbology
     /// <summary>Codabar: digits and a few symbols, framed by a start and a stop character
     /// (<c>A</c>…<c>B</c>), which a reader strips.</summary>
     Codabar = 9,
+
+    /// <summary>GS1-128: Code 128 with FNC1 in lead position and a field separator after every
+    /// variable-length value. Encode it from a <see cref="Gs1Data"/>; a decoded one comes back
+    /// with its symbology identifier stripped and its field separators kept.</summary>
+    [System.Diagnostics.CodeAnalysis.SuppressMessage(
+        "Naming",
+        "CA1707:Identifiers should not contain underscores",
+        Justification = "GS1-128 is the name of the specification; renaming the member would hide it.")]
+    Gs1_128 = 10,
+
+    /// <summary>UPC-A: twelve digits, the check digit included, read back as twelve digits.</summary>
+    UpcA = 11,
+
+    /// <summary>UPC-E: eight digits, number system 0 or 1, the check digit included. Needs the
+    /// nine-module quiet zone its specification gives it, which is the default here.</summary>
+    UpcE = 12,
+
+    /// <summary>Code 93: full ASCII, denser than Code 39, two check characters the writer
+    /// computes.</summary>
+    Code93 = 13,
+
+    /// <summary>Telepen: full ASCII in a sixteen-module alphabet per character.</summary>
+    Telepen = 14,
+
+    /// <summary>GS1 DataBar Omnidirectional (RSS-14). Read only: the engine has no writer for
+    /// it, so it is decoded but never encoded.</summary>
+    DataBarOmnidirectional = 15,
+
+    /// <summary>GS1 DataBar Expanded (RSS Expanded). Read only, for the same reason.</summary>
+    DataBarExpanded = 16,
+
+    /// <summary>MaxiCode. Read only: the engine has no writer for it.</summary>
+    MaxiCode = 17,
+
+    /// <summary>Micro QR Code, and its rectangular variant. Read only: the engine has no writer
+    /// for it.</summary>
+    MicroQr = 18,
 }
 
 /// <summary>The spellings of <see cref="BarcodeSymbology"/> across the native ABI.</summary>
@@ -65,6 +102,15 @@ internal static class BarcodeSymbologyNames
         BarcodeSymbology.Ean8 => "EAN8",
         BarcodeSymbology.Itf => "ITF",
         BarcodeSymbology.Codabar => "Codabar",
+        BarcodeSymbology.Gs1_128 => "GS1-128",
+        BarcodeSymbology.UpcA => "UPCA",
+        BarcodeSymbology.UpcE => "UPCE",
+        BarcodeSymbology.Code93 => "Code93",
+        BarcodeSymbology.Telepen => "Telepen",
+        BarcodeSymbology.DataBarOmnidirectional => "DataBarOmnidirectional",
+        BarcodeSymbology.DataBarExpanded => "DataBarExpanded",
+        BarcodeSymbology.MaxiCode => "MaxiCode",
+        BarcodeSymbology.MicroQr => "MicroQR",
         _ => throw new BarcodeUnsupportedException($"unknown symbology '{symbology}'"),
     };
 

@@ -34,7 +34,7 @@ public sealed class EnvironmentTests
     }
 
     [Fact]
-    public void The_ten_symbologies_are_the_ten_this_package_documents()
+    public void The_symbologies_are_the_ones_this_package_documents()
     {
         Assert.Equal(
             [
@@ -48,6 +48,15 @@ public sealed class EnvironmentTests
                 BarcodeSymbology.Ean8,
                 BarcodeSymbology.Itf,
                 BarcodeSymbology.Codabar,
+                BarcodeSymbology.Gs1_128,
+                BarcodeSymbology.UpcA,
+                BarcodeSymbology.UpcE,
+                BarcodeSymbology.Code93,
+                BarcodeSymbology.Telepen,
+                BarcodeSymbology.DataBarOmnidirectional,
+                BarcodeSymbology.DataBarExpanded,
+                BarcodeSymbology.MaxiCode,
+                BarcodeSymbology.MicroQr,
             ],
             Barcode.SupportedSymbologies);
     }

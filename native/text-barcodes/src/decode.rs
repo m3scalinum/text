@@ -5,7 +5,7 @@
 //! an error, because that is a caller mistake rather than a document without a symbol.
 
 use rxing::BarcodeFormat;
-use rxing::helpers;
+use rxing::{DecodeHints, helpers};
 
 use crate::ffi::BtError;
 use crate::symbology::Symbology;
@@ -69,13 +69,20 @@ pub fn decode_png(png: &[u8]) -> Result<Decoded, BtError> {
         return Err(BtError::decode("the PNG has no pixels"));
     }
 
-    match helpers::detect_in_luma_slice(grey.as_raw(), width, height, None) {
+    match helpers::detect_in_luma_slice_with_hints(
+        grey.as_raw(),
+        width,
+        height,
+        None,
+        &mut decode_hints(),
+    ) {
         Ok(result) => {
             let format = result.getBarcodeFormat();
+            let (text, symbology) = resolve_text(result.getText(), format);
             Ok(Decoded {
                 success: true,
-                text: result.getText().to_string(),
-                symbology: Symbology::from_format(format),
+                text,
+                symbology,
                 format: format_spelling(format),
                 points: result
                     .getPoints()
@@ -92,6 +99,34 @@ pub fn decode_png(png: &[u8]) -> Result<Decoded, BtError> {
             "no barcode was found in the image: {error}"
         ))),
     }
+}
+
+/// The hints every decode runs under.
+///
+/// `AssumeGs1` is the only one, and it is on unconditionally: without it rxing drops FNC1 from a
+/// Code 128 entirely, so a GS1-128 would read back as its AIs run together with no field
+/// separators and no way to tell where one value ends. With it, the first FNC1 becomes the `]C1`
+/// identifier and every later one becomes ASCII 29 (GS), which is the form
+/// [`crate::gs1::Gs1Data::parse`] reads. A Code 128 that carries no FNC1 is unaffected.
+fn decode_hints() -> DecodeHints {
+    DecodeHints {
+        AssumeGs1: Some(true),
+        ..DecodeHints::default()
+    }
+}
+
+/// Splits the GS1-128 symbology identifier from a decoded Code 128, so the caller sees the data
+/// and the symbology it actually is.
+fn resolve_text(text: &str, format: &BarcodeFormat) -> (String, Option<Symbology>) {
+    let gs1_128 = text
+        .strip_prefix("]C1")
+        .filter(|_| *format == BarcodeFormat::CODE_128);
+
+    if let Some(data) = gs1_128 {
+        return (data.to_string(), Some(Symbology::Gs1_128));
+    }
+
+    (text.to_string(), Symbology::from_format(format))
 }
 
 /// How a format is spelled across the ABI, so a consumer that receives a symbol outside

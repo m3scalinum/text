@@ -142,6 +142,56 @@ internal sealed class BarcodeNative
         return names;
     }
 
+    /// <summary>The symbologies the native library reports, with whether it can write each one.</summary>
+    public static IReadOnlyList<(string Name, bool CanEncode)> SymbologyCapabilities()
+    {
+        var json = Encoding.UTF8.GetString(
+            NativeCallException.ReadAndFree(NativeMethods.SymbologyCapabilities()));
+        if (json.Length == 0)
+        {
+            return [];
+        }
+
+        var capabilities = new List<(string Name, bool CanEncode)>();
+        using var document = JsonDocument.Parse(json);
+        foreach (var element in document.RootElement.EnumerateArray())
+        {
+            capabilities.Add((
+                element.GetProperty("name").GetString() ?? string.Empty,
+                element.GetProperty("encode").GetBoolean()));
+        }
+
+        return capabilities;
+    }
+
+    /// <summary>Parses a GS1 element string, as the JSON the managed types read.</summary>
+    public static string ParseGs1(string raw)
+    {
+        var status = NativeMethods.Gs1Parse(raw, out var json, out var error);
+        NativeCallException.Throw(status, error, "parse the GS1 data");
+        return NativeCallException.ReadAndFreeString(json);
+    }
+
+    /// <summary>Builds a Digital Link URL from a raw GS1 element string.</summary>
+    public static string DigitalLink(string raw, string baseUrl)
+    {
+        var status = NativeMethods.Gs1DigitalLink(raw, baseUrl, out var url, out var error);
+        NativeCallException.Throw(status, error, "build the Digital Link");
+        return NativeCallException.ReadAndFreeString(url);
+    }
+
+    /// <summary>Parses a Digital Link URL, as the JSON the managed types read.</summary>
+    public static string FromDigitalLink(string url)
+    {
+        var status = NativeMethods.Gs1FromDigitalLink(url, out var json, out var error);
+        NativeCallException.Throw(status, error, "parse the Digital Link");
+        return NativeCallException.ReadAndFreeString(json);
+    }
+
+    /// <summary>The Application Identifiers the native library understands, as JSON.</summary>
+    public static string Gs1Identifiers()
+        => Encoding.UTF8.GetString(NativeCallException.ReadAndFree(NativeMethods.Gs1Identifiers()));
+
     private delegate int BufferReader(IntPtr handle, out NativeBuffer buffer, out IntPtr error);
 
     private delegate int ScaledBufferReader(

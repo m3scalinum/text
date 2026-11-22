@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using M3scalinum.Text.Barcodes.Internal;
 
 namespace M3scalinum.Text.Barcodes;
@@ -42,11 +43,48 @@ public static class Barcode
             .ToArray();
 
     /// <summary>
+    /// The GS1 Application Identifiers this package understands, with the length each one takes
+    /// and whether it is a Digital Link primary key.
+    /// </summary>
+    /// <remarks>
+    /// Read from the native library, like <see cref="SupportedSymbologies"/>: the table the parser
+    /// enforces and the table this property reports are the same one.
+    /// </remarks>
+    public static IReadOnlyList<Gs1ApplicationIdentifier> ApplicationIdentifiers
+        => ParseIdentifiers(BarcodeNative.Gs1Identifiers());
+
+    /// <summary>Whether this build can write <paramref name="symbology"/>.</summary>
+    /// <param name="symbology">The symbology to check.</param>
+    /// <returns><see langword="false"/> for a symbology the engine reads but cannot write: GS1
+    /// DataBar, MaxiCode and Micro QR Code, in rxing 0.9.4.</returns>
+    public static bool CanEncode(BarcodeSymbology symbology) => Encodeable.Contains(symbology);
+
+    /// <summary>
+    /// Encodes <paramref name="data"/> as a GS1-128.
+    /// </summary>
+    /// <param name="data">The elements to write. Nothing is reformatted: the AIs and values go into
+    /// the symbol as they are, with FNC1 in lead position and a field separator after every
+    /// variable-length value.</param>
+    /// <param name="options">What to change about the rendering, or <see langword="null"/> for the
+    /// defaults.</param>
+    /// <returns>The module matrix, its SVG and its PNG.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="data"/> is null.</exception>
+    /// <exception cref="BarcodeFormatException">The payload cannot be represented in Code 128.</exception>
+    /// <exception cref="BarcodeGs1Exception">An element is not one this build understands.</exception>
+    public static BarcodeImage EncodeGs1(Gs1Data data, BarcodeOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(data);
+        return Encode(BarcodeSymbology.Gs1_128, data.Raw, options);
+    }
+
+    /// <summary>
     /// Encodes <paramref name="payload"/> as <paramref name="symbology"/>.
     /// </summary>
     /// <param name="symbology">The symbology to write.</param>
     /// <param name="payload">The text to encode. ASCII is always safe; the symbologies that carry an
-    /// ECI (QR Code, DataMatrix, Aztec, PDF417) also take UTF-8.</param>
+    /// ECI (QR Code, DataMatrix, Aztec, PDF417) also take UTF-8. For
+    /// <see cref="BarcodeSymbology.Gs1_128"/> this is a GS1 element string, or the printed form
+    /// <c>(01)…(10)…</c>; <see cref="EncodeGs1"/> is the typed way in.</param>
     /// <param name="options">What to change about the rendering, or <see langword="null"/> for the
     /// defaults: four pixels per module, the symbology's own quiet zone and bar height.</param>
     /// <returns>The module matrix, its SVG and its PNG.</returns>
@@ -54,14 +92,23 @@ public static class Barcode
     /// <exception cref="BarcodeException"><paramref name="payload"/> is empty or holds a NUL, or
     /// <paramref name="options"/> holds a value out of range.</exception>
     /// <exception cref="BarcodeFormatException">The symbology cannot represent this payload: the
-    /// wrong length for EAN-13 or EAN-8, a character the symbology has no encoding for, a payload
-    /// past the symbol's capacity.</exception>
+    /// wrong length for EAN-13, EAN-8, UPC-A or UPC-E, a character the symbology has no encoding
+    /// for, a payload past the symbol's capacity.</exception>
+    /// <exception cref="BarcodeUnsupportedException">The symbology is read only in this build.</exception>
+    /// <exception cref="BarcodeGs1Exception">The payload is not a GS1 element string this build
+    /// understands.</exception>
     public static BarcodeImage Encode(
         BarcodeSymbology symbology,
         string payload,
         BarcodeOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(payload);
+
+        if (!CanEncode(symbology))
+        {
+            throw new BarcodeUnsupportedException(
+                $"{symbology} is read only in this build: the engine has no writer for it, so it can be decoded but not encoded");
+        }
 
         options ??= new BarcodeOptions();
         options.Validate(symbology);
@@ -161,6 +208,11 @@ public static class Barcode
         }
     }
 
+    /// <summary>Maps a native failure on a GS1 call onto the public taxonomy.</summary>
+    /// <param name="error">The failure from the interop layer.</param>
+    /// <returns>The exception a caller should see.</returns>
+    internal static BarcodeException TranslateGs1(NativeCallException error) => Translate(error, null);
+
     /// <summary>Maps the native status onto the public exception taxonomy, once, here.</summary>
     private static BarcodeException Translate(NativeCallException error, BarcodeSymbology? symbology)
     {
@@ -173,9 +225,52 @@ public static class Barcode
                 BarcodeErrorCode.InvalidArgument, context + message),
             BarcodeStatus.Encode => new BarcodeFormatException(context + message),
             BarcodeStatus.Unsupported => new BarcodeUnsupportedException(context + message),
+            BarcodeStatus.Gs1 => new BarcodeGs1Exception(message),
             BarcodeStatus.Decode => new BarcodeImageException(message),
             BarcodeStatus.Limit => new BarcodeException(BarcodeErrorCode.Limit, context + message),
             _ => new BarcodeNativeException(context + message, error.Traceback ?? string.Empty),
         };
+    }
+
+    /// <summary>
+    /// The symbologies the loaded native library can write, read once from its capability report.
+    /// </summary>
+    /// <remarks>
+    /// Lazily cached because it is consulted on every <see cref="Encode"/> call, and it is the
+    /// native library's answer, not a table declared here.
+    /// </remarks>
+    private static readonly Lazy<IReadOnlySet<BarcodeSymbology>> EncodeableSet = new(() =>
+        BarcodeNative.SymbologyCapabilities()
+            .Where(capability => capability.CanEncode)
+            .Select(capability => BarcodeSymbologyNames.FromAbiName(capability.Name))
+            .Where(symbology => symbology is not null)
+            .Select(symbology => symbology!.Value)
+            .ToHashSet());
+
+    private static IReadOnlySet<BarcodeSymbology> Encodeable => EncodeableSet.Value;
+
+    /// <summary>Reads the AI table the native library reports.</summary>
+    private static List<Gs1ApplicationIdentifier> ParseIdentifiers(string json)
+    {
+        if (json.Length == 0)
+        {
+            return [];
+        }
+
+        var identifiers = new List<Gs1ApplicationIdentifier>();
+        using var document = JsonDocument.Parse(json);
+        foreach (var element in document.RootElement.EnumerateArray())
+        {
+            identifiers.Add(new Gs1ApplicationIdentifier(
+                element.GetProperty("ai").GetString() ?? string.Empty,
+                element.GetProperty("title").GetString() ?? string.Empty,
+                element.GetProperty("min").GetInt32(),
+                element.GetProperty("max").GetInt32(),
+                element.GetProperty("numeric").GetBoolean(),
+                element.GetProperty("checkDigit").GetBoolean(),
+                element.GetProperty("primaryKey").GetBoolean()));
+        }
+
+        return identifiers;
     }
 }

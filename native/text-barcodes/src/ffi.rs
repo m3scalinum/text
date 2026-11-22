@@ -16,6 +16,9 @@ pub const BT_ERR_UNSUPPORTED: i32 = 5;
 pub const BT_ERR_DECODE: i32 = 6;
 pub const BT_ERR_ABI_MISMATCH: i32 = 7;
 pub const BT_ERR_LIMIT: i32 = 8;
+/// The GS1 element string is malformed: an unknown Application Identifier, a value of the wrong
+/// length, a check digit that does not match, or a Digital Link that is not one.
+pub const BT_ERR_GS1: i32 = 9;
 
 /// A buffer allocated by Rust and freed by `bt_buffer_free`.
 #[repr(C)]
@@ -95,6 +98,10 @@ impl BtError {
     pub fn limit(message: impl Into<String>) -> Self {
         Self::new(BT_ERR_LIMIT, message)
     }
+
+    pub fn gs1(message: impl Into<String>) -> Self {
+        Self::new(BT_ERR_GS1, message)
+    }
 }
 
 pub fn code_name(code: i32) -> &'static str {
@@ -108,13 +115,14 @@ pub fn code_name(code: i32) -> &'static str {
         BT_ERR_DECODE => "decode",
         BT_ERR_ABI_MISMATCH => "abi_mismatch",
         BT_ERR_LIMIT => "limit",
+        BT_ERR_GS1 => "gs1",
         _ => "unknown",
     }
 }
 
 /// Escapes the two characters that can break the error payload: `"` and `\`, plus control
 /// characters, which a symbology message can carry when the payload is what failed.
-fn escape_json(value: &str) -> String {
+pub(crate) fn escape_json(value: &str) -> String {
     let mut out = String::with_capacity(value.len() + 8);
     for c in value.chars() {
         match c {
