@@ -55,6 +55,11 @@
     <None Include="$(NativeArtifactsDir)\linux-arm64\libsharp_text_barcodes.so"
           Pack="true" PackagePath="runtimes/linux-arm64/native/" Visible="false"
           Condition="Exists('$(NativeArtifactsDir)\linux-arm64\libsharp_text_barcodes.so')" />
+    <!-- A musl target cannot be a cdylib: the CI links the staticlib with `musl-gcc`, the compiler's
+         recipe, so Alpine gets a library it can load instead of DllNotFoundException. -->
+    <None Include="$(NativeArtifactsDir)\linux-musl-x64\libsharp_text_barcodes.so"
+          Pack="true" PackagePath="runtimes/linux-musl-x64/native/" Visible="false"
+          Condition="Exists('$(NativeArtifactsDir)\linux-musl-x64\libsharp_text_barcodes.so')" />
     <None Include="$(NativeArtifactsDir)\osx\libsharp_text_barcodes.dylib"
           Pack="true" PackagePath="runtimes/osx/native/" Visible="false"
           Condition="Exists('$(NativeArtifactsDir)\osx\libsharp_text_barcodes.dylib')" />
