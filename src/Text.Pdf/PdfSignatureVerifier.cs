@@ -120,6 +120,42 @@ public static class PdfSignatureVerifier
     }
 
     /// <summary>
+    /// Reads every signature as an eIDAS act: person or seal, timestamped or not, and what a trust
+    /// list states about the signing certificate and the timestamp authority.
+    /// </summary>
+    /// <param name="pdf">The document to read.</param>
+    /// <returns>One <see cref="PdfEidasSignatureVerdict"/> per signature and one
+    /// <see cref="PdfEidasTimestampVerdict"/> per document timestamp, with every qualification
+    /// <see cref="PdfEidasQualification.NotEvaluated"/> because no list was supplied.</returns>
+    /// <exception cref="PdfSignatureException">The data is not a PDF.</exception>
+    public static PdfEidasReport ReadEidas(ReadOnlySpan<byte> pdf)
+        => PdfEidasReader.Read(pdf, null, null);
+
+    /// <summary>
+    /// Reads every signature as an eIDAS act, and says what <paramref name="trustList"/> states
+    /// about the signers and the timestamp authorities.
+    /// </summary>
+    /// <param name="pdf">The document to read.</param>
+    /// <param name="trustStore">The anchors to judge the chain by. Null behaves as an empty store.</param>
+    /// <param name="trustList">The territory's trust list to judge qualification by, or null when the
+    /// caller has none — in which case every qualification says so instead of claiming "not qualified".</param>
+    /// <returns>The eIDAS reading, with the full verification underneath.</returns>
+    /// <exception cref="PdfSignatureException">The data is not a PDF.</exception>
+    /// <remarks>
+    /// The list is data the caller read with <see cref="PdfLotl.Read(ReadOnlySpan{byte}, string)"/>:
+    /// nothing is downloaded, and a certificate the list does not know makes the qualification
+    /// <see cref="PdfEidasQualification.NotQualified"/> without touching what the verifier proved
+    /// about the bytes. Two questions are kept apart: whether the timestamp authority is a qualified
+    /// service of the list, and whether a qualified signature or seal service covers the signing
+    /// certificate. Neither is answered by the certificate's own text.
+    /// </remarks>
+    public static PdfEidasReport ReadEidas(
+        ReadOnlySpan<byte> pdf,
+        PdfTrustStore? trustStore,
+        PdfTrustedList? trustList)
+        => PdfEidasReader.Read(pdf, trustStore, trustList);
+
+    /// <summary>
     /// Reports, for every certificate the document security store embeds, which revocation data
     /// covers it and when that data was issued.
     /// </summary>
