@@ -453,10 +453,7 @@ impl Gs1Data {
             }
 
             if spec.check_digit && !check_digit_is_valid(&element.value) {
-                return Err(gs1_error(format!(
-                    "AI {} ({}) has a check digit that does not match: '{}'",
-                    spec.ai, spec.title, element.value
-                )));
+                return Err(check_digit_mismatch(spec, &element.value));
             }
 
             if self.elements[index + 1..]
@@ -513,6 +510,32 @@ pub fn check_digit(body: &str) -> Option<u32> {
         sum += if index % 2 == 0 { digit * 3 } else { digit };
     }
     Some((10 - (sum % 10)) % 10)
+}
+
+/// The refusal for a value whose last character is not its GS1 mod-10 check digit.
+///
+/// Both digits are named — the one the value ends in and the one the rest of it needs — because the
+/// caller's next move is either to correct the key or to correct the digit, and a message that only
+/// says "mismatch" makes them recompute it by hand. A pallet keyed to the wrong SSCC is loaded onto
+/// the wrong lorry, so the number that *should* be there belongs in the message.
+fn check_digit_mismatch(spec: &AiSpec, value: &str) -> BtError {
+    let (body, given) = match value.char_indices().next_back() {
+        Some((index, last)) => (&value[..index], last),
+        None => ("", ' '),
+    };
+
+    match check_digit(body) {
+        Some(expected) => gs1_error(format!(
+            "AI {} ({}) ends in check digit {given}, but '{body}' needs {expected}: the value '{}' fails the GS1 mod-10 check",
+            spec.ai, spec.title, value
+        )),
+        // Not a digit at all: the numeric check above normally catches this, and a non-numeric
+        // value has no check digit to name.
+        None => gs1_error(format!(
+            "AI {} ({}) has a check digit that does not match: '{}'",
+            spec.ai, spec.title, value
+        )),
+    }
 }
 
 fn is_fixed(ai: &str) -> bool {
@@ -903,6 +926,32 @@ mod tests {
         assert!(json.contains("\"primaryKey\":true"));
         // The separator is a control character, so it is escaped rather than emitted raw.
         assert!(json.contains("\\u001d"));
+    }
+
+    #[test]
+    fn an_sscc_is_accepted_and_its_check_digit_verified() {
+        // 106141411234567897: extension digit 1, the seventeen-digit body, and its mod-10 check.
+        let data = Gs1Data::parse("00106141411234567897").expect("parse");
+
+        assert_eq!(data.elements[0].ai, "00");
+        assert_eq!(data.elements[0].title(), "SSCC");
+        assert_eq!(data.elements[0].value, "106141411234567897");
+        assert!(spec("00").unwrap().primary_key);
+    }
+
+    #[test]
+    fn an_sscc_with_the_wrong_check_digit_names_both_digits() {
+        // The same key with its last digit moved from 7 to 8.
+        let error = Gs1Data::parse("00106141411234567898").unwrap_err();
+
+        assert_eq!(error.code, crate::ffi::BT_ERR_GS1);
+        assert!(error.json.contains("AI 00"), "{}", error.json);
+        assert!(
+            error.json.contains("ends in check digit 8"),
+            "{}",
+            error.json
+        );
+        assert!(error.json.contains("needs 7"), "{}", error.json);
     }
 
     #[test]

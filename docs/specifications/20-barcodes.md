@@ -1042,3 +1042,133 @@ name from every row, and compares the set with `Enum.GetValues<BarcodeSymbology>
 It enumerates both sides rather than comparing counts, so the next symbology added — or removed —
 fails it on the day it is added, whatever its direction.
 
+## 13. A shipping label: SSCC, GS1-128 and a page
+
+A logistics label carries one key in machine-readable form and the same information in text: the
+Serial Shipping Container Code in a GS1-128 symbol, the delivery address, and the shipper's or the
+carrier's parcel reference. That document is produced today in a dedicated labelling tool;
+`ShippingLabel` produces it in the suite.
+
+```csharp
+var label = ShippingLabel.Create("106141411234567897", new ShippingLabelOptions
+{
+    Recipient = "Camille Dubois",
+    AddressLines = ["12 rue de la Paix", "75002 Paris", "France"],
+    Reference = "LS-2026-000481",
+});
+
+byte[] pdf = label.Pdf;               // one page, 100 × 150 mm
+BarcodePrint code = label.Code;       // the symbol, its resolution, its real size
+string printed = label.HumanReadable; // (00)106141411234567897
+```
+
+`samples/labels/sscc-label.json` is the same label as data, and a test builds it from that file so
+the sample cannot go stale.
+
+### 13.1 The format, and why 100 × 150 mm
+
+| Format | Page | Use |
+| --- | --- | --- |
+| `Millimetres100x150` (default) | 100 × 150 mm | the 4 × 6 in stock every thermal label printer is loaded with |
+| `A6` | 105 × 148 mm | the same label on an office sheet |
+
+100 mm is the smaller of the two and still holds the symbol: a twenty-character GS1-128 (AI `00`
+and eighteen digits) at the 0.495 mm nominal module, with the 10X quiet zone on each side, measures
+about 89 mm, and the layout leaves 92 mm for it — 4 mm of paper on each side beyond the quiet zone
+the raster already carries. A wider module is refused with both widths in the message rather than
+being cropped.
+
+### 13.2 The layout
+
+```
++----------------------------------------------+
+|  SHIPPING LABEL                              |   7.5 pt, above a rule
+|
+|  Camille Dubois                              |   14 pt bold
+|  12 rue de la Paix                           |   10 pt, 5 mm leading
+|  75002 Paris                                 |
+|  France                                      |
+|
+|  REF                                         |   7.5 pt, grey
+|  LS-2026-000481                              |   12 pt bold
+|
+|  SSCC (AI 00)                                |   7.5 pt, grey
+|  ||| ||| ||| ||| ||| ||| ||| ||| ||| |||    |   centred, 0.508 mm module, 32.5 mm bars
+|  (00)106141411234567897                      |   11 pt bold
++----------------------------------------------+
+```
+
+Ten millimetres of margin for the text, four for the symbol: the raster brings its own quiet zone,
+so what the page owes the symbol is a margin to trim on, not a second quiet zone. The symbol is
+placed by `BarcodePrint.WidthMillimetres`, its real width, so a different module moves it rather
+than resizing the page. The address block is text in one of the two standard Helvetica faces a PDF
+reader is required to have, encoded Windows-1252, so an accented address prints as written; a
+character outside that encoding becomes `?`, never an invisible escape.
+
+The template holds five address lines of forty-two characters at most, one recipient line, and a
+reference of thirty-two characters. A value past that is refused with its length — the alternative,
+clipping an address, is a parcel that goes nowhere.
+
+### 13.3 The SSCC rule, and where it comes from
+
+An SSCC is eighteen digits under AI `00`, and it is a GS1 key rather than a free number: the GS1
+General Specifications, section 7.9 (identification of logistic units), define it, and ISO/IEC
+15459-4 is the standard it comes from. Its last digit is a check digit over the seventeen before
+it, calculated the way every GS1 key is (GS1 General Specifications, check-digit calculation):
+weight the digits 3, 1, 3, 1 … from the right, sum, and take the difference to the next multiple of
+ten.
+
+GS1-128 is Code 128 with FNC1 in lead position, and the package already had the whole path:
+`Gs1Data` knows AI `00`, enforces eighteen digits and verifies the check digit, and
+`Barcode.EncodeGs1` writes the element string with FNC1 first. What this item added is the message:
+a key whose digit does not match is now refused with **both** digits named —
+
+```
+AI 00 (SSCC) ends in check digit 8, but '10614141123456789' needs 7:
+the value '106141411234567898' fails the GS1 mod-10 check
+```
+
+A key that ends in the wrong digit is a pallet that reaches the wrong lorry; a message that says
+only "mismatch" makes the caller recompute it by hand, and the caller is usually a machine.
+
+### 13.4 Rendering the page, without the PDF package
+
+The label is written by `Text.Barcodes` itself: one page, two standard fonts, one image XObject,
+written in `Internal/PdfLabelPage`. That is a deliberate graph decision, not an oversight.
+
+`M3scalinum.Text.Barcodes` references `M3scalinum.Text.Documents` (for `Barcode.AddToDocument`) and
+nothing else; `Text.Pdf` references neither of the other two. A `ShippingLabel` that emitted its PDF
+through `Text.Pdf` would drag that package's renderer, its native library and its signing
+dependencies under every consumer of a barcode encoder — the same argument §9 makes about
+`DecodeAll` and §10.7 makes about the figure. So the package writes the smallest document that
+renders the label it draws, and it writes it with no timestamp and no identifier, which is why
+`The_same_label_renders_to_the_same_bytes` can assert byte equality.
+
+A Typst template under `templates/` was the other candidate and was rejected for a narrower reason:
+the compiler is `Text.Typst`, `Text.Barcodes` must not depend on it either, and
+`Text.Barcodes.Tests` cannot reference it without changing a project file this change does not own.
+A template that no test compiles is a template that drifts.
+
+The PNG the symbol comes back as is decoded in `Internal/PngGreyscale` — 8-bit greyscale,
+non-interlaced, the one format this package writes. A styled (colour) symbol is refused by name
+rather than embedded in a colour model a label does not use.
+
+### 13.5 What the label does not do
+
+| Not done | Why |
+| --- | --- |
+| ZPL, EPL, or any printer language | The item's note is the rule: the `zpl` crate is OSL-3.0, a weak copyleft, and no copyleft crate enters this tree. The label is a PDF a driver renders. |
+| Talking to a thermal printer | Paper size, darkness and media calibration belong to the driver and the hardware. |
+| Sorting, routing, carrier selection, label sequencing | Those are business rules over a database of parcels; this is one label for one key. |
+| A logo, a colour, a second page | A barcode is black on white and a label is one page. Both would be a claim a scanner cannot verify. |
+| GS1 AIs beyond the caller's | The symbol carries exactly the element string it was given. An SSCC alone is the common case, not the only one: `ShippingLabel.Create(Gs1Data, …)` writes whatever `Gs1Data` carries, provided AI `00` is in it. |
+| A ready-made carrier template | Every carrier's layout is its own; this is the layout a generic label needs, with the fields named. |
+
+### 13.6 Tests
+
+| Layer | What is asserted |
+| --- | --- |
+| Rust, `gs1.rs` | An SSCC parses, is a Digital Link primary key, and its check digit is verified; a key whose digit is wrong is refused with `ends in check digit 8` and `needs 7`; the GTIN message still names AI and value. |
+| Rust, `symbology.rs` | `AztecRune`, `Aztec Rune` and `Rune` parse to `BT_ERR_UNSUPPORTED` and the message names the name it refused. |
+| C#, `ShippingLabelTests` | A label reports its SSCC, its printed form, its symbology and its page; the symbol's module is the nominal 0.495 mm on the 300 dpi grid (0.508 mm) and its bars are about 32 mm; the symbol decodes back to eighteen digits; **the rendered PDF page decodes back to the SSCC** (skipped where the PDF rasteriser is not built); the A6 page has its own MediaBox; two renders are the same bytes; a bad check digit names both digits; seventeen, nineteen and non-numeric keys are refused; a label without an address is refused; GS1 data without AI `00` is refused; an accented address reaches the content stream as Windows-1252; `samples/labels/sscc-label.json` still builds. |
+| C#, `SymbologyCoverageTests` | The enum and §8.1 hold the same ABI names, every row is readable, and the Write column matches `Barcode.CanEncode`. |
