@@ -626,6 +626,51 @@ public sealed partial class TypstDocument
         return this;
     }
 
+    /// <summary>Appends content in columns, with an explicit gutter.</summary>
+    /// <remarks>
+    /// This is the flow-level <c>#columns</c> container, for a block of columns inside a page. A whole
+    /// document in columns is a page-level setting: <see cref="Page"/> with
+    /// <see cref="TypstPageSetup.Columns(int, TypstLength)"/>, which also paginates.
+    /// </remarks>
+    public TypstDocument Columns(TypstColumnLayout layout, TypstContent content)
+    {
+        ArgumentNullException.ThrowIfNull(layout);
+        ArgumentNullException.ThrowIfNull(content);
+        _body.Add(new CallNode($"#columns({layout.CallArguments})", content));
+        return this;
+    }
+
+    /// <summary>
+    /// Appends a margin note: the marker in the flow, and the note's text in the margin, level with
+    /// the marker's line.
+    /// </summary>
+    /// <param name="note">The note: marker, text, offset and width.</param>
+    /// <remarks>
+    /// The note is placed in the margin of the page, not of the column: a note in a two-column body
+    /// belongs to the page's outer margin, and its <see cref="TypstMarginNote.Offset"/> has to be
+    /// measured from the marker against the column width the caller chose. See
+    /// <see cref="TypstMarginNote"/> for what the placement cannot do: a note never breaks across
+    /// pages and two notes closer than one note's height overlap.
+    /// </remarks>
+    public TypstDocument MarginNote(TypstMarginNote note)
+    {
+        ArgumentNullException.ThrowIfNull(note);
+        _body.Add(new TypstMarginNoteNode(note));
+        return this;
+    }
+
+    /// <summary>Appends a margin note built from its parts.</summary>
+    /// <param name="marker">The text printed in the flow at the anchor.</param>
+    /// <param name="content">The note's text, placed in the margin.</param>
+    /// <param name="offset">The distance from the marker to the note's left edge.</param>
+    /// <param name="width">The width the note wraps at; null lets the text run on one line.</param>
+    public TypstDocument MarginNote(
+        string marker,
+        TypstContent content,
+        TypstLength offset,
+        TypstLength? width = null)
+        => MarginNote(new TypstMarginNote(marker, content, offset, width));
+
     /// <summary>Appends aligned content.</summary>
     public TypstDocument Align(TypstAlignment alignment, TypstContent content)
     {
@@ -830,6 +875,12 @@ public sealed partial class TypstDocument
         {
             writer.WriteVerbatim("#set page(" + string.Join(", ", PageArguments(_page)) + ")");
             writer.NewLine();
+
+            if (_page.ColumnLayout?.GutterRule is { } gutterRule)
+            {
+                writer.WriteVerbatim(gutterRule);
+                writer.NewLine();
+            }
         }
 
         if (_metadata?.LanguageValue is { } language)
@@ -936,9 +987,9 @@ public sealed partial class TypstDocument
             parts.Add("fill: " + fill.ToTypst());
         }
 
-        if (page.ColumnCount is { } columns)
+        if (page.ColumnLayout is { } columns)
         {
-            parts.Add("columns: " + columns.ToString(CultureInfo.InvariantCulture));
+            parts.Add(columns.PageArgument);
         }
 
         if (page.NumberingFormat is { } numbering)
