@@ -74,8 +74,10 @@ jobs:
           for manifest in native/*/Cargo.toml; do
             echo "::group::$(dirname "$manifest")"
             # `--locked` so a check never rewrites a Cargo.lock on its way past; the lock file is a
-            # reviewed artifact of its own.
-            cargo deny --locked --manifest-path "$manifest" check bans licenses advisories || status=1
+            # reviewed artifact of its own. `--config` is not decoration: cargo-deny reads its
+            # configuration from the working directory only, so a run started elsewhere would fall
+            # back to the default and reject every licence in the graph.
+            cargo deny --config deny.toml --locked --manifest-path "$manifest" check bans licenses advisories || status=1
             echo "::endgroup::"
           done
           exit "$status"
