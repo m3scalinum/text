@@ -358,11 +358,17 @@ using M3scalinum.Text.Ocr;
 
 using OcrEngine engine = OcrEngine.FromModels(detectionModel, recognitionModel);
 
-OcrResult result = engine.Recognize(File.ReadAllBytes("scan.png"));
-Console.WriteLine(result.Text);
+// A page the engine cannot read is refused, not returned as approximate text.
+if (engine.Recognize(File.ReadAllBytes("scan.png")) is OcrResult result)
+{
+    Console.WriteLine(result.Text);
+}
 ```
 
-The models are caller-supplied: the package downloads nothing and bundles no weights.
+The models are caller-supplied: the package downloads nothing and bundles no weights. `Recognize`
+returns an `OcrRecognition`, which is either an `OcrResult` or an `OcrUnreadable` carrying the
+refusal — page blank, mean confidence under the threshold, or too many words under it — with the
+observed value, the threshold and the word count. The thresholds are `OcrOptions`.
 
 ## Versioning
 
