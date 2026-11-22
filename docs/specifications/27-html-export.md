@@ -68,7 +68,7 @@ int raw = result.CountOf("raw");
 | `Quote(content, block: false)` | `q` |
 | `TermList(…)` | `dl`, `dt`, `dd` |
 | `Figure(…)` | `figure`; the label becomes `id` |
-| figure image | `img src="…" alt=""` |
+| figure image | `img src="…" alt="…"`, the description from `TypstFigure.Alt` (empty when undefined) |
 | figure caption | `figcaption` |
 | `Divider()` | `hr` |
 | `Math(expression)` | `div class="math"` with the linear expression |
@@ -144,9 +144,10 @@ var exported = TypstDocument.FromHtml("<img src=\"logo.png\">", options).ToHtml(
 ```
 
 Export needs no resolver: it writes what the model holds. A `data:` URL stored by the caller is
-written unchanged, so a self-contained image survives the round trip without a file. A figure has
-no alternative text in the model, so `alt` is always the empty string, which HTML defines as
-decorative.
+written unchanged, so a self-contained image survives the round trip without a file. A figure
+carries the description a PDF needs for accessibility in `TypstFigure.Alt`, and the exporter writes
+it as the image's `alt` attribute; an image built without a description gets `alt=""`, which HTML
+defines as decorative.
 
 ## 8. Round trip
 
