@@ -950,7 +950,9 @@ a document it already decided to read, while an image can be any file at all.
 `limits::admit` runs before the decoder allocates anything, in this order:
 
 1. **The byte ceiling, on the length alone.** Nothing is read: an input that announces two gigabytes is
-   refused by counting the bytes the caller already holds. The count never depends on the contents.
+   refused by counting the bytes the caller already holds. The count never depends on the contents, and
+   at the ABI it runs **before** the caller's bytes are copied into the library, so the copy is bounded
+   too — a 2 GiB buffer is refused without a 2 GiB allocation on this side.
 2. **The dimensions in the header.** `ImageReader::with_guessed_format` recognises the format from the
    first bytes, then `into_dimensions()` builds that format's decoder and asks it for its size. That
    reads the header and no image data:

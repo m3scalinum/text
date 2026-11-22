@@ -577,6 +577,10 @@ unsafe fn recognize_image(
         let handle = &*engine;
 
         guard_buffer(out_error, out_json, || {
+            // The byte ceiling is checked on the length before the bytes are copied: a host
+            // that announces two gigabytes is refused without this side allocating them.
+            crate::limits::check_encoded_bytes(length, bounds)?;
+
             let bytes = read_bytes(image, length, "image")?;
             if bytes.is_empty() {
                 return Err(ToError::invalid_argument("image is empty"));
@@ -616,6 +620,9 @@ pub unsafe extern "C" fn to_image_admit(
     unsafe {
         guard_buffer(out_error, out_json, || {
             let bounds = ImageBounds::from_options(maximum_pixels, maximum_bytes)?;
+            // Bounded on the length before the bytes are copied, as in the recognition path.
+            crate::limits::check_encoded_bytes(length, bounds)?;
+
             let bytes = read_bytes(image, length, "image")?;
             let header: ImageHeader = limits::admit(&bytes, bounds)?;
 
@@ -990,6 +997,9 @@ unsafe fn recognize_language_image(
                      to name a language",
                 )
             })?;
+
+            // Same order as the plain entry point: the length is bounded before it is copied.
+            crate::limits::check_encoded_bytes(length, bounds)?;
 
             let bytes = read_bytes(image, length, "image")?;
             if bytes.is_empty() {
