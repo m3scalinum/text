@@ -96,7 +96,9 @@ internal sealed class TableNode(TypstTable table) : TypstNode
             if (table.Header.Count > 0)
             {
                 writer.NewLine();
-                writer.WriteVerbatim("table.header(");
+                writer.WriteVerbatim(table.RepeatsHeader
+                    ? "table.header(repeat: true, "
+                    : "table.header(repeat: false, ");
                 WriteCells(writer, table.Header);
                 writer.WriteVerbatim("),");
             }
@@ -178,7 +180,7 @@ internal sealed class TableNode(TypstTable table) : TypstNode
 
     private static string? CellCall(TypstTableCell cell)
     {
-        if (cell.Colspan == 1 && cell.Rowspan == 1 && cell.Align is null)
+        if (cell.Colspan == 1 && cell.Rowspan == 1 && cell.Align is null && cell.Breakable is null)
         {
             return null;
         }
@@ -198,6 +200,11 @@ internal sealed class TableNode(TypstTable table) : TypstNode
         if (cell.Align is not null)
         {
             arguments.Add("align: " + AlignmentName(cell.Align.Value));
+        }
+
+        if (cell.Breakable is { } breakable)
+        {
+            arguments.Add("breakable: " + (breakable ? "true" : "false"));
         }
 
         return "table.cell(" + string.Join(", ", arguments) + ")";

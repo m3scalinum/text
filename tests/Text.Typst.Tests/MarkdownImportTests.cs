@@ -228,7 +228,7 @@ public sealed class MarkdownImportTests
         var markup = Import("| Item | Amount |\n| :--- | ---: |\n| A | 1 |\n");
 
         Assert.Contains("columns: (1fr, 1fr)", markup, StringComparison.Ordinal);
-        Assert.Contains("table.header(table.cell(align: left)[Item], table.cell(align: right)[Amount])", markup, StringComparison.Ordinal);
+        Assert.Contains("table.header(repeat: true, table.cell(align: left)[Item], table.cell(align: right)[Amount])", markup, StringComparison.Ordinal);
         Assert.Contains("table.cell(align: left)[A], table.cell(align: right)[1]", markup, StringComparison.Ordinal);
     }
 
@@ -245,7 +245,7 @@ public sealed class MarkdownImportTests
     {
         var markup = Import("a | b\n--- | ---\n1 | 2\n");
 
-        Assert.Contains("table.header([a], [b])", markup, StringComparison.Ordinal);
+        Assert.Contains("table.header(repeat: true, [a], [b])", markup, StringComparison.Ordinal);
         Assert.Contains("[1], [2],", markup, StringComparison.Ordinal);
         Assert.DoesNotContain("table.cell", markup, StringComparison.Ordinal);
     }

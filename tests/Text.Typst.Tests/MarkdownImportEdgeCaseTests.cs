@@ -31,7 +31,7 @@ public sealed class MarkdownImportEdgeCaseTests
         Assert.StartsWith("#quote(block: true)[", markup, StringComparison.Ordinal);
         Assert.Contains("+ item", markup, StringComparison.Ordinal);
         Assert.Contains("#table(", markup, StringComparison.Ordinal);
-        Assert.Contains("table.header([a], [b])", markup, StringComparison.Ordinal);
+        Assert.Contains("table.header(repeat: true, [a], [b])", markup, StringComparison.Ordinal);
         Assert.Contains("[1], [2],", markup, StringComparison.Ordinal);
         Assert.DoesNotContain("#quote(block: true)[\n\n+ item\n\n#table", markup, StringComparison.Ordinal);
     }

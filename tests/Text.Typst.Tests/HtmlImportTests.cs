@@ -92,7 +92,7 @@ public sealed class HtmlImportTests
             "<tr><td rowspan=\"2\">North</td><td>1</td></tr><tr><td>2</td></tr></tbody></table>");
 
         Assert.Contains("columns: (1fr, 1fr)", markup, StringComparison.Ordinal);
-        Assert.Contains("table.header([Item], [Amount])", markup, StringComparison.Ordinal);
+        Assert.Contains("table.header(repeat: true, [Item], [Amount])", markup, StringComparison.Ordinal);
         Assert.Contains("table.cell(colspan: 2)[Total]", markup, StringComparison.Ordinal);
         Assert.Contains("table.cell(rowspan: 2)[North], [1]", markup, StringComparison.Ordinal);
         Assert.Contains("[2],", markup, StringComparison.Ordinal);
