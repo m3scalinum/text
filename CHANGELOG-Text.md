@@ -231,3 +231,22 @@ Not yet published.
   typed and name the rule, the ceiling and the value observed. `M3scalinum.Text.Xlsx` gains sheet,
   per-cell text and total text ceilings; the DOCX reader's node, entity, run, cell, media and
   relationship ceilings gain the tests they were missing.
+- Printable barcodes and a symbol inside a document: `Barcode.Print` takes a physical width and a DPI
+  and reports the module size in millimetres, applies the quiet zone each symbology requires, and
+  refuses a size that would put the module under the minimum the specification allows instead of
+  printing something a scanner cannot read. `BarcodeFigure` places the symbol in a `TypstDocument` as
+  a figure carrying the payload as its alternative text, so a report needs no temporary file and no
+  second package to reference.
+- eIDAS on the signature side: `PdfSignatureOptions.Kind = PdfSignatureKind.Seal` produces an
+  electronic seal and refuses a certificate whose extended key usage does not carry
+  `id-kp-documentSigning`, naming the OID and what the certificate actually has — a seal with the
+  wrong certificate would look like one and not be one. `PdfEidasReader` reports, per signature,
+  whether it is a person's signature or a seal, whether a timestamp covers it, and whether a trust
+  list says the timestamp authority is qualified; without a list it says "not evaluated" rather than
+  guessing.
+- PDF/A-4f: `PdfAConverter` produces the profile that carries its files — at least one associated
+  file, an `/AFRelationship` on each, `/AF` agreeing with the `/EmbeddedFiles` tree — and refuses a
+  document that cannot be 4f with `PDFA.A4F_WITHOUT_EMBEDDED_FILE`,
+  `PDFA.A4F_ATTACHMENT_WITHOUT_RELATIONSHIP`, `PDFA.A4F_RELATIONSHIP_UNKNOWN`,
+  `PDFA.A4F_ASSOCIATED_FILES` or `PDFA.A4F_EMBEDDED_FILES_TREE`, instead of emitting a plain
+  PDF/A-4 under a 4f claim.
