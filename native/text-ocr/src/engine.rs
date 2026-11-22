@@ -14,6 +14,7 @@ use std::collections::BTreeMap;
 
 use crate::ffi::{TO_ERR_IMAGE, TO_ERR_MODEL, TO_ERR_OCR, ToError};
 use crate::language::{LanguageCatalogue, PageLanguages, PageRoute};
+use crate::limits::{self, ImageBounds};
 use crate::models::{self, ModelDefect, ModelIdentity, ModelKind, ModelSet};
 use crate::pdf;
 use crate::preprocess::{self, PreprocessOptions, Preprocessed};
@@ -389,14 +390,18 @@ impl Engine {
     /// what was done. The boxes and the width and height the document reports are
     /// then the preprocessed page's, because that is the image the boxes were found
     /// in.
+    ///
+    /// `bounds` is what the decode may cost: see [`crate::limits`]. An image past
+    /// either ceiling is refused as `TO_ERR_IMAGE_LIMIT` before its pixels exist.
     pub fn recognize_image(
         &self,
         encoded: &[u8],
         thresholds: Thresholds,
         preprocess: PreprocessOptions,
+        bounds: ImageBounds,
     ) -> Result<Vec<u8>, ToError> {
         let thresholds = thresholds.validate()?;
-        let prepared = prepare_image(encoded, preprocess)?;
+        let prepared = prepare_image(encoded, preprocess, bounds)?;
 
         let page = self.recognize_pixels(
             &prepared.pixels,
@@ -592,6 +597,7 @@ impl LanguageEngines {
         thresholds: Thresholds,
         preprocess: PreprocessOptions,
         language: Option<&str>,
+        bounds: ImageBounds,
     ) -> Result<Vec<u8>, ToError> {
         let thresholds = thresholds.validate()?;
         let selection = self.catalogue.select(language);
@@ -603,7 +609,7 @@ impl LanguageEngines {
             ))
         })?;
 
-        let prepared = prepare_image(encoded, preprocess)?;
+        let prepared = prepare_image(encoded, preprocess, bounds)?;
         let page = engine.recognize_pixels(
             &prepared.pixels,
             prepared.width,
@@ -726,10 +732,20 @@ impl EngineSet {
     }
 }
 
-/// Decodes an encoded image and applies the requested preprocessing.
-fn prepare_image(encoded: &[u8], preprocess: PreprocessOptions) -> Result<Preprocessed, ToError> {
-    let decoded = image::load_from_memory(encoded)
-        .map_err(|e| ToError::new(TO_ERR_IMAGE, format!("decode image: {e}")))?;
+/// Decodes an encoded image under `bounds`, then applies the requested preprocessing.
+///
+/// The ceilings are applied before the decoder allocates: the byte ceiling on the length
+/// alone, the pixel ceiling on the dimensions the format header states. An image past
+/// either is refused with `TO_ERR_IMAGE_LIMIT` without its pixels being produced — see
+/// [`crate::limits`].
+fn prepare_image(
+    encoded: &[u8],
+    preprocess: PreprocessOptions,
+    bounds: ImageBounds,
+) -> Result<Preprocessed, ToError> {
+    limits::admit(encoded, bounds)?;
+
+    let decoded = limits::decode(encoded, bounds)?;
     let rgb = decoded.into_rgb8();
 
     Ok(preprocess::preprocess(
@@ -902,6 +918,25 @@ mod tests {
     fn garbage_model_is_rejected_as_a_model_error() {
         let error = Engine::new(b"not a model", b"not a model", None).expect_err("must fail");
         assert_eq!(error.code, TO_ERR_MODEL);
+    }
+
+    #[test]
+    fn prepare_image_refuses_a_page_past_a_lowered_ceiling_before_decoding_it() {
+        let encoded = crate::limits::png_declaring(400, 300);
+        let bounds = ImageBounds {
+            maximum_pixels: 1_000,
+            ..ImageBounds::default()
+        };
+
+        let error = prepare_image(&encoded, PreprocessOptions::default(), bounds)
+            .expect_err("120 000 pixels is past a 1 000-pixel ceiling");
+
+        assert_eq!(error.code, crate::ffi::TO_ERR_IMAGE_LIMIT);
+        assert!(
+            error.json.contains("\"limit\":\"pixels\""),
+            "{}",
+            error.json
+        );
     }
 
     #[test]

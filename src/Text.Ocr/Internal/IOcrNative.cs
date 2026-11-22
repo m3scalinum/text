@@ -189,6 +189,71 @@ internal interface IOcrNative
     int PdfPageCount(byte[] pdf, out NativeBuffer json, out IntPtr error)
         => throw new NotSupportedException("this native backend cannot count the pages of a PDF");
 
+    /// <summary>
+    /// Reports the size an image declares in its format header, without decoding it, or
+    /// refuses it past the two ceilings.
+    /// </summary>
+    /// <remarks>
+    /// The default refuses, so a double written before the image ceilings existed fails
+    /// loudly rather than pretending an image it never measured.
+    /// </remarks>
+    int ImageAdmit(
+        byte[] image,
+        ulong maximumPixels,
+        nuint maximumBytes,
+        out NativeBuffer json,
+        out IntPtr error)
+        => throw new NotSupportedException("this native backend cannot measure an image");
+
+    /// <summary>Recognises an image under explicit decode ceilings.</summary>
+    /// <remarks>Same default as <see cref="ImageAdmit"/>.</remarks>
+    int EngineRecognizeLimited(
+        IntPtr engine,
+        byte[] image,
+        ulong maximumPixels,
+        nuint maximumBytes,
+        double pageConfidence,
+        double wordConfidence,
+        double maxRejectedWordRatio,
+        out NativeBuffer json,
+        out IntPtr error)
+        => throw new NotSupportedException("this native backend cannot bound an image decode");
+
+    /// <summary>Recognises an image under explicit decode ceilings, after preprocessing.</summary>
+    /// <remarks>Same default as <see cref="ImageAdmit"/>.</remarks>
+    int EngineRecognizePreprocessedLimited(
+        IntPtr engine,
+        byte[] image,
+        ulong maximumPixels,
+        nuint maximumBytes,
+        double pageConfidence,
+        double wordConfidence,
+        double maxRejectedWordRatio,
+        bool detectRotation,
+        bool deskew,
+        bool denoise,
+        out NativeBuffer json,
+        out IntPtr error)
+        => throw new NotSupportedException("this native backend cannot bound an image decode");
+
+    /// <summary>Recognises an image in a named language, under explicit decode ceilings.</summary>
+    /// <remarks>Same default as <see cref="ImageAdmit"/>.</remarks>
+    int EngineRecognizeLanguageLimited(
+        IntPtr engine,
+        byte[] image,
+        ulong maximumPixels,
+        nuint maximumBytes,
+        double pageConfidence,
+        double wordConfidence,
+        double maxRejectedWordRatio,
+        byte[] language,
+        bool detectRotation,
+        bool deskew,
+        bool denoise,
+        out NativeBuffer json,
+        out IntPtr error)
+        => throw new NotSupportedException("this native backend cannot bound an image decode");
+
     /// <summary>Frees an error object.</summary>
     void ErrorFree(IntPtr error);
 

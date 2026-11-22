@@ -151,3 +151,60 @@ public class OcrException : Exception
                 ? $"{base.ToString()} (role: {Role}, defect: {Defect})"
                 : $"{base.ToString()} (role: {Role}, defect: {Defect}, file: {FilePath})";
 }
+
+/// <summary>
+/// Which ceiling refused an input image.
+/// </summary>
+public enum OcrImageLimit
+{
+    /// <summary>No ceiling fired, or the library did not name one.</summary>
+    Unspecified = 0,
+
+    /// <summary>The image declares more pixels — width times height — than the ceiling.</summary>
+    Pixels,
+
+    /// <summary>The encoded image occupies more bytes than the ceiling.</summary>
+    Bytes,
+}
+
+/// <summary>
+/// An image refused before it was decoded: it declares more pixels, or occupies more
+/// bytes, than a decode is allowed to cost.
+/// </summary>
+/// <remarks>
+/// <para>
+/// This is a refusal of the <em>input</em>, not of a page: nothing was decoded, no
+/// threshold ran, and there is no reading to judge. That is why it is an exception rather
+/// than an <see cref="OcrUnreadable"/>, whose subject is a page that was read and found
+/// wanting.
+/// </para>
+/// <para>
+/// <see cref="Observed"/> and <see cref="Maximum"/> carry the two numbers — the size the
+/// image declared and the ceiling that refused it — and <see cref="Exception.Message"/>
+/// names them in a sentence. Both ceilings may only be lowered, through
+/// <see cref="OcrOptions.MaximumImagePixels"/> and
+/// <see cref="OcrOptions.MaximumImageBytes"/>.
+/// </para>
+/// </remarks>
+public sealed class OcrImageLimitException : OcrException
+{
+    internal OcrImageLimitException(string message, OcrImageLimit limit, long observed, long maximum)
+        : base("image_limit", message)
+    {
+        Limit = limit;
+        Observed = observed;
+        Maximum = maximum;
+    }
+
+    /// <summary>Which ceiling fired.</summary>
+    public OcrImageLimit Limit { get; }
+
+    /// <summary>
+    /// What the image declared: its pixel count for <see cref="OcrImageLimit.Pixels"/>, or
+    /// its byte length for <see cref="OcrImageLimit.Bytes"/>.
+    /// </summary>
+    public long Observed { get; }
+
+    /// <summary>The ceiling that refused it.</summary>
+    public long Maximum { get; }
+}

@@ -66,6 +66,9 @@ internal static class NativeOcr
         var defect = OcrModelDefect.Unspecified;
         var role = OcrModelRole.Unspecified;
         var namedDefect = false;
+        var limit = OcrImageLimit.Unspecified;
+        var observed = 0L;
+        var maximum = 0L;
         string? file = null;
 
         if (error != IntPtr.Zero)
@@ -112,6 +115,31 @@ internal static class NativeOcr
                     {
                         file = fileElement.GetString();
                     }
+
+                    // An image refusal is its own type: it names which ceiling fired and the
+                    // two numbers, so a caller bounds its input without parsing a sentence.
+                    if (root.TryGetProperty("limit", out var limitElement)
+                        && limitElement.ValueKind == JsonValueKind.String)
+                    {
+                        limit = limitElement.GetString() switch
+                        {
+                            "pixels" => OcrImageLimit.Pixels,
+                            "bytes" => OcrImageLimit.Bytes,
+                            _ => OcrImageLimit.Unspecified,
+                        };
+                    }
+
+                    if (root.TryGetProperty("observed", out var observedElement)
+                        && observedElement.TryGetInt64(out var observedValue))
+                    {
+                        observed = observedValue;
+                    }
+
+                    if (root.TryGetProperty("maximum", out var maximumElement)
+                        && maximumElement.TryGetInt64(out var maximumValue))
+                    {
+                        maximum = maximumValue;
+                    }
                 }
                 finally
                 {
@@ -122,6 +150,15 @@ internal static class NativeOcr
             {
                 library.ErrorFree(error);
             }
+        }
+
+        // An image refusal is its own type: it names which ceiling fired and the two
+        // numbers, so a caller bounds its input without parsing a sentence. A ceiling name
+        // this package does not know still means "an image was refused", and reports
+        // Unspecified rather than degrading to a plain exception.
+        if (code == "image_limit")
+        {
+            return new OcrImageLimitException(message, limit, observed, maximum);
         }
 
         // A model refusal is its own type: the caller can switch on what is wrong
@@ -479,6 +516,95 @@ internal sealed unsafe class NativeLibraryOcr : IOcrNative
             return NativeMethods.PdfPageCount(bytes, (nuint)pdf.Length, out json, out error);
         }
     }
+
+    /// <inheritdoc />
+    public int ImageAdmit(
+        byte[] image,
+        ulong maximumPixels,
+        nuint maximumBytes,
+        out NativeBuffer json,
+        out IntPtr error)
+    {
+        fixed (byte* bytes = image)
+        {
+            return NativeMethods.ImageAdmit(
+                bytes, (nuint)image.Length, maximumPixels, maximumBytes, out json, out error);
+        }
+    }
+
+    /// <inheritdoc />
+    public int EngineRecognizeLimited(
+        IntPtr engine,
+        byte[] image,
+        ulong maximumPixels,
+        nuint maximumBytes,
+        double pageConfidence,
+        double wordConfidence,
+        double maxRejectedWordRatio,
+        out NativeBuffer json,
+        out IntPtr error)
+    {
+        fixed (byte* bytes = image)
+        {
+            return NativeMethods.EngineRecognizeLimited(
+                engine, bytes, (nuint)image.Length, maximumPixels, maximumBytes,
+                pageConfidence, wordConfidence, maxRejectedWordRatio,
+                out json, out error);
+        }
+    }
+
+    /// <inheritdoc />
+    public int EngineRecognizePreprocessedLimited(
+        IntPtr engine,
+        byte[] image,
+        ulong maximumPixels,
+        nuint maximumBytes,
+        double pageConfidence,
+        double wordConfidence,
+        double maxRejectedWordRatio,
+        bool detectRotation,
+        bool deskew,
+        bool denoise,
+        out NativeBuffer json,
+        out IntPtr error)
+    {
+        fixed (byte* bytes = image)
+        {
+            return NativeMethods.EngineRecognizePreprocessedLimited(
+                engine, bytes, (nuint)image.Length, maximumPixels, maximumBytes,
+                pageConfidence, wordConfidence, maxRejectedWordRatio,
+                detectRotation ? 1 : 0, deskew ? 1 : 0, denoise ? 1 : 0,
+                out json, out error);
+        }
+    }
+
+    /// <inheritdoc />
+    public int EngineRecognizeLanguageLimited(
+        IntPtr engine,
+        byte[] image,
+        ulong maximumPixels,
+        nuint maximumBytes,
+        double pageConfidence,
+        double wordConfidence,
+        double maxRejectedWordRatio,
+        byte[] language,
+        bool detectRotation,
+        bool deskew,
+        bool denoise,
+        out NativeBuffer json,
+        out IntPtr error)
+    {
+        fixed (byte* bytes = image)
+        fixed (byte* tag = language)
+        {
+            return NativeMethods.EngineRecognizeLanguageLimited(
+                engine, bytes, (nuint)image.Length, maximumPixels, maximumBytes,
+                pageConfidence, wordConfidence, maxRejectedWordRatio,
+                tag, (nuint)language.Length,
+                detectRotation ? 1 : 0, deskew ? 1 : 0, denoise ? 1 : 0,
+                out json, out error);
+        }
+    }
 }
 
 /// <summary>
@@ -602,6 +728,50 @@ internal sealed class OcrEngineHandle : IDisposable
         NativeBuffer json;
         IntPtr error;
 
+        // A caller who asked for a tighter ceiling takes the entry points that carry the
+        // two numbers, in the same two shapes. Nothing asked for takes the calls that were
+        // already proved, byte for byte.
+        if (options.RequiresImageLimits)
+        {
+            try
+            {
+                status = options.RequiresPreprocessing
+                    ? _library.EngineRecognizePreprocessedLimited(
+                        handle,
+                        image,
+                        (ulong)options.MaximumImagePixels,
+                        (nuint)options.MaximumImageBytes,
+                        options.MinimumPageConfidence,
+                        options.MinimumWordConfidence,
+                        options.MaximumRejectedWordRatio,
+                        options.DetectRotation,
+                        options.Deskew,
+                        options.Denoise,
+                        out json,
+                        out error)
+                    : _library.EngineRecognizeLimited(
+                        handle,
+                        image,
+                        (ulong)options.MaximumImagePixels,
+                        (nuint)options.MaximumImageBytes,
+                        options.MinimumPageConfidence,
+                        options.MinimumWordConfidence,
+                        options.MaximumRejectedWordRatio,
+                        out json,
+                        out error);
+            }
+            catch (EntryPointNotFoundException exception)
+            {
+                throw Unsupported(
+                    exception,
+                    options.RequiresPreprocessing
+                        ? "to_engine_recognize_preprocessed_limited"
+                        : "to_engine_recognize_limited");
+            }
+
+            return Take(status, json, error);
+        }
+
         if (options.RequiresPreprocessing)
         {
             try
@@ -703,22 +873,41 @@ internal sealed class OcrEngineHandle : IDisposable
 
         try
         {
-            status = _library.EngineRecognizeLanguage(
-                handle,
-                image,
-                options.MinimumPageConfidence,
-                options.MinimumWordConfidence,
-                options.MaximumRejectedWordRatio,
-                Encoding.UTF8.GetBytes(language),
-                options.DetectRotation,
-                options.Deskew,
-                options.Denoise,
-                out json,
-                out error);
+            status = options.RequiresImageLimits
+                ? _library.EngineRecognizeLanguageLimited(
+                    handle,
+                    image,
+                    (ulong)options.MaximumImagePixels,
+                    (nuint)options.MaximumImageBytes,
+                    options.MinimumPageConfidence,
+                    options.MinimumWordConfidence,
+                    options.MaximumRejectedWordRatio,
+                    Encoding.UTF8.GetBytes(language),
+                    options.DetectRotation,
+                    options.Deskew,
+                    options.Denoise,
+                    out json,
+                    out error)
+                : _library.EngineRecognizeLanguage(
+                    handle,
+                    image,
+                    options.MinimumPageConfidence,
+                    options.MinimumWordConfidence,
+                    options.MaximumRejectedWordRatio,
+                    Encoding.UTF8.GetBytes(language),
+                    options.DetectRotation,
+                    options.Deskew,
+                    options.Denoise,
+                    out json,
+                    out error);
         }
         catch (EntryPointNotFoundException exception)
         {
-            throw Unsupported(exception, "to_engine_recognize_language");
+            throw Unsupported(
+                exception,
+                options.RequiresImageLimits
+                    ? "to_engine_recognize_language_limited"
+                    : "to_engine_recognize_language");
         }
 
         return Take(status, json, error);

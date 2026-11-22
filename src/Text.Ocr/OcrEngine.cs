@@ -271,11 +271,18 @@ public sealed class OcrEngine : IDisposable
     /// and <see cref="OcrOptions.Denoise"/> ask for; all three are off by default, and a
     /// page that needs none of them is read exactly as before.
     /// </para>
+    /// <para>
+    /// The size an image declares is bounded before it is decoded:
+    /// <see cref="OcrOptions.MaximumImagePixels"/> and <see cref="OcrOptions.MaximumImageBytes"/>
+    /// may lower the library's ceilings, which are read from the format header, and an
+    /// image past either is refused as an <see cref="OcrImageLimitException"/> without its
+    /// pixels being allocated. That is a refusal of the input, not of a page.
+    /// </para>
     /// </remarks>
     /// <param name="imageBytes">The image file, as it would be read from disk.</param>
     /// <param name="options">
-    /// The confidence thresholds and the preprocessing switches; defaults to
-    /// <see cref="OcrOptions"/>'s defaults, which leave a correct scan untouched.
+    /// The confidence thresholds, the preprocessing switches and the two image ceilings;
+    /// defaults to <see cref="OcrOptions"/>'s defaults, which leave a correct scan untouched.
     /// </param>
     /// <param name="language">
     /// Which model set reads the image, when the engine was built by
@@ -286,9 +293,10 @@ public sealed class OcrEngine : IDisposable
     /// <returns>Either the text, the lines and their boxes, or a typed refusal.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="imageBytes"/> is null.</exception>
     /// <exception cref="ArgumentException"><paramref name="imageBytes"/> is empty.</exception>
-    /// <exception cref="ArgumentOutOfRangeException">A threshold is outside 0–1.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">A threshold is outside 0–1, or a ceiling is above the hard maximum.</exception>
     /// <exception cref="ObjectDisposedException">The engine was disposed.</exception>
     /// <exception cref="InvalidOperationException">A language was named on an engine that holds one model set.</exception>
+    /// <exception cref="OcrImageLimitException">The image declares more pixels, or occupies more bytes, than the ceilings allow; nothing was decoded.</exception>
     /// <exception cref="OcrException">The image could not be decoded or read.</exception>
     public OcrRecognition Recognize(
         byte[] imageBytes,
