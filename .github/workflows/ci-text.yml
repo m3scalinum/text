@@ -409,3 +409,64 @@ jobs:
           name: packages-extras
           path: artifacts/packages/*.nupkg
           if-no-files-found: error
+
+  examples:
+    name: examples
+    # One example per package, compiled and run against the `.nupkg` this job packs — never against a
+    # project reference. A package that ships without an assembly, a dependency or a native library
+    # fails here instead of in a consumer's application: `DllNotFoundException`, `NU1101` and a
+    # missing resource all surface as a red example.
+    #
+    # The job packs all nine packages itself rather than downloading them: the compiler train's two
+    # (Typst, Documents) are packed by no other job of this workflow, and a feed holding one run's
+    # packages is the only way a transitive dependency resolves to the build under test.
+    needs: [native, native-extras]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 11.0.x
+      - uses: actions/download-artifact@v8
+        with:
+          name: native-linux-x64
+          path: native/artifacts/linux-x64
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: text-*-*
+          merge-multiple: true
+          path: native/artifacts
+      - run: dotnet restore
+      - run: dotnet build -c Release --no-restore
+      - name: Pack every package under test
+        # Packed without `--build`: the build above already produced every TFM, and the native
+        # artifacts are on disk where the csproj files look for them. A package without its
+        # `runtimes/linux-x64/native/` entry is what the examples exist to catch.
+        run: |
+          for project in Text.Pdf Text.Templates Text.Mcp Text.Barcodes Text.Ocr Text.Docx Text.Xlsx Text.Typst Text.Documents; do
+            dotnet pack "src/$project" -c Release --no-build -o artifacts/packages-examples
+          done
+          ls -l artifacts/packages-examples
+      - name: Run one example per package
+        # Each example is a console project generated outside the repository by `run.sh`, with an
+        # exact PackageReference to the feed below. The project inherits no Directory.Build.props,
+        # no central package management and no project reference, so the package is the only path.
+        # The version comes from the packed file name, never from a constant.
+        run: |
+          chmod +x samples/examples/run.sh
+          while read -r example package; do
+            nupkg=$(ls "artifacts/packages-examples/$package".*.nupkg | head -n 1)
+            version=${nupkg#"artifacts/packages-examples/$package".}
+            samples/examples/run.sh "$example" "$package" "${version%.nupkg}" "$PWD/artifacts/packages-examples"
+          done <<'TABLE'
+          Pdf M3scalinum.Text.Pdf
+          Templates M3scalinum.Text.Templates
+          Mcp M3scalinum.Text.Mcp
+          Barcodes M3scalinum.Text.Barcodes
+          Ocr M3scalinum.Text.Ocr
+          Docx M3scalinum.Text.Docx
+          Xlsx M3scalinum.Text.Xlsx
+          Typst M3scalinum.Text.Typst
+          Documents M3scalinum.Text.Documents
+          TABLE
+

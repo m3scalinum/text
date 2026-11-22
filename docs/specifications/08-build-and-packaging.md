@@ -393,6 +393,34 @@ drop the threshold to mean anything.
 | --- | --- | --- |
 | `native` | `ubuntu-latest` | one `cargo build --release` for `linux-x64`, uploaded as `native-linux-x64`. No six-RID matrix: nothing here ships a native asset |
 | `text` | `ubuntu-latest` | restore, build, the `Pdf` and `Mcp` unit suites (neither needs a native library), `dotnet pack` for `M3scalinum.Text.Pdf` |
+| `examples` | `ubuntu-latest` | download the compiler's `linux-x64` native artifact and the fifteen `native-extras` ones, restore, build, `dotnet pack` the nine packages under test into one local feed, then `samples/examples/run.sh` once per package |
+
+The `examples` job is the one that proves a `.nupkg` is enough. Every other job in both
+workflows tests a project reference: the assembly is on disk because the build put it there, the
+dependency resolves because another project in the solution provides it, and the native library is
+found because a test environment variable names its path. None of those holds for a consumer, so
+each package gets one example — a single `Program.cs` under `samples/examples/<Package>/` — and
+`run.sh` generates a console project **outside the repository**, with an exact `PackageReference`
+and a `NuGet.config` whose only sources are the feed this run packed and nuget.org. The generated
+project inherits no `Directory.Build.props` and no central package versions, so the package is the
+only path to the library.
+
+The version is read from the packed file name, never written in the source. Each example prints
+what it obtained — page count, extracted text, cells read, decodes, layout count — and exits
+non-zero when that value is empty, so a package that lost an assembly (`FileNotFoundException`), a
+dependency (`NU1101`), a resource (an empty template catalog) or a runtime native asset
+(`DllNotFoundException`) turns the job red instead of shipping. Nine packages, nine examples:
+`Pdf` reads, signs and verifies; `Templates` renders the invoice layout; `Mcp` runs `initialize`,
+`tools/list` and a `tools/call` in process; `Barcodes` encodes and decodes a QR Code and a Code 128;
+`Docx` reads a committed `.docx` and converts it to the document model; `Xlsx` reads a workbook
+built in the example; `Typst` compiles a document; `Documents` writes Markdown and HTML with no
+native library at all; `Ocr` proves the native library loads and answers on the ABI, because the
+package ships no model — the caller passes the weights — so a real recognition needs
+`M3SCALINUM_OCR_MODELS` and is not what CI runs.
+
+Local developer experience adds one command: `samples/examples/run.sh <example> <package>
+<version> <feed>` builds and runs one example from a feed, and `--build-only` stops after the
+compile, which is all a Windows host can prove for a package whose native library is a Linux `.so`.
 
 The render validation needs the compiler, which is why `facturx` builds one here: keeping the pair
 self-contained costs twelve minutes of Rust in one job instead of coupling the two workflows.
@@ -466,6 +494,7 @@ Rules:
 | `cargo test --manifest-path native/sharp-typst/Cargo.toml` | ABI and exporter tests |
 | `dotnet test -p:BuildNative=true` | Full build including Cargo, then all tests |
 | `dotnet run --project samples/Text.Typst.Samples` | Generates the sample outputs into `artifacts/samples/` |
+| `samples/examples/run.sh <example> <package> <version> <feed>` | Compiles and runs one example against a packed package; `--build-only` stops after the compile |
 
 ## 10. Third-party notices
 
