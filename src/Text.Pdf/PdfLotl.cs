@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -60,7 +60,7 @@ public sealed class PdfTrustListException : PdfSignatureException
 /// it: this reader never opens a socket, and loading the national lists is not a cascade it performs.
 /// </para>
 /// </remarks>
-public static class PdfLotl
+public static partial class PdfLotl
 {
     /// <summary>The largest trust list read, in bytes. A national list is hundreds of kilobytes; this is a ceiling, not a budget.</summary>
     public const int MaxXmlBytes = 8 * 1024 * 1024;
@@ -87,6 +87,43 @@ public static class PdfLotl
     /// <exception cref="PdfTrustListException">The bytes are not a readable trust list, declare a
     /// DTD or an entity, or pass a bound.</exception>
     public static PdfTrustedList Read(ReadOnlySpan<byte> xml, string? location = null)
+        => ReadBytes(xml.ToArray(), location, anchors: null);
+
+    /// <summary>Reads a trust list and checks its signature against <paramref name="anchors"/>.</summary>
+    /// <param name="xml">The document, as published.</param>
+    /// <param name="location">Where the caller obtained the bytes; recorded, never fetched.</param>
+    /// <param name="anchors">The certificates the list's signer must chain to — for a national list,
+    /// the store <see cref="PdfTrustStore.ForNationalList"/> returns for its territory. Null reads
+    /// the list without a verdict.</param>
+    /// <returns>The list, with <see cref="PdfTrustedList.Signature"/> carrying what the signature
+    /// proved. A refused signature does not refuse the list: the services are still read, and the
+    /// coverage it produces says the list is not verified.</returns>
+    /// <exception cref="PdfTrustListException">The bytes are not a readable trust list, declare a
+    /// DTD or an entity, or pass a bound.</exception>
+    /// <remarks>
+    /// The signature is checked over the bytes as published — XML-DSig with canonical XML — and no
+    /// socket is opened: the anchors are the caller's, and the signer's own chain is built with
+    /// downloads disabled. A list that is refused here can still be inspected; it cannot make a
+    /// signature qualified.
+    /// </remarks>
+    public static PdfTrustedList Read(ReadOnlySpan<byte> xml, string? location, PdfTrustStore? anchors)
+        => ReadBytes(xml.ToArray(), location, anchors, verify: anchors is not null);
+
+    /// <summary>
+    /// Checks a trust list's own signature without building the model — the answer
+    /// <see cref="Read(ReadOnlySpan{byte}, string, PdfTrustStore)"/> attaches.
+    /// </summary>
+    /// <param name="xml">The document, as published.</param>
+    /// <param name="anchors">The certificates the signer must chain to; null or empty leaves the
+    /// chain unjudged, so no signature can be verified.</param>
+    /// <returns>What the signature proved: its status, its signer, the references it covers and why
+    /// it was refused when it was.</returns>
+    /// <exception cref="PdfTrustListException">The bytes are empty, over the size cap, or declare a
+    /// document type or an entity.</exception>
+    public static PdfTrustListSignature VerifySignature(ReadOnlySpan<byte> xml, PdfTrustStore? anchors)
+        => PdfXmlSignature.Verify(Checked(xml), anchors);
+
+    private static byte[] Checked(ReadOnlySpan<byte> xml)
     {
         if (xml.IsEmpty)
         {
@@ -101,6 +138,23 @@ public static class PdfLotl
         }
 
         var bytes = xml.ToArray();
+        Guard(bytes);
+        return bytes;
+    }
+
+    private static PdfTrustedList ReadBytes(byte[] bytes, string? location, PdfTrustStore? anchors, bool verify = true)
+    {
+        if (bytes.Length == 0)
+        {
+            throw new PdfTrustListException(PdfTrustListError.Malformed, "the trust list is empty");
+        }
+
+        if (bytes.Length > MaxXmlBytes)
+        {
+            throw new PdfTrustListException(
+                PdfTrustListError.Limit,
+                $"the trust list is {bytes.Length} bytes, over the {MaxXmlBytes}-byte cap");
+        }
 
         Guard(bytes);
 
@@ -116,7 +170,8 @@ public static class PdfLotl
             throw Refusal(exception);
         }
 
-        return Build(document, location);
+        var signature = anchors is null || !verify ? null : PdfXmlSignature.Verify(bytes, anchors);
+        return Build(document, location, signature);
     }
 
     /// <summary>Reads a trust list from a stream, without reading past <see cref="MaxXmlBytes"/>.</summary>
@@ -159,18 +214,23 @@ public static class PdfLotl
     /// prohibited, every resolver is removed, and the entity expansion is bounded should the policy
     /// ever change.
     /// </summary>
-    private static XmlReaderSettings Settings() => new()
+    /// <param name="preserveWhitespace">Keep the text nodes exactly as written. The signature path
+    /// needs them: a canonical form with the whitespace collapsed is not the form that was signed.</param>
+    private static XmlReaderSettings Settings(bool preserveWhitespace = false) => new()
     {
         ConformanceLevel = ConformanceLevel.Document,
         DtdProcessing = DtdProcessing.Prohibit,
         XmlResolver = null,
-        IgnoreComments = true,
-        IgnoreProcessingInstructions = true,
-        IgnoreWhitespace = true,
+        IgnoreComments = preserveWhitespace ? false : true,
+        IgnoreProcessingInstructions = !preserveWhitespace,
+        IgnoreWhitespace = !preserveWhitespace,
         CloseInput = false,
         MaxCharactersInDocument = MaxXmlBytes,
         MaxCharactersFromEntities = 1024 * 1024,
     };
+
+    /// <summary>The settings the signature reader loads the document with, under the same policy.</summary>
+    internal static XmlReaderSettings SignatureSettings() => Settings(preserveWhitespace: true);
 
     /// <summary>Refuses a document type declaration before any parser sees one, and bounds the walk.</summary>
     private static void Guard(byte[] bytes)
@@ -235,7 +295,7 @@ public static class PdfLotl
                 PdfTrustListError.Malformed,
                 $"the trust list is not well-formed XML: {exception.Message}");
 
-    private static PdfTrustedList Build(XDocument document, string? location)
+    private static PdfTrustedList Build(XDocument document, string? location, PdfTrustListSignature? signature = null)
     {
         var root = document.Root
             ?? throw Malformed("the trust list has no root element");
@@ -269,7 +329,8 @@ public static class PdfLotl
             Text(Child(scheme, "TSLType")),
             location,
             ReadServices(root),
-            ReadPointers(scheme));
+            ReadPointers(scheme),
+            signature);
     }
 
     private static List<PdfTrustService> ReadServices(XElement root)

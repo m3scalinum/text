@@ -12,18 +12,22 @@
 - `PdfTrustServicePeriod` — one status and the window it held.
 - `PdfTrustListPointer` — a pointer to a national list.
 - `PdfSignatureTrustCoverage`, `PdfTrustListVerification` — what a list says about the signatures of
-  one document.
+  one document, and what the verdict rests on (`PdfQualificationBasis`).
+- `PdfTrustListSignature`, `PdfTrustListSignatureStatus` — what the list's own XML-DSig proved: its
+  signer, the references it covers, the signed time, and whether the signer chained to the anchors the
+  caller supplied (§7.1).
 - `PdfTrustListException`, `PdfTrustListError` — why a list was refused.
 
-**In scope.** Reading the XML, the model it describes, the certificate-to-service match, and the
-statement the verifier makes about each signature once a list is supplied.
+**In scope.** Reading the XML, the model it describes, the certificate-to-service match, the list's own
+signature checked offline against caller-supplied anchors, and the statement the verifier makes about
+each signature once a list is supplied.
 
 **Out of scope, deliberately.**
 
 | Not done | Why |
 | --- | --- |
 | Downloading | Not one socket. The caller fetches, caches and refreshes; a verification that opened a connection to decide a document could be steered by whoever controls the DNS. |
-| Verifying the list's own XAdES signature | This reader verifies signatures found in a PDF. The list's signature over its own XML is the caller's XML-DSig tooling — §7 says how, and what this package does provide (`PdfTrustStore.ForNationalList`). |
+| Verifying the list's *trust chain* for it | The list's own XML-DSig is verified here — §7.1 — against the anchors the caller supplies (`PdfTrustStore.ForNationalList`). What the package does not do is decide that those anchors are themselves trustworthy, or follow the LOTL to fetch a list; the caller picks the anchors and fetches the bytes. |
 | Following `OtherTSLPointer` | A LOTL is read into `NationalLists`; loading a national list is the caller's call, so a list-of-lists never cascades into a network walk. |
 | Checking freshness | `IssueDateTime`, `NextUpdate` and `IsExpiredAt` are exposed. Enforcing them is a policy decision, not a parse. |
 | Inferring qualification from the issuer | A certificate issued by a qualified CA is not itself stated to be qualified by the list. §4 says what matches, and nothing else matches. |
@@ -181,16 +185,20 @@ the heap.
 
 **It proves**, when a coverage entry is qualified: that the territory named by `Territory` published
 a list, in which a service marked qualified named this exact certificate, and that the service's
-granted period covers the moment judged. That is a statement about the certificate and the date.
-Nothing more.
+granted period covers the moment judged. When the list was read with anchors, it also proves that the
+bytes are the ones the signer signed, and `Basis` says whether that signature was verified and whether
+the list was still current. That is a statement about the certificate and the date. Nothing more.
 
 **It does not prove** any of the following, and no reading of this API should be taken to:
 
-- That the list is genuine. This reader parses the bytes it is given; it does not check the XAdES
-  signature over them, does not check that the list came from the LOTL, and does not check that the
-  sequence number is higher than the one it saw yesterday. A hostile list that says a certificate is
-  qualified is read as a list that says so.
-- That the list is current. `IsExpiredAt` answers the question; nothing enforces it.
+- That the list is genuine **when it was read without anchors**. `PdfLotl.Read(bytes)` parses the bytes
+  it is given; read that way, a hostile list that says a certificate is qualified is read as a list
+  that says so, and the coverage it produces reports `Basis = NotChecked`. Read it with anchors —
+  `PdfLotl.Read(bytes, null, PdfTrustStore.ForNationalList(lotl, "FR"))` — and §7.1 applies instead.
+- That the list came from the LOTL, or that its sequence number is higher than the one seen
+  yesterday. Those are the caller's comparisons; the signature cannot make them.
+- That the list is current. `IsExpiredAt` answers the question and the coverage names the basis
+  (`Verified` or `VerifiedExpired`); nothing refuses a stale list on its own.
 - That the signer was the certificate's holder, or that the private key lived in a qualified device.
   `QCWithSSCD` and friends are read only as far as `IsQualified`; the qualifiers themselves are not
   interpreted.
@@ -200,25 +208,59 @@ Nothing more.
 
 ### 7.1 Verifying the list itself
 
-The chain of a national list's signer is the half this package can judge, because it is a
-certificate chain and not an XML signature:
+`PdfLotl.VerifySignature(xml, anchors)` checks the list's own XML-DSig, offline, and
+`PdfLotl.Read(xml, location, anchors)` attaches the same verdict to the list it returns
+(`PdfTrustedList.Signature`):
 
 ```csharp
 var lotl = PdfLotl.Read(lotlBytes);
-var national = PdfLotl.Read(nationalBytes);
+var national = PdfLotl.Read(nationalBytes, "https://example.test/FR.xml",
+                            PdfTrustStore.ForNationalList(lotl, "FR"));
 
-// The anchors the LOTL binds to that territory's operator.
-var store = PdfTrustStore.ForNationalList(lotl, "FR");
-
-// The XAdES signature over `nationalBytes` is the caller's XML-DSig tooling: this package
-// verifies signatures found in a PDF, and a trust list is not one.
+// national.Signature.Status        — Valid, Invalid or NoSignature
+// national.Signature.SignerChain   — Trusted against the LOTL's anchors, Untrusted, or NotEvaluated
+// national.Signature.IsVerified    — both of the above, plus a reference that covers the document
 ```
 
-The caller checks the XAdES signature over the national list with whatever XML-DSig implementation
-its platform provides, against the certificates `ForNationalList` returns, at the time the list was
-issued; then, and only then, the services of that list mean what §7 says they mean. Two habits make
-that check worth doing: reject a national list whose `SequenceNumber` is not greater than the last one
-accepted, and reject one whose `NextUpdate` has passed unless the policy allows a stale list.
+**What is verified.** The signature is an enveloped XML-DSig, usually inside an XAdES envelope, and the
+check covers it as such:
+
+| Checked | How |
+| --- | --- |
+| Reference digests | every `ds:Reference` is resolved — `URI=""` is the whole document, `#id` is the element carrying that `Id` — its transforms are applied (the enveloped-signature transform removes the `ds:Signature` element, then canonicalisation) and its `DigestValue` is compared |
+| `SignatureValue` | verified over the canonical form of `ds:SignedInfo` with the certificate in `ds:KeyInfo/X509Data` |
+| Canonicalisation | Canonical XML 1.0 and exclusive C14N, both without comments; any other transform or canonicalisation algorithm is refused **by name**, never guessed at |
+| Algorithms | RSA (SHA-1, SHA-256, SHA-384, SHA-512) and ECDSA digests and signatures |
+| Signer chain | built against the anchors the caller supplied, at `xades:SigningTime` when the list states one, with downloads disabled |
+| Document coverage | at least one verified reference must cover the whole document; a signature over a detached element alone is `Valid` but not `IsVerified` |
+
+One byte changed anywhere the references cover makes the digests disagree, and the verdict says which
+reference failed. `SignedAt` reads `xades:SigningTime` — it is inside the signed bytes, so it is as
+trustworthy as the signature and no more.
+
+**What is not verified.** This is a statement about bytes, not a full AdES validation, and the list's
+authority rests only on the anchors the caller named:
+
+- No timestamp token over the signature, so `SigningTime` is read, never proven. An XAdES-T or -LT
+  level is not established.
+- No check of the XAdES `SignedProperties` beyond digesting the ones a reference names — `SigningCertificate`,
+  `SignaturePolicyIdentifier` and the rest are carried, not interpreted.
+- No revocation of the signer, and no certificate policy or path-length policy beyond what
+  `X509Chain` applies for the anchors given.
+- No sequence-number or freshness enforcement (§7).
+- Two canonicalisation algorithms are implemented, so a list signed under another transform is
+  refused rather than accepted on an assumption. A refusal is never evidence of forgery: it says this
+  reader could not check those bytes.
+
+**What the qualification verdict says it rests on.** `PdfSignatureTrustCoverage.Basis` makes the
+distinction the caller has to be able to see:
+
+| `Basis` | Meaning |
+| --- | --- |
+| `Verified` | the list's signature verified against a supplied anchor and the list is inside its `NextUpdate` |
+| `VerifiedExpired` | the signature verified, and the list is past `NextUpdate`; `IsQualified` still reflects the service, and the explanation names the expiry |
+| `NotVerified` | a verdict was attached and the bytes are not proven — **no verdict says "qualified"**, whatever the services claim |
+| `NotChecked` | the list was read without anchors; the qualification is the list's statement, and the explanation says so |
 
 Once a document is signed and a list is trusted, `PdfSignatureVerifier` answers both halves:
 
@@ -227,7 +269,7 @@ var result = PdfSignatureVerifier.Verify(pdf, store, national);
 
 foreach (var coverage in result.Coverage)
 {
-    // IsQualified is the list's answer; result.Signatures.Signatures[i].IsIntact is the PDF's.
+    // coverage.Basis says whether the list itself was verified; coverage.IsQualified says what it states.
 }
 ```
 
@@ -273,3 +315,30 @@ foreach (var coverage in result.Coverage)
 The fixtures are hand-written ETSI documents carrying certificates the suite generated, so a match
 is a match of DER bytes. The signing tests reuse `TestCertificates` and `PdfSigner`: no second
 signing infrastructure was invented for them.
+
+The list's own signature is covered by `tests/Text.Pdf.Tests/TrustListSignatureTests.cs`, one
+assertion per fact, with documents the test writes and signs in memory:
+
+- `A_signed_list_whose_signature_verifies_against_the_anchors_is_reported_verified`
+- `A_list_whose_signed_bytes_changed_by_one_byte_is_refused_with_the_reason`
+- `A_list_signed_by_a_certificate_the_anchors_do_not_cover_is_not_verified`
+- `A_list_verified_without_anchors_is_not_verified`
+- `A_signature_that_covers_only_a_detached_element_is_not_verified`
+- `A_list_without_a_signature_is_reported_unsigned`
+- `An_unsupported_canonicalisation_is_refused_by_name`
+- `An_unsupported_signature_method_is_refused_by_name`
+- `A_reference_to_an_identifier_the_document_does_not_carry_is_refused`
+- `A_list_signed_with_sha1_is_verified`, `A_list_signed_with_sha384_is_verified`,
+  `A_list_signed_with_sha512_is_verified`
+- `A_national_list_is_verified_with_the_anchors_the_lotl_publishes`
+- `A_qualification_on_a_list_whose_signature_does_not_hold_is_never_qualified`
+- `A_qualification_on_a_verified_current_list_names_the_verification`
+- `A_qualification_on_a_verified_list_past_its_next_update_says_the_list_expired`
+- `A_list_read_without_anchors_reports_the_qualification_as_unchecked`
+- `The_canonical_form_sorts_attributes_escapes_text_and_keeps_carriage_returns` — the canonical form
+  is pinned against a literal, so the rules are checked rather than assumed to match the signer.
+
+The fixtures are signed through the package's own canonicalisation: the digest covers the bytes the
+verifier will canonicalise, so a change to one is a change to the other, and the tampering tests prove
+the digest path notices. What that arrangement cannot prove is that a *third-party* canonicaliser
+agrees with this one — §7.1 says what is implemented and that anything else is refused.

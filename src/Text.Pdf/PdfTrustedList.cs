@@ -66,7 +66,8 @@ public sealed class PdfTrustedList
         string? listType,
         string? location,
         IReadOnlyList<PdfTrustService> services,
-        IReadOnlyList<PdfTrustListPointer> nationalLists)
+        IReadOnlyList<PdfTrustListPointer> nationalLists,
+        PdfTrustListSignature? signature = null)
     {
         Territory = territory;
         Version = version;
@@ -77,6 +78,7 @@ public sealed class PdfTrustedList
         Location = location;
         Services = services;
         NationalLists = nationalLists;
+        Signature = signature;
     }
 
     /// <summary>The territory the list speaks for, from <c>SchemeTerritory</c> — <c>EU</c> for a list of lists.</summary>
@@ -114,6 +116,17 @@ public sealed class PdfTrustedList
 
     /// <summary>The other trust lists this one points at, in document order. Empty for a national list.</summary>
     public IReadOnlyList<PdfTrustListPointer> NationalLists { get; }
+
+    /// <summary>
+    /// What this list's own signature proved, when the caller asked for a check by passing anchors to
+    /// <see cref="PdfLotl.Read(ReadOnlySpan{byte}, string, PdfTrustStore)"/>; null when it did not.
+    /// </summary>
+    /// <remarks>
+    /// Null is not "verified". A list read without anchors carries no verdict, and the coverage it
+    /// produces says so through <see cref="PdfSignatureTrustCoverage.Basis"/> — the qualification is
+    /// then the list's claim, and a caller that relies on it is trusting the bytes it was handed.
+    /// </remarks>
+    public PdfTrustListSignature? Signature { get; }
 
     /// <summary>Whether <paramref name="at"/> is past <see cref="NextUpdate"/>.</summary>
     /// <param name="at">The instant to judge.</param>
@@ -206,18 +219,25 @@ public sealed class PdfTrustedList
     {
         var at = signature.TimestampedSigningTime ?? signature.ClaimedSigningTime;
         var evidenced = signature.TimestampedSigningTime is not null;
+        var basis = BasisAt(at);
+
+        if (basis == PdfQualificationBasis.NotVerified)
+        {
+            return new PdfSignatureTrustCoverage(
+                index, signature.SignerSubject, null, false, at, basis, Refusal());
+        }
 
         if (signature.SignerCertificate is null)
         {
             return new PdfSignatureTrustCoverage(
-                index, signature.SignerSubject, null, false, at,
+                index, signature.SignerSubject, null, false, at, basis,
                 "not qualified: the signature carries no signing certificate, so no service can cover it");
         }
 
         if (at is null)
         {
             return new PdfSignatureTrustCoverage(
-                index, signature.SignerSubject, null, false, null,
+                index, signature.SignerSubject, null, false, null, basis,
                 "not qualified: the signature carries no time this reader can judge a service period against");
         }
 
@@ -226,25 +246,77 @@ public sealed class PdfTrustedList
         if (service is null)
         {
             return new PdfSignatureTrustCoverage(
-                index, signature.SignerSubject, null, false, at,
+                index, signature.SignerSubject, null, false, at, basis,
                 $"not qualified: the signing certificate is not found in any granted service of {Territory} at {at.Value:u}"
-                + (evidenced ? " (timestamped time)" : " (claimed time, not evidence)"));
+                + (evidenced ? " (timestamped time)" : " (claimed time, not evidence)")
+                + Rest(basis));
         }
 
         if (!service.IsQualified)
         {
             return new PdfSignatureTrustCoverage(
-                index, signature.SignerSubject, service, false, at,
+                index, signature.SignerSubject, service, false, at, basis,
                 $"not qualified: {Territory} covers the signing certificate with a service of type {service.TypeIdentifier},"
-                + " which the list does not mark qualified");
+                + " which the list does not mark qualified"
+                + Rest(basis));
         }
 
         return new PdfSignatureTrustCoverage(
-            index, signature.SignerSubject, service, true, at,
+            index, signature.SignerSubject, service, true, at, basis,
             $"qualified: {Territory} lists {service.ProviderName} as granting {service.TypeIdentifier}"
             + $" from {service.ValidFrom:u}"
-            + (evidenced ? " (timestamped time)" : " (claimed time, not evidence)"));
+            + (evidenced ? " (timestamped time)" : " (claimed time, not evidence)")
+            + Rest(basis));
     }
+
+    /// <summary>What the qualification rests on: the list's own signature, and whether it is current.</summary>
+    private PdfQualificationBasis BasisAt(DateTimeOffset? at)
+    {
+        if (Signature is null)
+        {
+            return PdfQualificationBasis.NotChecked;
+        }
+
+        if (!Signature.IsVerified)
+        {
+            return PdfQualificationBasis.NotVerified;
+        }
+
+        return at is { } moment && IsExpiredAt(moment)
+            ? PdfQualificationBasis.VerifiedExpired
+            : PdfQualificationBasis.Verified;
+    }
+
+    /// <summary>The sentence that says a refused list cannot qualify anything.</summary>
+    private string Refusal()
+    {
+        var verdict = Signature!;
+
+        if (verdict.Status != PdfTrustListSignatureStatus.Valid)
+        {
+            return $"not qualified: the list's own signature is not verified ({verdict.Error ?? "no reason reported"}),"
+                   + " so what it states is a claim rather than a checked fact";
+        }
+
+        if (!verdict.CoversDocument)
+        {
+            return "not qualified: the list's signature does not cover the whole document, so its services are"
+                   + " outside what was signed";
+        }
+
+        return $"not qualified: the list is signed by {verdict.SignerSubject}, whose chain does not reach the"
+               + " anchors supplied, so the signature proves the bytes but not the authority";
+    }
+
+    /// <summary>The suffix that names the basis of a verdict that is not "verified and current".</summary>
+    private string Rest(PdfQualificationBasis basis) => basis switch
+    {
+        PdfQualificationBasis.NotChecked =>
+            " (the list was read without anchors, so its own signature was not checked)",
+        PdfQualificationBasis.VerifiedExpired =>
+            $" (the list's signature verified, but its NextUpdate passed: {NextUpdate:u})",
+        _ => string.Empty,
+    };
 
     private static PdfTrustService? FirstOrNull(IReadOnlyList<PdfTrustService> services)
         => services.Count > 0 ? services[0] : null;
@@ -264,6 +336,7 @@ public sealed class PdfSignatureTrustCoverage
         PdfTrustService? service,
         bool isQualified,
         DateTimeOffset? evaluatedAt,
+        PdfQualificationBasis basis,
         string explanation)
     {
         SignatureIndex = signatureIndex;
@@ -271,6 +344,7 @@ public sealed class PdfSignatureTrustCoverage
         Service = service;
         IsQualified = isQualified;
         EvaluatedAt = evaluatedAt;
+        Basis = basis;
         Explanation = explanation;
     }
 
@@ -292,6 +366,18 @@ public sealed class PdfSignatureTrustCoverage
     /// <summary>The instant the service's period was judged against, when there was one.</summary>
     public DateTimeOffset? EvaluatedAt { get; }
 
+    /// <summary>
+    /// What the verdict rests on: the list's own signature as <see cref="PdfLotl.VerifySignature"/>
+    /// judged it, and whether the list was current at <see cref="EvaluatedAt"/>.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="PdfQualificationBasis.NotVerified"/> means the list's signature was checked and did
+    /// not hold: <see cref="IsQualified"/> is false whatever the services say.
+    /// <see cref="PdfQualificationBasis.NotChecked"/> means no verdict was attached — the list was
+    /// read without anchors — and <see cref="IsQualified"/> is then the list's statement.
+    /// </remarks>
+    public PdfQualificationBasis Basis { get; }
+
     /// <summary>Why the certificate is or is not qualified, in one sentence naming the facts used.</summary>
     public string Explanation { get; }
 }
@@ -307,10 +393,12 @@ public sealed class PdfTrustListVerification
 {
     internal PdfTrustListVerification(
         PdfSignatureVerification signatures,
-        IReadOnlyList<PdfSignatureTrustCoverage> coverage)
+        IReadOnlyList<PdfSignatureTrustCoverage> coverage,
+        PdfTrustListSignature? listSignature = null)
     {
         Signatures = signatures;
         Coverage = coverage;
+        ListSignature = listSignature;
     }
 
     /// <summary>What the verifier established about the document, unchanged.</summary>
@@ -318,6 +406,12 @@ public sealed class PdfTrustListVerification
 
     /// <summary>One entry per signature, in signature order; empty when no list was supplied.</summary>
     public IReadOnlyList<PdfSignatureTrustCoverage> Coverage { get; }
+
+    /// <summary>
+    /// What the list's own signature proved, when the list was read with anchors; null when it was
+    /// not, in which case every coverage entry reports <see cref="PdfQualificationBasis.NotChecked"/>.
+    /// </summary>
+    public PdfTrustListSignature? ListSignature { get; }
 
     /// <summary>Whether every signature is covered by a qualified service of the list.</summary>
     public bool AllQualified

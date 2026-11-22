@@ -128,8 +128,13 @@ public static class PdfSignatureVerifier
     /// <remarks>
     /// The trust list is data the caller read and chose; nothing is downloaded, and a certificate the
     /// list does not know leaves the signature's own verdict untouched. Read the list with
-    /// <see cref="PdfLotl.Read(ReadOnlySpan{byte}, string)"/>; the caller keeps it cached, decides when to
-    /// refresh it, and checks <see cref="PdfTrustedList.IsExpiredAt"/>.
+    /// <see cref="PdfLotl.Read(ReadOnlySpan{byte}, string, PdfTrustStore)"/> and its own signature is
+    /// checked against the anchors passed there: every coverage entry then reports through
+    /// <see cref="PdfSignatureTrustCoverage.Basis"/> whether that check held and whether the list was
+    /// current, and a list whose signature did not hold qualifies nothing. A list read without anchors
+    /// carries no verdict, and the coverage says the qualification is the list's claim. The caller
+    /// keeps the list cached, decides when to refresh it, and checks
+    /// <see cref="PdfTrustedList.IsExpiredAt"/>.
     /// </remarks>
     public static PdfTrustListVerification Verify(
         ReadOnlySpan<byte> pdf,
@@ -140,7 +145,8 @@ public static class PdfSignatureVerifier
 
         return new PdfTrustListVerification(
             verification,
-            trustList is null ? [] : trustList.Evaluate(verification));
+            trustList is null ? [] : trustList.Evaluate(verification),
+            trustList?.Signature);
     }
 
     /// <summary>
@@ -201,6 +207,42 @@ public static class PdfSignatureVerifier
 
         var document = PdfDocument.Parse(Encoding.Latin1.GetString(pdf));
         return PdfDss.Read(document).Coverage();
+    }
+
+    /// <summary>
+    /// Reports, per embedded revocation response, whether its signature proves anything, who signed
+    /// it, and which certificate it answers for.
+    /// </summary>
+    /// <param name="pdf">The document to read.</param>
+    /// <returns>One entry per response the store embeds — answers first, then lists — in the order
+    /// the store declares them; empty when the document carries no store.</returns>
+    /// <exception cref="PdfSignatureException">The data is not a PDF.</exception>
+    /// <remarks>
+    /// <para>
+    /// A response is evidence only when its signature verifies and its signer was entitled to make
+    /// it: the certificate's issuer itself, or a responder certificate that issuer issued with
+    /// <c>id-kp-OCSPSigning</c>. A CRL is checkable the same way, against the authority it names.
+    /// Nothing is fetched and nothing is judged beyond that — a valid answer about a revoked
+    /// certificate still verifies, because the question here is who wrote it, not what it says.
+    /// </para>
+    /// <para>
+    /// The status is one of <see cref="PdfRevocationSignatureStatus.Valid"/>,
+    /// <see cref="PdfRevocationSignatureStatus.NoSignature"/>,
+    /// <see cref="PdfRevocationSignatureStatus.Invalid"/> or
+    /// <see cref="PdfRevocationSignatureStatus.UnexpectedSigner"/>, and the entry names the
+    /// certificate the response is about and the certificate that signed it, so a caller can report
+    /// "the OCSP answer embedded for CN=… was not signed by its issuer" without parsing the store.
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyList<PdfRevocationSignatureReading> ReadRevocationSignatures(ReadOnlySpan<byte> pdf)
+    {
+        if (pdf.IsEmpty)
+        {
+            throw new PdfSignatureException("the document is empty");
+        }
+
+        var document = PdfDocument.Parse(Encoding.Latin1.GetString(pdf));
+        return PdfDss.Read(document).Signatures();
     }
 
     private static PdfSignatureInfo VerifySignature(
