@@ -197,6 +197,96 @@ impl Symbology {
         }
     }
 
+    /// The smallest quiet zone, in modules on each side, the symbology's own specification allows.
+    ///
+    /// This is a floor, not a default: [`Symbology::default_quiet_zone`] is what `Encode` uses when
+    /// the caller stays silent, and it keeps the historic values so an existing document never
+    /// changes size. A print target renders at this floor or wider — [`crate::print`] refuses
+    /// anything narrower rather than printing a symbol a reader cannot find.
+    ///
+    /// EAN-13 and UPC are specified asymmetrically (EAN-13 has eleven modules on the left and seven
+    /// on the right); the value here is the larger side, because the renderer pads symmetrically
+    /// and a symbol wider than the norm is always readable, while one narrower is not.
+    pub fn minimum_quiet_zone(self) -> u32 {
+        match self {
+            Symbology::QrCode => 4,
+            Symbology::MicroQr => 2,
+            Symbology::DataMatrix | Symbology::MaxiCode => 1,
+            Symbology::Aztec => 1,
+            Symbology::Pdf417 => 2,
+            Symbology::Ean13 => 11,
+            Symbology::Ean8 => 7,
+            Symbology::UpcA | Symbology::UpcE => 9,
+            Symbology::DataBarOmnidirectional | Symbology::DataBarExpanded => 1,
+            Symbology::Code128
+            | Symbology::Gs1_128
+            | Symbology::Code39
+            | Symbology::Code93
+            | Symbology::Itf
+            | Symbology::Codabar
+            | Symbology::Telepen => 10,
+        }
+    }
+
+    /// The specification the quiet-zone floor in [`Symbology::minimum_quiet_zone`] comes from.
+    pub fn quiet_zone_source(self) -> &'static str {
+        match self {
+            Symbology::QrCode | Symbology::MicroQr => "ISO/IEC 18004:2015, quiet zone of 4 modules",
+            Symbology::DataMatrix => {
+                "ISO/IEC 16022:2006 and the GS1 DataMatrix Guideline, one module on each side"
+            }
+            Symbology::Aztec => {
+                "ISO/IEC 24778:2024 requires no quiet zone; one module is kept as a print margin"
+            }
+            Symbology::Pdf417 => "ISO/IEC 15438:2015, 2X on each side",
+            Symbology::Ean13 => {
+                "ISO/IEC 15420:2009, 11 modules left and 7 right; the larger side is padded both ways"
+            }
+            Symbology::Ean8 => "ISO/IEC 15420:2009, 7 modules on each side",
+            Symbology::UpcA | Symbology::UpcE => {
+                "GS1 General Specifications, 9X on each side of a UPC symbol"
+            }
+            Symbology::Code128 | Symbology::Gs1_128 => "ISO/IEC 15417:2007, 10X on each side",
+            Symbology::Code39 => "ISO/IEC 16388:2007, 10X on each side",
+            Symbology::Code93 => "AIM USS-93, 10X on each side",
+            Symbology::Itf => "ISO/IEC 16390:2007, 10X on each side",
+            Symbology::Codabar => "AIM USS-Codabar, 10X on each side",
+            Symbology::Telepen => "the Telepen symbology specification, 10X on each side",
+            Symbology::DataBarOmnidirectional | Symbology::DataBarExpanded => {
+                "GS1 General Specifications, 1X on each side"
+            }
+            Symbology::MaxiCode => "ISO/IEC 16023, one module on each side",
+        }
+    }
+
+    /// The smallest module (X-dimension) this library prints, in millimetres.
+    ///
+    /// Two families, because the standards set two floors:
+    ///
+    /// - a one-dimensional symbol: 0.25 mm. ISO 15394:2009 §6.1.3 states that the narrow element
+    ///   shall not be less than 0.25 mm for Code 39 and Code 128, and the GS1 General
+    ///   Specifications set the same absolute floor for the GS1 members (their nominal 0.495 mm
+    ///   applies to general distribution — `Print` accepts that as a *width*, the floor is what it
+    ///   refuses to go under);
+    /// - a two-dimensional symbol: 0.40 mm. The GS1 General Specifications symbol specification
+    ///   table 1 gives 0.396 mm as the minimum X for a GS1 DataMatrix at retail point of sale;
+    ///   0.40 mm is that value rounded up, and it is the stricter of the two families.
+    ///
+    /// A symbol printed below its family floor is a symbol a scanner will fail to read, so
+    /// [`crate::print`] refuses the size instead of producing it.
+    pub fn minimum_module_mm(self) -> f64 {
+        if self.is_one_dimensional() { 0.25 } else { 0.4 }
+    }
+
+    /// The specification the module floor in [`Symbology::minimum_module_mm`] comes from.
+    pub fn module_minimum_source(self) -> &'static str {
+        if self.is_one_dimensional() {
+            "ISO 15394:2009 §6.1.3 and the GS1 General Specifications, X >= 0.25 mm"
+        } else {
+            "GS1 General Specifications symbol specification table 1 (2D at POS, X >= 0.396 mm), rounded up to 0.40 mm"
+        }
+    }
+
     /// Whether the symbol is one-dimensional, which is what decides the bar height.
     pub fn is_one_dimensional(self) -> bool {
         matches!(
