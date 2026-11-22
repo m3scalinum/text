@@ -84,7 +84,8 @@ internal sealed class HttpTestServer : IAsyncDisposable
         string? sessionId = null,
         string? token = Token,
         string? accept = null,
-        string? path = null)
+        string? path = null,
+        string? origin = null)
     {
         var request = new HttpRequestMessage(HttpMethod.Post, path is null ? _server.Endpoint : Absolute(path));
 
@@ -93,6 +94,11 @@ internal sealed class HttpTestServer : IAsyncDisposable
         if (sessionId is not null)
         {
             request.Headers.TryAddWithoutValidation(McpHttpServer.SessionHeader, sessionId);
+        }
+
+        if (origin is not null)
+        {
+            request.Headers.TryAddWithoutValidation("Origin", origin);
         }
 
         if (token is not null)
@@ -113,13 +119,19 @@ internal sealed class HttpTestServer : IAsyncDisposable
         HttpMethod method,
         string? sessionId = null,
         string? token = Token,
-        string? path = null)
+        string? path = null,
+        string? origin = null)
     {
         var request = new HttpRequestMessage(method, path is null ? _server.Endpoint : Absolute(path));
 
         if (sessionId is not null)
         {
             request.Headers.TryAddWithoutValidation(McpHttpServer.SessionHeader, sessionId);
+        }
+
+        if (origin is not null)
+        {
+            request.Headers.TryAddWithoutValidation("Origin", origin);
         }
 
         if (token is not null)

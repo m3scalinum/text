@@ -48,14 +48,14 @@ byte[] pdf = TypstCompiler.CompileToPdf("""
 | Package | What it does | Depends on |
 | --- | --- | --- |
 | `M3scalinum.Text.Typst` | Compiles Typst in-process. PDF, SVG, PNG, HTML, Markdown, plain text, bundles | — |
-| `M3scalinum.Text.Documents` | The document model: typed content, inline styles, tables, figures, lists, page setup, and the HTML and Markdown importers | — |
+| `M3scalinum.Text.Documents` | The document model: typed content, inline styles, tables with merged cells, figures, references, a reusable document style, page setup, HTML and Markdown in and out | — |
 | `M3scalinum.Text.Typst.DependencyInjection` | `AddTypst` for `Microsoft.Extensions.DependencyInjection` | Typst |
 | `M3scalinum.Text.Templates.Generator` | Roslyn generator: a `template.toml` becomes a typed options record | — |
-| `M3scalinum.Text.Pdf` | PAdES-B signatures written as incremental updates, text and outlines read back, and a page rendered as a PNG preview | — |
+| `M3scalinum.Text.Pdf` | PAdES signatures written as incremental updates — B-B to B-LTA, eIDAS seals, trust lists — plus text, outlines, attachments, batch manifests, a page rendered as a PNG | — |
 | `M3scalinum.Text.Templates` | Seven business-document layouts — invoice, quotation, account statement, attestation, contract, payslip, purchase order — with typed options and English or French labels | Typst |
 | `M3scalinum.Text.Mcp` | A Model Context Protocol server over stdio: render a document, list the layouts, sign, merge and read PDFs | Typst, Documents, Templates, Pdf |
-| `M3scalinum.Text.Barcodes` | QR, DataMatrix, Aztec, PDF417, Code 128/39, EAN-13/8, ITF and Codabar: encode to SVG or PNG, decode back | — |
-| `M3scalinum.Text.Ocr` | Text, lines and boxes out of a page image, with the models supplied by the caller | — |
+| `M3scalinum.Text.Barcodes` | 19 symbologies — QR, DataMatrix, Aztec, PDF417, Code 128/39/93, Telepen, EAN-13/8, UPC-A/E, ITF, Codabar, GS1-128, DataBar — encode to SVG or PNG, decode one symbol or a whole page; GS1 element strings and Digital Link | — |
+| `M3scalinum.Text.Ocr` | Text, lines and boxes out of a page image, with the models supplied by the caller; confidence thresholds, rotation/deskew/denoise, model fingerprints | — |
 | `M3scalinum.Text.Docx` | A Word document read into the document model, then renderable like any other | Documents, Typst |
 | `M3scalinum.Text.Xlsx` | An Excel workbook read into typed sheets and cells — text, numbers, booleans, dates, errors, formulas with their cached results — then renderable as a table | Documents, Typst |
 
@@ -189,16 +189,21 @@ var document = TypstDocument.Create()
 ```
 
 `TypstDocument.FromHtml(html)` and `TypstDocument.FromMarkdown(markdown)` import the two formats a web
-application and a repository already speak, into that same model. The rest of the builder — metadata,
-footnotes, bibliography, math, counters, labels — is in
+application and a repository already speak, into that same model, and `ToHtml()` and `ToMarkdown()`
+write it back out without compiling — each reporting the constructs it could not carry. A
+`TypstDocumentStyle` holds the page, body text, heading levels 1 to 3, language, running header and
+footer once and applies to any document, and `Label`/`Reference`/`Outline` give cross-references and a
+table of contents whose numbers Typst resolves at layout time. The rest of the builder — metadata,
+footnotes, formatting, counters, figures — is in
 [the document model](https://github.com/m3scalinum/text/wiki/Documents-Model).
 
 ## M3scalinum.Text.Pdf
 
 Signs a PDF you already have. It takes bytes and returns bytes, and depends on no part of the
-compiler: signatures, conformance, text, forms, pages, attachments, encryption and outlines are
-managed code. Rendering a page as an image is the one feature that needs a native library — its own
-Rust crate, `native/text-pdf`, packed for the six runtimes — and the package carries it.
+compiler: signatures, conformance, text, forms, pages, attachments, outlines, encryption, batch
+manifests, European trust lists and PDF/A conversion are managed code. Rendering a page as an image is
+the one feature that needs a native library — its own Rust crate, `native/text-pdf`, packed for the
+six runtimes — and the package carries it.
 
 ```bash
 dotnet add package M3scalinum.Text.Pdf
@@ -359,6 +364,11 @@ byte[] png = image.Png;   // ready to embed in a PDF page
 string svg = image.Svg;   // ready to hand to a layout engine
 ```
 
+Nineteen symbologies in all, fifteen of them written and read. GS1 data goes through `Gs1Data`, which
+parses an element string, serialises the Digital Link URL and encodes a GS1-128; `Barcode.Print` sizes
+a symbol for paper at a given DPI and refuses anything under the module and quiet-zone floors; and
+`Barcode.DecodeAll` reads every symbol on a page — including a page `M3scalinum.Text.Pdf` rendered.
+
 ### M3scalinum.Text.Ocr — text out of a page image
 
 ```csharp
@@ -373,10 +383,13 @@ if (engine.Recognize(File.ReadAllBytes("scan.png")) is OcrResult result)
 }
 ```
 
-The models are caller-supplied: the package downloads nothing and bundles no weights. `Recognize`
-returns an `OcrRecognition`, which is either an `OcrResult` or an `OcrUnreadable` carrying the
-refusal — page blank, mean confidence under the threshold, or too many words under it — with the
-observed value, the threshold and the word count. The thresholds are `OcrOptions`.
+The models are caller-supplied: the package downloads nothing and bundles no weights, and
+`OcrEngine.FromDirectory` takes a folder holding `detection.rten` and `recognition.rten` when you would
+rather not read them yourself. `Recognize` returns an `OcrRecognition`, which is either an `OcrResult`
+or an `OcrUnreadable` carrying the refusal — page blank, mean confidence under the threshold, or too
+many words under it — with the observed value, the threshold and the word count. The thresholds are
+`OcrOptions`, which also turns on the three preprocessing stages: quarter-turn detection, deskew and
+denoise. Every result reports what preprocessing did and which model fingerprints produced it.
 
 ## Versioning
 
@@ -409,7 +422,7 @@ page for each, then one page per topic.
 | --- | --- |
 | **[Typst](https://github.com/m3scalinum/text/wiki/Typst-Getting-Started)** | [Getting started](https://github.com/m3scalinum/text/wiki/Typst-Getting-Started), [Compiling](https://github.com/m3scalinum/text/wiki/Typst-Compiling), [Templates](https://github.com/m3scalinum/text/wiki/Typst-Templates), [Diagnostics](https://github.com/m3scalinum/text/wiki/Typst-Diagnostics), [Packages and fonts](https://github.com/m3scalinum/text/wiki/Typst-Packages-and-Fonts), [Dependency injection](https://github.com/m3scalinum/text/wiki/Typst-Dependency-Injection), [Performance](https://github.com/m3scalinum/text/wiki/Typst-Performance), [Troubleshooting](https://github.com/m3scalinum/text/wiki/Typst-Troubleshooting) |
 | **[Documents](https://github.com/m3scalinum/text/wiki/Documents-Model)** | [The document model](https://github.com/m3scalinum/text/wiki/Documents-Model), [Importing HTML](https://github.com/m3scalinum/text/wiki/Documents-Html-Import), [Importing Markdown](https://github.com/m3scalinum/text/wiki/Documents-Markdown-Import) |
-| **[Pdf](https://github.com/m3scalinum/text/wiki/Pdf-Getting-Started)** | [Getting started](https://github.com/m3scalinum/text/wiki/Pdf-Getting-Started), [Signing](https://github.com/m3scalinum/text/wiki/Pdf-Signing), [Conformance](https://github.com/m3scalinum/text/wiki/Pdf-Conformance), [Pages and forms](https://github.com/m3scalinum/text/wiki/Pdf-Pages-and-Forms), [Reading text](https://github.com/m3scalinum/text/wiki/Pdf-Text), [Encryption](https://github.com/m3scalinum/text/wiki/Pdf-Encryption), [Converting to PDF/A](https://github.com/m3scalinum/text/wiki/Pdf-Conversion) |
+| **[Pdf](https://github.com/m3scalinum/text/wiki/Pdf-Getting-Started)** | [Getting started](https://github.com/m3scalinum/text/wiki/Pdf-Getting-Started), [Signing](https://github.com/m3scalinum/text/wiki/Pdf-Signing), [Conformance](https://github.com/m3scalinum/text/wiki/Pdf-Conformance), [Pages and forms](https://github.com/m3scalinum/text/wiki/Pdf-Pages-and-Forms), [Reading text](https://github.com/m3scalinum/text/wiki/Pdf-Text), [Encryption](https://github.com/m3scalinum/text/wiki/Pdf-Encryption), [Outlines and attachments](https://github.com/m3scalinum/text/wiki/Pdf-Outlines-and-Attachments), [Batches and trust](https://github.com/m3scalinum/text/wiki/Pdf-Batches-and-Trust), [Converting to PDF/A](https://github.com/m3scalinum/text/wiki/Pdf-Conversion) |
 | **Formats** | [Barcodes](https://github.com/m3scalinum/text/wiki/Barcodes), [Reading DOCX](https://github.com/m3scalinum/text/wiki/Docx), [Reading XLSX](https://github.com/m3scalinum/text/wiki/Xlsx), [OCR](https://github.com/m3scalinum/text/wiki/Ocr) |
 | **[MCP](https://github.com/m3scalinum/text/wiki/Mcp-Server)** | [The MCP server](https://github.com/m3scalinum/text/wiki/Mcp-Server), [Building from source](https://github.com/m3scalinum/text/wiki/Typst-Building-from-Source) |
 
@@ -447,8 +460,8 @@ two agree, are in
 
 ## Project status
 
-Not yet on nuget.org. **1 522 tests** run across ten suites on the current tree; the per-suite
-counts, and which suites need a native artifact, are in
+Not yet on nuget.org. Every suite runs green on the current tree; the per-suite counts, the eleven
+projects and which suites need a native artifact are in
 [09-testing.md](docs/specifications/09-testing.md#1-the-suites).
 
 The `coverage` job fails below 90 % of production lines. Native AOT publish, a 10 000-cycle leak test

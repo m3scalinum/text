@@ -54,22 +54,35 @@ than empty.
 
 ## Encrypted documents
 
-An encrypted document cannot be read without decrypting it, and decryption is not implemented in this
-package. It is refused with a typed error that names the security handler the file declares:
+An encrypted document is decrypted with the password the caller supplies, through the same handler
+`PdfEncryption.Open` uses, and then read like any other:
+
+```csharp
+PdfTextResult result = PdfText.Extract(pdf, "correct horse");
+```
+
+The password may be the user password or the owner password. With no password an encrypted document
+is refused rather than read incorrectly; a password that opens neither is refused with its own code:
 
 ```csharp
 try
 {
-    PdfTextResult result = PdfText.Extract(pdf);
+    PdfTextResult result = PdfText.Extract(pdf, password);
+}
+catch (PdfTextException exception) when (exception.Error == PdfTextError.WrongPassword)
+{
+    Console.WriteLine(exception.Message);
 }
 catch (PdfTextException exception) when (exception.Error == PdfTextError.Encrypted)
 {
-    Console.WriteLine(exception.Message);
+    Console.WriteLine(exception.Message);   // no password supplied, or a handler this package does not decrypt
 }
 ```
 
 `PdfTextError.NotAPdf` and `PdfTextError.Unreadable` cover the other two ways a document has nothing
 to extract. A page index outside the document is an `ArgumentOutOfRangeException`.
+
+`ExtractPage(pdf, page, password)` takes the same password argument.
 
 ## Where to go
 

@@ -1,7 +1,7 @@
 # Barcodes
 
 `M3scalinum.Text.Barcodes` writes and reads barcodes in-process: a QR Code on an invoice, a
-DataMatrix on a label, a Code 128 on a shipping note. No external tool, no service, no temporary
+DataMatrix on a label, a GS1-128 on a shipping note. No external tool, no service, no temporary
 file — the engine ships inside the package.
 
 ```csharp
@@ -31,23 +31,89 @@ else
 
 ## What it writes
 
-Ten symbologies, each covered by an encode→PNG→decode round trip in the test suite.
+Nineteen symbologies in the closed set `BarcodeSymbology`. Fifteen of them are both written and read;
+four are read only in this build because the engine has no writer for them, and `Barcode.CanEncode`
+says which is which before a caller tries.
 
-| Symbology | Good for | Payload it accepts |
-| --- | --- | --- |
-| `QrCode` | anything, from a URL to an invoice header | any text; UTF-8 supported |
-| `DataMatrix` | labels, GS1, small parts | any text |
-| `Aztec` | dense payloads on small labels | any text |
-| `Pdf417` | identity documents, boarding passes | any text |
-| `Code128` | serial numbers, tracking references | full ASCII |
-| `Code39` | the barcode industry has used longest | ASCII, uppercase-friendly |
-| `Ean13` | retail | exactly 13 digits, check digit included |
-| `Ean8` | small retail | exactly 8 digits |
-| `Itf` | cartons, outer cases | digits, an even number |
-| `Codabar` | libraries, blood banks, old systems | digits framed by `A`…`B` |
+| Symbology | Direction | Good for | Payload |
+| --- | --- | --- | --- |
+| `QrCode` | write, read | anything, from a URL to an invoice header | any text; UTF-8 supported |
+| `DataMatrix` | write, read | labels, GS1, small parts | any text |
+| `Aztec` | write, read | dense payloads on small labels | any text |
+| `Pdf417` | write, read | identity documents, boarding passes | any text |
+| `Code128` | write, read | serial numbers, tracking references | full ASCII |
+| `Code39` | write, read | the symbology industry has used longest | ASCII, uppercase-friendly |
+| `Code93` | write, read | full ASCII, denser than Code 39 | ASCII |
+| `Telepen` | write, read | full ASCII, sixteen modules per character | ASCII |
+| `Ean13` | write, read | retail | exactly 13 digits, check digit included |
+| `Ean8` | write, read | small retail | exactly 8 digits |
+| `UpcA` | write, read | North American retail | exactly 12 digits |
+| `UpcE` | write, read | small North American retail | 8 digits, number system 0 or 1 |
+| `Itf` | write, read | cartons, outer cases | digits, an even number |
+| `Codabar` | write, read | libraries, blood banks, old systems | digits framed by `A`…`B` |
+| `Gs1_128` | write, read | the GS1 element string (see below) | a `Gs1Data` element string |
+| `DataBarOmnidirectional` | read only | GS1 retail marks | — |
+| `DataBarExpanded` | read only | GS1 variable-measure marks | — |
+| `MaxiCode` | read only | parcel sortation | — |
+| `MicroQr` | read only | tiny marks, and its rectangular variant | — |
 
 `Barcode.SupportedSymbologies` reads the list from the loaded native library, so a machine running an
 older native half reports a shorter list rather than failing at the first encode.
+
+## GS1
+
+GS1 data is a string of elements — each one an Application Identifier and its value — and the
+symbology carries that string without carrying the structure. `Gs1Data` is the structure:
+
+```csharp
+Gs1Data data = Gs1Data.Parse("(01)09501101530003(10)LOT-42");
+
+data.HumanReadable;    // (01)09501101530003(10)LOT-42
+data.Raw;              // 010950110153000310LOT-42, with ASCII 29 after a variable-length value
+data.Elements;         // one Gs1Element per AI, each with its Ai and Value
+
+BarcodeImage symbol = Barcode.EncodeGs1(data);
+```
+
+`Parse` accepts the raw form a reader returns (with ASCII 29 field separators), the same form with a
+symbol identifier in front (`]C1…`), and the printed `(01)…(10)…` form. An identifier this build does
+not know, a value outside the length its identifier allows, or a check digit that does not match is a
+`BarcodeGs1Exception` — nothing is guessed.
+
+`Barcode.ApplicationIdentifiers` lists the identifiers this build parses, each with its title, its
+minimum and maximum length, whether its value is numeric, whether it ends in a check digit, and
+whether it is a Digital Link primary key. The list is read from the native table that enforces it.
+
+The same elements also serialise as a GS1 Digital Link URL:
+
+```csharp
+string url = data.ToDigitalLink("https://example.com/01");
+Gs1Data back = Gs1Data.FromDigitalLink(url);
+```
+
+Primary keys go in the URL's path, every other element as a query parameter; a base URL that is not
+absolute, or elements with no primary key to identify the item, is refused.
+
+## Putting one in a document
+
+`Barcode.AddToDocument` encodes and adds a figure to a `TypstDocument` in one call, with an
+alternative description a screen reader can read:
+
+```csharp
+BarcodeFigure figure = Barcode.AddToDocument(
+    document,
+    BarcodeSymbology.QrCode,
+    "https://example.com/invoice/FA-2026-0042");
+
+worldBuilder.AddAsset(figure.AssetName, figure.Png);   // register the raster under the virtual path
+```
+
+The document model is write-only Typst source and refers to images by virtual path, so the raster
+cannot travel inside it. It comes back on the result instead: register `BarcodeFigure.Png` under
+`BarcodeFigure.AssetName` with the world builder that compiles the document. The figure carries the
+alt text (the symbology and the payload unless you pass one), the print target, and the physical
+width and height. `Barcode.AddGs1ToDocument` is the same for a `Gs1Data`, with the printed form as
+its alternative description.
 
 ## Two renderings of one symbol
 
@@ -72,11 +138,69 @@ var options = new BarcodeOptions
 };
 ```
 
+## For paper: `Barcode.Print`
+
+`Encode` keeps the historic quiet zones so an existing document never changes size. A print target is
+the other contract: a resolution, a physical size, and the quiet zone the symbology's specification
+requires.
+
+```csharp
+BarcodePrint print = Barcode.Print(
+    BarcodeSymbology.Ean13,
+    "3560070131075",
+    new BarcodePrintOptions
+    {
+        Dpi = 300,                        // the default
+        WidthMillimetres = 40,            // the label's width, quiet zone included
+        ModuleMillimetres = 0.30,         // at or above the symbology's floor
+    });
+
+print.Png;                 // the raster, at that DPI
+print.ModuleMillimetres;   // the module actually used
+print.WidthMillimetres;    // the size it really prints at, after rounding
+print.QuietZone;           // modules on each side, as rendered
+```
+
+`BarcodePrintOptions.Dpi` defaults to 300. `WidthMillimetres` and `ModuleMillimetres` set the target
+from either side — one derives the other; `WidthModules` instead pins the symbol to a bar count and
+refuses a layout that cannot hold it plus its quiet zone rather than cropping it. `QuietZone` and
+`BarHeight` override the symbology's defaults, and `ErrorCorrection` applies to the symbologies that
+have it.
+
+The floors are enforced, not merely documented: `Barcode.MinimumQuietZone(symbology)` returns the
+normative quiet zone in modules (four for a QR Code, one for a DataMatrix, ten for a Code 128, eleven
+for an EAN-13, nine for a UPC, two for a PDF417) and `Barcode.MinimumModuleSize(symbology)` the
+smallest module in millimetres — 0.25 mm for a one-dimensional symbol, 0.40 mm for a
+two-dimensional one. `Print` refuses anything narrower.
+
 ## Reading one back
 
 `Barcode.Decode(byte[] png)` returns the text, the symbology and the points the detector found. It
-reads the same ten symbologies, and also the formats the engine knows but this package does not
-write — a UPC-A comes back with `Symbology` null and `Format` naming the format.
+reads every symbology in the set, including the four this build does not write — one of those comes
+back with its `Symbology` and its `Format` set, not as an unknown.
+
+`Barcode.DecodeAll` reads every symbol in one image, which is what a delivery note needs: one symbol
+per line item.
+
+```csharp
+DecodePage page = Barcode.DecodeAll(
+    File.ReadAllBytes("delivery-note.png"),
+    new BarcodeDecodeOptions { MaximumPixels = 64_000_000, MaximumBytes = 256 * 1024 * 1024 });
+
+foreach (DecodeResult symbol in page.Symbols)
+{
+    Console.WriteLine($"{symbol.Symbology}: {symbol.Text} at {symbol.Bounds}");
+}
+```
+
+The defaults are 64 megapixels and 256 MiB, and a caller may raise them to
+`BarcodeDecodeOptions.HardMaximumPixels` (250 megapixels) and `HardMaximumBytes` (1 GiB). Past a
+ceiling the call fails with `BarcodeException` and `BarcodeErrorCode.Limit`; it never silently reads a
+downscaled image. `DecodePage` carries `Count`, `Width`, `Height`, and — when nothing was found —
+`Error`.
+
+The image `DecodeAll` takes is a PNG, and `M3scalinum.Text.Pdf`'s `PdfRaster.Render(pdf, page).Bytes`
+is exactly that shape, so a scanned page needs one render and this call.
 
 A **readable image with no barcode is not an exception**: it is `Success == false` with `Error` set to
 why. Scanning a stack of invoices should not throw once per blank page. Only bytes that are not a PNG
@@ -90,9 +214,12 @@ at all raise `BarcodeImageException`.
 | A character the symbology has no encoding for | `BarcodeFormatException` naming the symbology. |
 | An empty payload, or one with a NUL | `BarcodeException`, `InvalidArgument`. |
 | More than 4 096 bytes | `BarcodeException`, `Limit`. |
+| A read-only symbology | `BarcodeUnsupportedException`: it can be decoded, not encoded. |
+| A GS1 payload the table does not know, or a check digit that does not match | `BarcodeGs1Exception`. |
+| A print target under the module or quiet-zone floor | `BarcodeException`: the symbol would not scan at that size. |
 | Bytes that are not a PNG | `BarcodeImageException`. |
 | An error correction level on a symbology that has none | `BarcodeException`, `InvalidArgument`: "Q" means nothing to a Code 128. |
-| A page with no barcode | `DecodeResult.Success == false`. |
+| A page with no barcode | `DecodeResult.Success == false`, or an empty `DecodePage`. |
 
 ## One limitation worth knowing
 
