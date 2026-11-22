@@ -68,6 +68,24 @@ internal static partial class NativeMethods
         int detectRotation, int deskew, int denoise,
         out NativeBuffer json, out IntPtr error);
 
+    [LibraryImport(LibraryName, EntryPoint = "to_model_inspect")]
+    internal static unsafe partial int ModelInspect(
+        byte* model, nuint length, int kind, out NativeBuffer json, out IntPtr error);
+
+    [LibraryImport(LibraryName, EntryPoint = "to_model_set_inspect")]
+    internal static unsafe partial int ModelSetInspect(
+        byte* directory, nuint length, out NativeBuffer json, out IntPtr error);
+
+    [LibraryImport(LibraryName, EntryPoint = "to_engine_create_from_directory")]
+    internal static unsafe partial IntPtr EngineCreateFromDirectory(
+        byte* directory, nuint length,
+        byte* dictionary, nuint dictionaryLength,
+        out IntPtr error);
+
+    [LibraryImport(LibraryName, EntryPoint = "to_engine_models")]
+    internal static partial int EngineModels(
+        IntPtr engine, out NativeBuffer json, out IntPtr error);
+
     internal static string ReadUtf8(IntPtr pointer)
         => Marshal.PtrToStringUTF8(pointer) ?? string.Empty;
 }

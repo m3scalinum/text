@@ -17,3 +17,17 @@ internal interface IOcrBackend
 
     IReadOnlyList<OcrPageOutcome> RecognizePdf(byte[] pdf, OcrPdfOptions options);
 }
+
+/// <summary>
+/// A backend that knows which weights it loaded.
+/// </summary>
+/// <remarks>
+/// Separate from <see cref="IOcrBackend"/> so a test double written before model
+/// identity existed keeps compiling and simply reports none: a double is not a
+/// weighed engine and must not pretend to be one.
+/// </remarks>
+internal interface IModelSource
+{
+    /// <summary>The identity of the two models the engine runs.</summary>
+    OcrModelIdentity Models { get; }
+}

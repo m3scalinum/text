@@ -27,10 +27,11 @@ internal static class ResultParser
         var width = root.GetProperty("width").GetInt32();
         var height = root.GetProperty("height").GetInt32();
         var meanConfidence = Confidence(root);
+        var models = ParseModels(root);
 
         if (IsUnreadable(root))
         {
-            return new OcrUnreadable(width, height, meanConfidence, ParseRefusal(root));
+            return new OcrUnreadable(width, height, meanConfidence, ParseRefusal(root), models);
         }
 
         return new OcrResult(
@@ -39,16 +40,19 @@ internal static class ResultParser
             meanConfidence,
             width,
             height,
-            ParsePreprocess(root));
+            ParsePreprocess(root),
+            models);
     }
 
     /// <summary>Parses <c>{"pages": [...]}</c>.</summary>
     internal static IReadOnlyList<OcrPageOutcome> ParsePages(byte[] json)
     {
         using var document = JsonDocument.Parse(json);
+        var root = document.RootElement;
+        var models = ParseModels(root);
 
         var pages = new List<OcrPageOutcome>();
-        foreach (var page in document.RootElement.GetProperty("pages").EnumerateArray())
+        foreach (var page in root.GetProperty("pages").EnumerateArray())
         {
             var pageIndex = page.GetProperty("pageIndex").GetInt32();
             var width = page.GetProperty("width").GetInt32();
@@ -59,7 +63,7 @@ internal static class ResultParser
             if (IsUnreadable(page))
             {
                 pages.Add(new OcrPageUnreadable(
-                    pageIndex, width, height, dpi, meanConfidence, ParseRefusal(page)));
+                    pageIndex, width, height, dpi, meanConfidence, ParseRefusal(page), models));
                 continue;
             }
 
@@ -71,7 +75,8 @@ internal static class ResultParser
                 width,
                 height,
                 dpi,
-                ParsePreprocess(page)));
+                ParsePreprocess(page),
+                models));
         }
 
         return pages;
@@ -205,4 +210,82 @@ internal static class ResultParser
         bounds.GetProperty("y").GetInt32(),
         bounds.GetProperty("width").GetInt32(),
         bounds.GetProperty("height").GetInt32());
+
+    /// <summary>
+    /// Reads the <c>models</c> object a result document carries, or
+    /// <see langword="null"/> when it carries none.
+    /// </summary>
+    /// <remarks>
+    /// An absent object means the native library predates model identity: it only
+    /// ever loaded the bytes the caller passed, so there is no identity to invent
+    /// and a result that has none reports none.
+    /// </remarks>
+    internal static OcrModelIdentity? ParseModels(byte[] json)
+    {
+        using var document = JsonDocument.Parse(json);
+        return ParseModels(document.RootElement);
+    }
+
+    private static OcrModelIdentity? ParseModels(JsonElement element)
+        => element.TryGetProperty("models", out var models) && models.ValueKind == JsonValueKind.Object
+            ? ParseIdentity(models)
+            : null;
+
+    /// <summary>
+    /// Reads the identity document the native side writes:
+    /// <c>{"detection":{…},"recognition":{…},"set":"…"}</c>.
+    /// </summary>
+    internal static OcrModelIdentity ParseIdentity(JsonElement element) => new(
+        ParseFingerprint(element.GetProperty("detection")),
+        ParseFingerprint(element.GetProperty("recognition")),
+        element.GetProperty("set").GetString() ?? string.Empty);
+
+    /// <summary>
+    /// Reads the preflight document of a model directory:
+    /// <c>{"directory":"…","detection":{…},"recognition":{…},"set":"…"}</c>.
+    /// </summary>
+    internal static (string Directory, OcrModelIdentity Identity) ParseModelSet(byte[] json)
+    {
+        using var document = JsonDocument.Parse(json);
+        var root = document.RootElement;
+
+        var directory = root.TryGetProperty("directory", out var directoryElement)
+            && directoryElement.ValueKind == JsonValueKind.String
+            ? directoryElement.GetString() ?? string.Empty
+            : string.Empty;
+
+        return (directory, ParseIdentity(root));
+    }
+
+    /// <summary>Reads an identity document that is the whole document.</summary>
+    internal static OcrModelIdentity ParseIdentity(byte[] json)
+    {
+        using var document = JsonDocument.Parse(json);
+        return ParseIdentity(document.RootElement);
+    }
+
+    private static OcrModelFingerprint ParseFingerprint(JsonElement element)
+    {
+        var role = element.TryGetProperty("role", out var roleElement)
+            && roleElement.ValueKind == JsonValueKind.String
+            ? roleElement.GetString() switch
+            {
+                "detection" => OcrModelRole.Detection,
+                "recognition" => OcrModelRole.Recognition,
+                _ => OcrModelRole.Unspecified,
+            }
+            : OcrModelRole.Unspecified;
+
+        var fileName = element.TryGetProperty("file", out var fileElement)
+            && fileElement.ValueKind == JsonValueKind.String
+            ? fileElement.GetString()
+            : null;
+
+        return new OcrModelFingerprint(
+            role,
+            fileName,
+            element.GetProperty("format").GetString() ?? "unknown",
+            element.GetProperty("length").GetInt64(),
+            element.GetProperty("sha256").GetString() ?? string.Empty);
+    }
 }

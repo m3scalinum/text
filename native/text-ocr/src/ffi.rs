@@ -78,6 +78,28 @@ impl ToError {
     pub fn invalid_argument(message: impl Into<String>) -> Self {
         Self::new(TO_ERR_INVALID_ARGUMENT, message)
     }
+
+    /// An error whose JSON carries extra named fields beside `code` and `message`.
+    ///
+    /// A model failure says *what* is wrong in a field a host can switch on —
+    /// `defect`, `role`, `file` — instead of only in prose a caller would have to
+    /// parse. The fields are strings; the message stays the sentence a human reads.
+    pub fn with_fields(code: i32, message: impl Into<String>, fields: &[(&str, &str)]) -> Self {
+        let mut value = serde_json::json!({
+            "code": code_name(code),
+            "message": message.into(),
+        });
+
+        for (key, field) in fields {
+            value[*key] = serde_json::json!(field);
+        }
+
+        Self {
+            code,
+            json: value.to_string(),
+            traceback: String::new(),
+        }
+    }
 }
 
 pub fn code_name(code: i32) -> &'static str {

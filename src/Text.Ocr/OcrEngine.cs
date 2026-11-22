@@ -13,7 +13,16 @@ namespace M3scalinum.Text.Ocr;
 /// <c>ocrs</c> and <c>rten</c>. Neither this package nor the native library
 /// downloads a model, ships one, or reads one from a default path: the caller
 /// passes the model bytes to <see cref="FromModels"/>, which keeps roughly 40 MB of
-/// weights out of the package and every byte of input visible to the host.
+/// weights out of the package and every byte of input visible to the host, or names
+/// a directory for <see cref="FromDirectory"/>.
+/// </para>
+/// <para>
+/// Either way the files are validated before they are loaded — magic, size,
+/// container layout, and the input shape the model's role needs — and identified by
+/// SHA-256. A file that is not a model, or a model of the wrong generation, is
+/// refused with an <see cref="OcrException"/> whose <see cref="OcrException.Defect"/>
+/// names what is wrong; it is never a wrong reading and never a crash under the first
+/// page.
 /// </para>
 /// <para>
 /// An engine is thread-safe for reads once created: <see cref="Recognize"/> and
@@ -61,6 +70,54 @@ public sealed class OcrEngine : IDisposable
 
         return new OcrEngine(NativeOcrBackend.Create(detectionModel, recognitionModel, characterDictionary));
     }
+
+    /// <summary>
+    /// Creates an engine from the two models of a directory: <c>detection.rten</c>
+    /// and <c>recognition.rten</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the convenience for a host that keeps its weights on disk. The only
+    /// file names looked for are those two, nothing is downloaded, and no other path
+    /// is tried: a directory missing one of them is refused with an
+    /// <see cref="OcrException"/> whose <see cref="OcrException.FilePath"/>
+    /// names the file that was expected.
+    /// </para>
+    /// <para>
+    /// The same validation as <see cref="FromModels"/> applies, and the files must be
+    /// UTF-8 paths; the recognition model's alphabet is the default Latin one. Use
+    /// <see cref="FromModels"/> when the recognition model needs a custom alphabet.
+    /// </para>
+    /// </remarks>
+    /// <param name="directory">The directory holding the two model files.</param>
+    /// <returns>A loaded engine.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="directory"/> is null.</exception>
+    /// <exception cref="ArgumentException"><paramref name="directory"/> is empty.</exception>
+    /// <exception cref="OcrException">A file is missing, unreadable or not a model of its role.</exception>
+    /// <exception cref="OcrException">The native library is not available.</exception>
+    public static OcrEngine FromDirectory(string directory)
+    {
+        ArgumentNullException.ThrowIfNull(directory);
+
+        if (directory.Length == 0)
+        {
+            throw new ArgumentException("The model directory is empty.", nameof(directory));
+        }
+
+        return new OcrEngine(NativeOcrBackend.CreateFromDirectory(directory));
+    }
+
+    /// <summary>
+    /// The identity of the weights this engine runs: the two model fingerprints and
+    /// one digest over the pair.
+    /// </summary>
+    /// <remarks>
+    /// It is read from the native side once, and every result this engine produces
+    /// carries the same identity. <see langword="null"/> only for a backend that does
+    /// not know its weights — the test doubles — never for the native library.
+    /// </remarks>
+    public OcrModelIdentity? Models
+        => _backend is IModelSource source ? source.Models : null;
 
     /// <summary>
     /// Recognises the text of one encoded image: PNG, JPEG, BMP, GIF, TIFF or WebP.
