@@ -95,3 +95,12 @@ Not yet published on nuget.org.
 - A font inventory per PDF export, so a caller can see what was embedded and what it costs.
 - `cargo fuzz` over the four format parsers on a weekly cadence, with a crash failing the job and
   leaving a replayable input behind, and a per-package coverage table published in the run summary.
+- Fonts scanned once per process, with the index persisted so the next process reads a file; a document
+  laid out in columns across pages, with notes in the margin; and a QR code dressed in brand colours
+  with a reserved centre, every level proven decodable by the suite's own decoder.
+- Recognition and verification that say what they did: a page whose language has no model is
+  recognised with the default one and the result names both, and a lot of signed PDFs is verified in one
+  pass with the certificates each chain lacked named.
+- An MCP client cannot render without bound: a per-session quota over a sliding minute, a journal of
+  what was rendered, one table behind both `tools/list` and `tools/call`, the template pack as read-only
+  resources, and an `Origin` check on the HTTP transport.

@@ -214,6 +214,28 @@ Not yet published.
   the result — so a report can say which weights produced it. `OcrEngine.FromDirectory` names the file
   it expected when one is missing. `ocrs` is now built with its `rten` feature, without which the
   `.rten` files the documentation names could not be loaded at all.
+- A document can be recognised page by page when more than one set of weights is loaded: the caller
+  maps a page index to a language, and a page whose language has no model is recognised with the
+  default set and says so in its result — the language asked for, the one used, and the reason. The
+  engine never picks a language on its own; the mapping is the caller's.
+- `PdfBatchSignatureVerifier`: a lot of documents verified in one pass, with a report counting them by
+  chain status, keeping the input order, and naming the certificates a chain lacked — subject, issuer
+  and serial, or the issuer alone when the certificate is not in hand. An unreadable document becomes an
+  entry with its error instead of failing the lot, and the report serialises to a stable text form so two
+  runs, parallel or not, produce the same bytes.
+- A QR code that carries a brand: the correction level forced to L, M, Q or H, a module colour and a
+  background colour checked for their WCAG contrast ratio and refused below the threshold with the
+  measured ratio in the message, and a centre region reserved for a logo. The reserved area is bounded by
+  what the correction level can lose, and every level is proven decodable by the package's own decoder
+  with the logo in place — not by inspection.
+- The MCP server bounds what a client can render: a configurable count per session over a sliding minute,
+  refused as a typed JSON-RPC error that names the limit and the retry delay rather than by dropping the
+  connection. `McpServerOptions.CallJournal` writes one JSON line per call — tool, input and output
+  sizes, duration, outcome, session — with no document content, and is off by default. `tools/list` and
+  `tools/call` read the same table, so a tool cannot be advertised and not dispatched. The template pack
+  is exposed as resources (`m3scalinum://templates/{id}`, read-only, manifest as content). The HTTP
+  transport validates `Origin` against a configured list and answers 403 before reading the body — a
+  browser origin is refused by default, a request without one is served.
 
 ### Security
 

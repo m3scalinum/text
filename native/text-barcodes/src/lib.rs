@@ -1283,6 +1283,11 @@ mod tests {
 
     #[test]
     fn the_print_entry_point_reports_geometry_and_refuses_a_tight_quiet_zone() {
+        // The live-count tests read a process-wide counter; a handle created here would move it
+        // between their two readings.
+        let _guard = HANDLE_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let name = CString::new("QRCode").unwrap();
         let payload = CString::new("PRINT ABI").unwrap();
         let mut error = ptr::null_mut();
@@ -1344,6 +1349,9 @@ mod tests {
 
     #[test]
     fn the_styled_entry_points_paint_a_brand_colour_and_read_back() {
+        let _guard = HANDLE_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let name = CString::new("QRCode").unwrap();
         let payload = CString::new("https://m3scalinum.example/p/0123").unwrap();
         let level = CString::new("Q").unwrap();
@@ -1393,6 +1401,9 @@ mod tests {
 
     #[test]
     fn a_pale_module_is_refused_across_the_styled_entry_point() {
+        let _guard = HANDLE_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let name = CString::new("QRCode").unwrap();
         let payload = CString::new("PALE").unwrap();
         let mut error = ptr::null_mut();
