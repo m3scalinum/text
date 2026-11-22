@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 
 use crate::ffi::{TO_ERR_IMAGE, TO_ERR_MODEL, TO_ERR_OCR, ToError};
 use crate::pdf;
+use crate::preprocess::{self, PreprocessOptions, Preprocessed};
 
 /// The confidence thresholds that decide whether a page is readable.
 ///
@@ -348,22 +349,36 @@ impl Engine {
     }
 
     /// Recognise the text of an encoded image, returning the result as JSON.
+    ///
+    /// When `preprocess` asks for any stage, the decoded page is turned upright,
+    /// levelled and denoised before the recogniser sees it, and the document names
+    /// what was done. The boxes and the width and height the document reports are
+    /// then the preprocessed page's, because that is the image the boxes were found
+    /// in.
     pub fn recognize_image(
         &self,
         encoded: &[u8],
         thresholds: Thresholds,
+        preprocess: PreprocessOptions,
     ) -> Result<Vec<u8>, ToError> {
         let thresholds = thresholds.validate()?;
 
         let decoded = image::load_from_memory(encoded)
             .map_err(|e| ToError::new(TO_ERR_IMAGE, format!("decode image: {e}")))?;
         let rgb = decoded.into_rgb8();
-        let (width, height) = (rgb.width(), rgb.height());
+        let prepared = preprocess::preprocess(rgb.as_raw(), rgb.width(), rgb.height(), preprocess);
 
-        let page = self.recognize_pixels(rgb.as_raw(), width, height, thresholds)?;
+        let page = self.recognize_pixels(
+            &prepared.pixels,
+            prepared.width,
+            prepared.height,
+            thresholds,
+        )?;
+
         let mut value = page.to_json();
-        value["width"] = json!(width);
-        value["height"] = json!(height);
+        value["width"] = json!(prepared.width);
+        value["height"] = json!(prepared.height);
+        add_preprocess_report(&mut value, &prepared);
 
         Ok(value.to_string().into_bytes())
     }
@@ -376,23 +391,32 @@ impl Engine {
         first_page: u32,
         page_count: u32,
         thresholds: Thresholds,
+        preprocess: PreprocessOptions,
     ) -> Result<Vec<u8>, ToError> {
         let thresholds = thresholds.validate()?;
         let mut pages = Vec::new();
 
         for rendered in pdf::render_pages(pdf_bytes, dpi, first_page, page_count)? {
-            let page = self.recognize_pixels(
+            let prepared = preprocess::preprocess(
                 &rendered.pixels,
                 rendered.width,
                 rendered.height,
+                preprocess,
+            );
+
+            let page = self.recognize_pixels(
+                &prepared.pixels,
+                prepared.width,
+                prepared.height,
                 thresholds,
             )?;
 
             let mut value = page.to_json();
             value["pageIndex"] = json!(rendered.index);
-            value["width"] = json!(rendered.width);
-            value["height"] = json!(rendered.height);
+            value["width"] = json!(prepared.width);
+            value["height"] = json!(prepared.height);
             value["dpi"] = json!(rendered.dpi);
+            add_preprocess_report(&mut value, &prepared);
             pages.push(value);
         }
 
@@ -445,6 +469,19 @@ impl Engine {
 
         Ok(Page::assess(readings, thresholds))
     }
+}
+
+/// Adds the report of what preprocessing did, and nothing at all when it did nothing.
+fn add_preprocess_report(value: &mut Value, prepared: &Preprocessed) {
+    if !prepared.changed() {
+        return;
+    }
+
+    value["preprocess"] = json!({
+        "rotationDegrees": prepared.rotation_degrees,
+        "skewDegrees": prepared.skew_degrees,
+        "denoised": prepared.denoised,
+    });
 }
 
 fn round3(value: f64) -> f64 {
@@ -530,6 +567,34 @@ mod tests {
             .flat_map(|line| line["words"].as_array().expect("words is an array").clone())
             .map(|word| word["rejected"].as_bool().expect("rejected is a bool"))
             .collect()
+    }
+
+    #[test]
+    fn a_page_preprocessing_report_is_written_only_when_something_changed() {
+        let mut value = json!({ "status": "recognized" });
+        let untouched = Preprocessed {
+            pixels: Vec::new(),
+            width: 10,
+            height: 10,
+            rotation_degrees: 0,
+            skew_degrees: 0.0,
+            denoised: false,
+        };
+        add_preprocess_report(&mut value, &untouched);
+        assert!(value.get("preprocess").is_none());
+
+        let turned = Preprocessed {
+            pixels: Vec::new(),
+            width: 10,
+            height: 10,
+            rotation_degrees: 90,
+            skew_degrees: -1.25,
+            denoised: true,
+        };
+        add_preprocess_report(&mut value, &turned);
+        assert_eq!(value["preprocess"]["rotationDegrees"], 90);
+        assert_eq!(value["preprocess"]["skewDegrees"], -1.25);
+        assert_eq!(value["preprocess"]["denoised"], true);
     }
 
     #[test]

@@ -62,6 +62,49 @@ public class OcrOptions
     /// </summary>
     public double MaximumRejectedWordRatio { get; init; } = DefaultMaximumRejectedWordRatio;
 
+    /// <summary>
+    /// Whether a page turned by 90°, 180° or 270° is detected and turned back before it
+    /// is read. Off by default.
+    /// </summary>
+    /// <remarks>
+    /// The detection is a heuristic on the page's ink: the direction a page's lines run
+    /// gives the quarter turns, and the imbalance between ascenders and descenders gives
+    /// the 180° case, because printed text has more of the former. A page whose lines are
+    /// vertically symmetric — all capitals, digits, a table rule — gives no signal, and is
+    /// then left as it is rather than guessed at. <see cref="OcrPreprocessReport.RotationDegrees"/>
+    /// says what was applied.
+    /// </remarks>
+    public bool DetectRotation { get; init; }
+
+    /// <summary>
+    /// Whether a fine skew of at most 10° either way is estimated and removed before the
+    /// page is read. Off by default.
+    /// </summary>
+    /// <remarks>
+    /// The estimate searches a quarter of a degree at a time and is applied by bilinear
+    /// interpolation, so the page is resampled once. A page that is level to within a
+    /// third of a degree is not touched. <see cref="OcrPreprocessReport.SkewDegrees"/> says
+    /// what was applied.
+    /// </remarks>
+    public bool Deskew { get; init; }
+
+    /// <summary>
+    /// Whether a 3×3 median filter is applied to the page's luma before it is read. Off by
+    /// default.
+    /// </summary>
+    /// <remarks>
+    /// The filter removes isolated specks without softening stroke edges the way a mean
+    /// filter would. A stroke one pixel wide is a minority in its own 3×3 window and is
+    /// removed with the noise it sits in; a 300 DPI scan's strokes are 2–4 pixels.
+    /// </remarks>
+    public bool Denoise { get; init; }
+
+    /// <summary>
+    /// Whether any preprocessing stage was asked for. The native call with no stage is the
+    /// one revision 1 and 2 of the ABI exported, and is used unchanged when this is false.
+    /// </summary>
+    internal bool RequiresPreprocessing => DetectRotation || Deskew || Denoise;
+
     internal virtual void Validate()
     {
         ValidateThreshold(nameof(MinimumPageConfidence), MinimumPageConfidence);

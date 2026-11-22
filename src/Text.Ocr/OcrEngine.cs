@@ -66,13 +66,21 @@ public sealed class OcrEngine : IDisposable
     /// Recognises the text of one encoded image: PNG, JPEG, BMP, GIF, TIFF or WebP.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// A reading that fails a threshold is not returned as text: the result is then an
     /// <see cref="OcrUnreadable"/> naming the rule that refused it.
+    /// </para>
+    /// <para>
+    /// A page turned by a scanner or photographed at an angle is read after the
+    /// preprocessing <see cref="OcrOptions.DetectRotation"/>, <see cref="OcrOptions.Deskew"/>
+    /// and <see cref="OcrOptions.Denoise"/> ask for; all three are off by default, and a
+    /// page that needs none of them is read exactly as before.
+    /// </para>
     /// </remarks>
     /// <param name="imageBytes">The image file, as it would be read from disk.</param>
     /// <param name="options">
-    /// The confidence thresholds; defaults to <see cref="OcrOptions"/>'s defaults, which
-    /// leave a correct scan untouched.
+    /// The confidence thresholds and the preprocessing switches; defaults to
+    /// <see cref="OcrOptions"/>'s defaults, which leave a correct scan untouched.
     /// </param>
     /// <returns>Either the text, the lines and their boxes, or a typed refusal.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="imageBytes"/> is null.</exception>
@@ -104,7 +112,8 @@ public sealed class OcrEngine : IDisposable
     /// rasteriser: this package never references <c>M3scalinum.Text.Pdf</c>, and a
     /// scanned document needs no text layer to be read. Each page is assessed on its
     /// own: a page that fails a threshold comes back as an <see cref="OcrPageUnreadable"/>
-    /// while the pages around it stay readings.
+    /// while the pages around it stay readings. Each page is also preprocessed on its
+    /// own, so one page a scanner turned does not turn the others.
     /// </remarks>
     /// <param name="pdf">The document bytes.</param>
     /// <param name="options">

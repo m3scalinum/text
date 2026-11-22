@@ -16,7 +16,8 @@ internal static class ResultParser
 {
     /// <summary>
     /// Parses <c>{"width", "height", "status", "text", "meanConfidence", "lines"}</c>,
-    /// plus <c>refusal</c> when the native side refused the page.
+    /// plus <c>refusal</c> when the native side refused the page and <c>preprocess</c>
+    /// when it preprocessed it.
     /// </summary>
     internal static OcrRecognition ParseImage(byte[] json)
     {
@@ -37,7 +38,8 @@ internal static class ResultParser
             ParseLines(root, width, height),
             meanConfidence,
             width,
-            height);
+            height,
+            ParsePreprocess(root));
     }
 
     /// <summary>Parses <c>{"pages": [...]}</c>.</summary>
@@ -68,7 +70,8 @@ internal static class ResultParser
                 meanConfidence,
                 width,
                 height,
-                dpi));
+                dpi,
+                ParsePreprocess(page)));
         }
 
         return pages;
@@ -105,6 +108,38 @@ internal static class ResultParser
             refusal.GetProperty("threshold").GetDouble(),
             refusal.GetProperty("observed").GetDouble(),
             refusal.GetProperty("wordCount").GetInt32());
+    }
+
+    /// <summary>
+    /// The report of what preprocessing did.
+    /// </summary>
+    /// <remarks>
+    /// An absent <c>preprocess</c> object means nothing was done: a document written by a
+    /// native library that predates preprocessing can only describe an untouched page, and
+    /// reading it as anything else would invent a rotation that never happened.
+    /// </remarks>
+    private static OcrPreprocessReport ParsePreprocess(JsonElement element)
+    {
+        if (!element.TryGetProperty("preprocess", out var preprocess)
+            || preprocess.ValueKind != JsonValueKind.Object)
+        {
+            return OcrPreprocessReport.None;
+        }
+
+        var rotation = preprocess.TryGetProperty("rotationDegrees", out var rotationElement)
+            && rotationElement.ValueKind == JsonValueKind.Number
+            ? rotationElement.GetInt32()
+            : 0;
+
+        var skew = preprocess.TryGetProperty("skewDegrees", out var skewElement)
+            && skewElement.ValueKind == JsonValueKind.Number
+            ? skewElement.GetDouble()
+            : 0.0;
+
+        var denoised = preprocess.TryGetProperty("denoised", out var denoisedElement)
+            && denoisedElement.ValueKind == JsonValueKind.True;
+
+        return new OcrPreprocessReport(rotation, skew, denoised);
     }
 
     private static string Text(JsonElement element)

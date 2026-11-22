@@ -63,6 +63,49 @@ internal interface IOcrNative
         out NativeBuffer json,
         out IntPtr error);
 
+    /// <summary>
+    /// Recognises an encoded image after the requested preprocessing; the result document
+    /// is written to <paramref name="json"/>.
+    /// </summary>
+    /// <remarks>
+    /// The default implementation refuses. A double written before preprocessing existed
+    /// therefore keeps compiling and cannot silently drop a stage a caller asked for: the
+    /// failure is loud instead of a page read at the wrong angle.
+    /// </remarks>
+    int EngineRecognizePreprocessed(
+        IntPtr engine,
+        byte[] image,
+        double pageConfidence,
+        double wordConfidence,
+        double maxRejectedWordRatio,
+        bool detectRotation,
+        bool deskew,
+        bool denoise,
+        out NativeBuffer json,
+        out IntPtr error)
+        => throw new NotSupportedException("this native backend does not preprocess images");
+
+    /// <summary>
+    /// Renders and recognises pages of a PDF after the requested preprocessing; the result
+    /// document is written to <paramref name="json"/>.
+    /// </summary>
+    /// <remarks>Same default as <see cref="EngineRecognizePreprocessed"/>.</remarks>
+    int EngineRecognizePdfPreprocessed(
+        IntPtr engine,
+        byte[] pdf,
+        uint dpi,
+        uint firstPage,
+        uint pageCount,
+        double pageConfidence,
+        double wordConfidence,
+        double maxRejectedWordRatio,
+        bool detectRotation,
+        bool deskew,
+        bool denoise,
+        out NativeBuffer json,
+        out IntPtr error)
+        => throw new NotSupportedException("this native backend does not preprocess pages");
+
     /// <summary>The <c>{"code","message"}</c> document of an error object.</summary>
     NativeBuffer ErrorJson(IntPtr error);
 
