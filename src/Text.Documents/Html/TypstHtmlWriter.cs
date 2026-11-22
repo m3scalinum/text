@@ -275,6 +275,14 @@ internal sealed class TypstHtmlWriter
 
     private void WriteRow(IReadOnlyList<TypstTableCell> cells, bool header)
     {
+        // A row entirely absorbed by a vertical merge has no cell of its own. Typst markup skips it,
+        // and so does this writer: an empty <tr> is valid HTML but a phantom row to anything reading
+        // the table back.
+        if (cells.Count == 0)
+        {
+            return;
+        }
+
         var tag = header ? "th" : "td";
 
         _out.Append("<tr>");
