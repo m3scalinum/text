@@ -148,12 +148,12 @@ public sealed class ProtocolTests
     public async Task An_unknown_method_is_a_method_not_found_error()
     {
         var responses = await McpTestClient.ExchangeAsync(
-            McpTestClient.Frames("""{"jsonrpc":"2.0","id":"abc","method":"resources/list"}"""));
+            McpTestClient.Frames("""{"jsonrpc":"2.0","id":"abc","method":"prompts/list"}"""));
 
         var error = Assert.Single(responses).GetProperty("error");
 
         Assert.Equal(-32601, error.GetProperty("code").GetInt32());
-        Assert.Contains("resources/list", error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.Contains("prompts/list", error.GetProperty("message").GetString(), StringComparison.Ordinal);
         Assert.Equal("abc", responses[0].GetProperty("id").GetString());
     }
 

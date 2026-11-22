@@ -30,6 +30,27 @@ public static class PdfSignatureVerifier
     /// <param name="trustStore">The anchors to judge the chain by. Null behaves as an empty store.</param>
     /// <exception cref="PdfSignatureException">The data is not a PDF.</exception>
     public static PdfSignatureVerification Verify(ReadOnlySpan<byte> pdf, PdfTrustStore? trustStore)
+        => VerifyDetailed(pdf, trustStore).Verification;
+
+    /// <summary>
+    /// Verifies every signature in <paramref name="pdf"/> and names the certificates whose chain did
+    /// not reach <paramref name="trustStore"/>.
+    /// </summary>
+    /// <param name="pdf">The document to read.</param>
+    /// <param name="trustStore">The anchors to judge the chain by. Null behaves as an empty store.</param>
+    /// <returns>
+    /// The same <see cref="PdfSignatureVerification"/> the plain overload returns, plus one
+    /// <see cref="PdfSignatureChainCertificate"/> per certificate a failed chain could not accept.
+    /// </returns>
+    /// <exception cref="PdfSignatureException">The data is not a PDF.</exception>
+    /// <remarks>
+    /// This is a reading of the same chain judgement, one element further: the chain's failing
+    /// elements are reported with the subject, issuer and serial number a caller needs to find the
+    /// certificate and add it to the store. When the chain stops at a certificate nobody supplied, the
+    /// entry names the issuer its child states, without inventing a subject or a serial number. A
+    /// chain that was not judged names nothing — an empty store is not a missing certificate.
+    /// </remarks>
+    public static PdfSignatureChainReading VerifyDetailed(ReadOnlySpan<byte> pdf, PdfTrustStore? trustStore)
     {
         if (pdf.IsEmpty)
         {
@@ -48,6 +69,7 @@ public static class PdfSignatureVerifier
         var timestamps = new List<PdfDocumentTimestampInfo>();
         var signatures = new List<(int Offset, PdfSignatureInfo Info)>();
         var pending = new List<(PdfSignatureDictionary Dictionary, byte[] Content)>();
+        var rejected = new List<PdfSignatureChainCertificate>();
 
         foreach (var dictionary in document.SignatureDictionaries())
         {
@@ -80,14 +102,16 @@ public static class PdfSignatureVerifier
 
         foreach (var (dictionary, content) in pending)
         {
-            signatures.Add((dictionary.Offset, VerifySignature(bytes, dictionary, content, trustStore, dss, timestamps, archived)));
+            signatures.Add((dictionary.Offset, VerifySignature(bytes, dictionary, content, trustStore, dss, timestamps, archived, rejected)));
         }
 
         signatures.Sort((left, right) => left.Offset.CompareTo(right.Offset));
 
-        return new PdfSignatureVerification(
-            signatures.Select(entry => entry.Info).ToList(),
-            timestamps);
+        return new PdfSignatureChainReading(
+            new PdfSignatureVerification(
+                signatures.Select(entry => entry.Info).ToList(),
+                timestamps),
+            Deduplicate(rejected));
     }
 
     /// <summary>
@@ -186,7 +210,8 @@ public static class PdfSignatureVerifier
         PdfTrustStore? trustStore,
         PdfDss dss,
         List<PdfDocumentTimestampInfo> timestamps,
-        bool archived)
+        bool archived,
+        List<PdfSignatureChainCertificate> rejected)
     {
         var claimed = PdfSyntax.Date(dictionary.ClaimedTime);
         var coversWhole = CoversWholeFile(bytes, dictionary);
@@ -243,7 +268,8 @@ public static class PdfSignatureVerifier
         }
 
         var timestamped = SignatureTime(cms, signer);
-        var chain = EvaluateChain(signer.Certificate, trustStore, dss, timestamped);
+        var chain = EvaluateChain(signer.Certificate, trustStore, dss, timestamped, out var chainIssues);
+        rejected.AddRange(chainIssues);
 
         var level = PdfSignatureLevel.BaselineB;
 
@@ -333,7 +359,7 @@ public static class PdfSignatureVerifier
                 "the timestamp's imprint does not cover the bytes of its byte range");
         }
 
-        var chain = EvaluateChain(token.Signer, trustStore, PdfDss.Empty, token.GeneratedAt);
+        var chain = EvaluateChain(token.Signer, trustStore, PdfDss.Empty, token.GeneratedAt, out _);
 
         return new PdfDocumentTimestampInfo(
             token.GeneratedAt,
@@ -351,8 +377,11 @@ public static class PdfSignatureVerifier
         X509Certificate2? certificate,
         PdfTrustStore? trustStore,
         PdfDss dss,
-        DateTimeOffset? at)
+        DateTimeOffset? at,
+        out IReadOnlyList<PdfSignatureChainCertificate> issues)
     {
+        issues = [];
+
         if (certificate is null)
         {
             return (PdfChainStatus.NotEvaluated, null);
@@ -392,6 +421,8 @@ public static class PdfSignatureVerifier
             return (PdfChainStatus.Trusted, null);
         }
 
+        issues = Describe(chain, trustStore);
+
         var reasons = chain.ChainStatus
             .Select(status => status.StatusInformation.Trim())
             .Where(text => text.Length > 0)
@@ -400,6 +431,118 @@ public static class PdfSignatureVerifier
 
         var joined = string.Join("; ", reasons);
         return (PdfChainStatus.Untrusted, joined.Length > 0 ? joined : "the chain did not build");
+    }
+
+    /// <summary>
+    /// The certificates to add to the store for a chain that did not build: the topmost certificate
+    /// the chain could reach when the store does not anchor it, or the elements a completed path
+    /// rejected.
+    /// </summary>
+    /// <remarks>
+    /// The branch is chosen on whether the chain reached an anchor of the store, not on which flags
+    /// the platform attached: a chain that stops short is described the same way on every runtime,
+    /// while a path that reaches an anchor and is still refused names the elements that failed.
+    /// </remarks>
+    private static List<PdfSignatureChainCertificate> Describe(X509Chain chain, PdfTrustStore store)
+    {
+        var rejected = new List<PdfSignatureChainCertificate>();
+
+        if (chain.ChainElements.Count == 0)
+        {
+            return rejected;
+        }
+
+        var last = chain.ChainElements[chain.ChainElements.Count - 1];
+
+        if (!ReachesAnchor(store, last.Certificate))
+        {
+            // The chain stops before the store. Either the topmost certificate is its own issuer and
+            // is the anchor nobody trusts, or the certificate nobody supplied is the issuer it names.
+            rejected.Add(string.Equals(last.Certificate.Subject, last.Certificate.Issuer, StringComparison.Ordinal)
+                ? new PdfSignatureChainCertificate(
+                    last.Certificate.Subject,
+                    last.Certificate.Issuer,
+                    last.Certificate.SerialNumber,
+                    isEmbedded: true,
+                    "the chain ends at this certificate, which no anchor of the trust store issued")
+                : new PdfSignatureChainCertificate(
+                    subject: null,
+                    last.Certificate.Issuer,
+                    serialNumber: null,
+                    isEmbedded: false,
+                    "the certificate that issued this one is not in the trust store and the file does not embed it"));
+
+            return rejected;
+        }
+
+        foreach (X509ChainElement element in chain.ChainElements)
+        {
+            var reasons = Reasons(element.ChainElementStatus);
+
+            if (reasons.Count == 0)
+            {
+                continue;
+            }
+
+            var certificate = element.Certificate;
+
+            rejected.Add(new PdfSignatureChainCertificate(
+                certificate.Subject,
+                certificate.Issuer,
+                certificate.SerialNumber,
+                isEmbedded: true,
+                "the chain rejects this certificate: " + string.Join(", ", reasons)));
+        }
+
+        return rejected;
+    }
+
+    /// <summary>Whether the chain's topmost certificate is one of the store's anchors.</summary>
+    private static bool ReachesAnchor(PdfTrustStore store, X509Certificate2 certificate)
+    {
+        foreach (var anchor in store.Anchors)
+        {
+            if (string.Equals(anchor.Thumbprint, certificate.Thumbprint, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static List<string> Reasons(X509ChainStatus[] status)
+    {
+        var reasons = new List<string>(status.Length);
+
+        foreach (var entry in status)
+        {
+            reasons.Add(entry.Status.ToString());
+        }
+
+        reasons.Sort(StringComparer.Ordinal);
+        return reasons;
+    }
+
+    private static List<PdfSignatureChainCertificate> Deduplicate(List<PdfSignatureChainCertificate> rejected)
+    {
+        if (rejected.Count < 2)
+        {
+            return rejected;
+        }
+
+        var unique = new List<PdfSignatureChainCertificate>(rejected.Count);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var issue in rejected)
+        {
+            if (seen.Add(issue.Key))
+            {
+                unique.Add(issue);
+            }
+        }
+
+        return unique;
     }
 
     private static bool CoversWholeFile(byte[] bytes, PdfSignatureDictionary dictionary)

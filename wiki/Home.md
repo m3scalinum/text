@@ -35,7 +35,8 @@ File.WriteAllBytes("hello.pdf", pdf);
 
 **[M3scalinum.Text.Pdf](Pdf-Getting-Started)** — sign what you produced, and change it. PAdES-B
 written as an incremental update, so a PDF/A document stays PDF/A and an earlier signature stays
-valid; plus pages, forms, text, encryption and conformance.
+valid; plus pages, forms, text, encryption, conformance, outlines, attachments, batch manifests and
+a page rendered as a PNG.
 
 ```csharp
 using M3scalinum.Text.Pdf;
@@ -55,8 +56,10 @@ var signed = PdfSigner.Sign(pdf, certificate, new PdfSignatureOptions { Reason =
   other. → [Reading Word documents](Docx)
 - **`M3scalinum.Text.Xlsx`** — read an Excel workbook into typed sheets and cells, then render it as a
   table. → [Reading Excel workbooks](Xlsx)
-- **`M3scalinum.Text.Barcodes`** — QR, DataMatrix, Aztec, PDF417, Code 128/39, EAN-13/8, ITF and
-  Codabar, encoded to SVG or PNG and decoded back. → [Barcodes](Barcodes)
+- **`M3scalinum.Text.Barcodes`** — 19 symbologies, 15 of them written and read: QR, Micro QR,
+  DataMatrix, Aztec, PDF417, Code 128/39/93, Telepen, EAN-13/8, UPC-A/E, ITF, Codabar, GS1-128 and
+  the DataBar family, encoded to SVG or PNG, decoded back one symbol or a whole page. Plus the GS1
+  element string and Digital Link. → [Barcodes](Barcodes)
 - **`M3scalinum.Text.Ocr`** — text, lines and boxes out of a page image or a scanned PDF, with the
   models the caller supplies. → [OCR](Ocr)
 - **`M3scalinum.Text.Mcp`** — a Model Context Protocol server over stdio or HTTP: render, list the
@@ -81,6 +84,7 @@ var signed = PdfSigner.Sign(pdf, certificate, new PdfSignatureOptions { Reason =
 **[Pdf](Pdf-Getting-Started)** — sign, change and read a PDF
 [Getting Started](Pdf-Getting-Started) · [Signing](Pdf-Signing) · [Checking conformance](Pdf-Conformance) · 
 [Pages and forms](Pdf-Pages-and-Forms) · [Reading text](Pdf-Text) · [Encryption](Pdf-Encryption) · 
+[Outlines and attachments](Pdf-Outlines-and-Attachments) · [Batches and trust](Pdf-Batches-and-Trust) · 
 [Converting to PDF/A](Pdf-Conversion)
 
 [Barcodes](Barcodes) · [Reading DOCX](Docx) · [OCR](Ocr)

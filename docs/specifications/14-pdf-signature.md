@@ -482,3 +482,107 @@ revocation evidence in `/DSS` was fresh when it was embedded; and that the valid
 the timestamped time, not the claimed one — is the one the audit report names. A PDF that reads back
 as `seal, timestamped by a qualified service` is a file whose certificate a supplied list covers with
 a qualified timestamp service; it is not a statement that the seal is qualified in law.
+
+## 13. Verifying a batch
+
+A client that archives a thousand invoices does not want a thousand verifications to read: it wants
+one report that says how many documents were read, how many signatures chain to the store it
+supplies, and which certificates it has to add before the rest can be judged. `PdfBatchSignatureVerifier`
+is that loop, and `PdfBatchSignatureReport` is its answer.
+
+```csharp
+var report = PdfBatchSignatureVerifier.Verify(
+    documents,
+    new PdfBatchSignatureOptions
+    {
+        TrustStore = store,
+        MaxDegreeOfParallelism = 4,
+    });
+
+var chainStatuses = report.CountsByStatus;
+string text = report.ToText();
+```
+
+**One entry per document, by position.** The caller supplies bytes, not names, so a document is
+identified by its index in the batch — the same index the caller used when it read the file. The
+report lists entries in input order whatever the degree of parallelism, which is what makes two
+runs comparable.
+
+**The status a document is filed under.** A document with several signatures is filed under its
+first signature that is not `Trusted`; a document whose signatures are all `Trusted` is `Trusted`; a
+document with nothing judged — no signature, no trust store, or unreadable bytes — is
+`NotEvaluated`. One document appears under exactly one status, so the lists behind the counts
+partition the documents that were read.
+
+**The counts.** `CountsByStatus` holds one entry per `PdfChainStatus` value — `NotEvaluated`,
+`Trusted`, `Untrusted` — including the values the batch carried none of, so a reader never confuses
+"no document there" with "a status the report forgot". Unreadable documents are not filed under a
+chain status at all: nothing was judged. `Documents`, `Read` and `Unreadable` satisfy
+`Read == Documents - Unreadable`, and `SignedDocuments` counts the read documents that carry at
+least one signature.
+
+**The certificates to add.** A chain that does not build is not a dead end: `PdfSignatureVerifier`
+already decides it, and `VerifyDetailed` reads the same chain judgement one element further,
+returning the certificates it could not accept. A certificate that travelled with the file and was
+rejected is reported with its own subject, issuer and serial number; a certificate nobody supplied
+is reported with the issuer name its child states, and `Subject` and `SerialNumber` stay null rather
+than being invented. Every name is deduplicated, so two signatures over the same missing root name
+it once. Which certificate is named does not depend on the runtime: when the chain stops before the
+store, the entry is the topmost certificate the chain could reach — as an embedded certificate when
+it is its own issuer, otherwise as the issuer name it states — and when a completed path is still
+refused, the entry is each element the chain flagged. `Reason` says why, as the chain flag —
+`UntrustedRoot`, `PartialChain`, `NotTimeValid` — rather than the platform's localised sentence;
+that sentence is localised by the operating system, and *which* flags fire is the platform's
+judgement, so the reason stays on the object and out of the canonical text. A chain that was not
+judged names nothing: an empty store is a decision not to judge, not a list of missing certificates.
+The certificates named are those of the signature chains; a document timestamp's own chain is
+judged in `PdfSignatureVerification.DocumentTimestamps` and contributes no entry here.
+
+**The text form.** `ToText` renders the report as UTF-8 without a byte-order mark, LF line endings,
+tab-separated fields, in a fixed order:
+
+```
+M3SCALINUM-BATCH-SIGNATURE-REPORT 1
+documents	3
+read	3
+unreadable	0
+signed	2
+status	NotEvaluated	1
+status	Trusted	1
+status	Untrusted	1
+document	0	Trusted	1	0
+document	1	Untrusted	1	1
+missing	1		CN=Some Other Root, O=Elsewhere, C=FR		named
+document	2	NotEvaluated	0	0
+```
+
+The first line is the format's name and version; then the four totals; then one `status` line per
+chain status in ascending value; then one block per document — a `document` line carrying the index,
+the status (or `Unreadable`), the signature count and the missing-certificate count, a `missing`
+line per certificate — subject, issuer, serial number, and `embedded` or `named` — and an `error`
+line when the document could not be read. Tabs, line feeds, carriage returns and percent signs
+inside a name are escaped as `%09`, `%0A`, `%0D` and `%25`, so a subject with a tab in it cannot
+forge a field. The same batch verified twice renders the same bytes,
+with or without parallelism.
+
+**The cost.** One parse and one chain build per signature, exactly what verifying the documents one
+by one costs, plus one entry per document. The report keeps no document bytes: peak memory is the
+caller's own arrays plus `MaxDegreeOfParallelism` documents being parsed at once (the default, `1`,
+keeps one in flight), and the report itself grows linearly in documents — an index, a status, a
+count and the names of the certificates a chain could not accept, which is kilobytes for a thousand
+invoices, not gigabytes.
+
+**One unreadable document does not fail the batch.** A file that is not a PDF, or that the parser
+rejects, becomes an entry with `IsRead` false and the parser's message in `Error`; the remaining
+documents are verified and counted. The batch reports how many were read precisely so that a
+caller can tell a clean batch from one where a file never reached the verifier.
+
+**What the report does not prove.** It aggregates verdicts; it does not reinforce them. A document
+counted `Trusted` is one whose signatures each chained to the store the caller supplied at the
+moment of the pass — nothing more. The report does not say who the signer was entitled to speak
+for, whether the document's content is true, whether a signature covered the whole file, or whether
+the certificate was revoked; those are `PdfSignatureInfo`'s per-signature facts and the caller's
+policy. A `MissingCertificates` entry explains why a chain did not build, and adding a certificate
+to the store because this report named it is the caller's decision, not the report's. The report is
+not signed, so a caller who has to show it to somebody else signs its bytes with `PdfSigner` the
+same way a batch manifest is signed; see `33-archive-integrity.md`.

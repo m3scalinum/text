@@ -25,7 +25,7 @@ public sealed class TypstPageSetup
 
     internal ITypstPaint? FillPaint { get; private set; }
 
-    internal int? ColumnCount { get; private set; }
+    internal TypstColumnLayout? ColumnLayout { get; private set; }
 
     internal string? NumberingFormat { get; private set; }
 
@@ -115,11 +115,34 @@ public sealed class TypstPageSetup
         return this;
     }
 
-    /// <summary>Sets the number of columns the page body is laid out in.</summary>
-    public TypstPageSetup Columns(int count)
+    /// <summary>
+    /// Sets the number of columns the page body is laid out in, on every page, in document order:
+    /// the first column of a page fills before the second, and the flow continues on the next page.
+    /// </summary>
+    /// <remarks>
+    /// This is the page-level primitive (<c>#set page(columns: n)</c>), not the flow-level
+    /// <c>#columns</c> container: only the page-level one paginates properly for a whole document.
+    /// </remarks>
+    public TypstPageSetup Columns(int count) => Columns(new TypstColumnLayout(count));
+
+    /// <summary>
+    /// Sets the page body's columns and the gutter between them.
+    /// </summary>
+    /// <param name="count">The number of columns, at least one.</param>
+    /// <param name="gutter">The space between two columns.</param>
+    /// <remarks>
+    /// Typst reads the page-level gutter from the <c>columns</c> element's style, so the gutter is
+    /// written as a <c>#set columns(gutter: …)</c> rule next to the <c>#set page</c> one.
+    /// </remarks>
+    public TypstPageSetup Columns(int count, TypstLength gutter)
+        => Columns(new TypstColumnLayout(count, gutter));
+
+    /// <summary>Applies a prepared column layout.</summary>
+    /// <exception cref="ArgumentNullException"><paramref name="layout"/> is null.</exception>
+    public TypstPageSetup Columns(TypstColumnLayout layout)
     {
-        ArgumentOutOfRangeException.ThrowIfLessThan(count, 1);
-        ColumnCount = count;
+        ArgumentNullException.ThrowIfNull(layout);
+        ColumnLayout = layout;
         return this;
     }
 

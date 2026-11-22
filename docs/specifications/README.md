@@ -33,6 +33,7 @@ file names, to find what you want.
 | 34 | [34-document-style.md](34-document-style.md) | `TypstDocumentStyle`: page, body, headings, language, header and footer declared once, applied to any document |
 | 37 | [37-footnotes-and-numbering.md](37-footnotes-and-numbering.md) | `TypstNumberingScope`: footnotes and figures numbered per document or per section, and the rules each writes |
 | 38 | [38-table-pagination.md](38-table-pagination.md) | Table headers repeated across pages, rows kept whole, and what Typst guarantees about the break |
+| 41 | [41-columns-and-margin-notes.md](41-columns-and-margin-notes.md) | `TypstPageSetup.Columns` and the page-level primitive that paginates, the gutter, and `TypstMarginNote` placed level with its marker |
 
 ## The PDF family
 

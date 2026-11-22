@@ -34,28 +34,113 @@ foreach (OcrLine line in result.Lines)
 A scanned PDF, page by page, at 300 DPI:
 
 ```csharp
-IReadOnlyList<OcrPageResult> pages = engine.RecognizePdf(
+IReadOnlyList<OcrPageOutcome> pages = engine.RecognizePdf(
     File.ReadAllBytes("received.pdf"),
     new OcrPdfOptions { Dpi = 300, FirstPage = 0, LastPage = 4 });
 
-foreach (OcrPageResult page in pages)
+foreach (OcrPageOutcome page in pages)
 {
-    Console.WriteLine($"--- page {page.PageIndex}");
-    Console.WriteLine(page.Text);
+    switch (page)
+    {
+        case OcrPageResult read:
+            Console.WriteLine($"--- page {read.PageIndex}: {read.Text}");
+            break;
+
+        case OcrPageUnreadable refused:
+            Console.WriteLine($"--- page {refused.PageIndex}: {refused.Refusal.Message}");
+            break;
+    }
 }
 ```
 
+Each page is either an `OcrPageResult` or an `OcrPageUnreadable`, exactly like the single-image call,
+so one page the engine cannot read does not fail the batch. `OcrPageOutcome` carries `PageIndex`,
+`Width`, `Height`, `Dpi` and the model identity for both.
+
 ## You bring the models
 
-`FromModels` takes the two model files as bytes. Nothing in this package — or in the native library
-behind it — downloads a model, ships one, or reads one from a default path. That is deliberate:
-40 MB of weights do not belong in a NuGet package, and a library that reaches the network on first
-use has made a call the host never authorised.
+`FromModels` takes the two model files as bytes; `FromDirectory` takes a directory holding
+`detection.rten` and `recognition.rten`:
+
+```csharp
+using OcrEngine engine = OcrEngine.FromDirectory("/opt/ocr-models");
+```
+
+Nothing in this package — or in the native library behind it — downloads a model, ships one, or reads
+one from a default path. That is deliberate: 40 MB of weights do not belong in a NuGet package, and a
+library that reaches the network on first use has made a call the host never authorised. The directory
+form looks for those two file names and no others, and a directory missing one is refused with an
+`OcrException` whose `FilePath` names the file that was expected.
 
 The models `ocrs` expects are the ones its `ocrs-models` project publishes. Pass their bytes from
 wherever you keep them: a deployment asset, a licence you hold, an object store. `characterDictionary`
 is the alphabet a recognition model was trained on, as a UTF-8 string; leave it null for the default
 Latin model.
+
+### Which weights produced a page
+
+`OcrEngine.Models` is the identity of the weights the engine loaded, and every result carries the
+same one in `OcrRecognition.Models`:
+
+```csharp
+OcrModelIdentity? identity = engine.Models;
+
+identity?.Detection.Sha256;     // sixty-four hex characters, from the bytes the engine loaded
+identity?.Detection.Format;     // "rten" or "onnx", from the leading bytes
+identity?.Detection.Length;
+identity?.Sha256;               // one digest over the pair
+```
+
+Two hosts that load the same files report the same strings, which is what lets a report say which
+models read a page. `Format` is read from the file's first bytes, not from its extension: the engine
+accepts a `RTEN` container or an ONNX model. A file that is empty, too small, too large, truncated or
+not a model of its role is refused with the `OcrModelDefect` that says which, plus the `Role` and the
+`FilePath`.
+
+## Confidence thresholds
+
+`Recognize` accepts an `OcrOptions`; three of its values decide whether a reading is returned:
+
+| Option | Default | Effect |
+| --- | --- | --- |
+| `MinimumPageConfidence` | 0.6 | The page's mean line confidence must reach it |
+| `MinimumWordConfidence` | 0.5 | Words under it are marked rejected |
+| `MaximumRejectedWordRatio` | 0.5 | A page with more rejected words than this is refused |
+
+A value outside 0–1 — NaN included — is an `ArgumentOutOfRangeException` before anything is read. A
+refusal names the rule that fired (`BlankPage`, `MeanConfidence` or `RejectedWords`) together with the
+threshold, the value observed and the number of words concerned, so a log line carries the whole
+story. A reading that passes reports the same counters on the result: `RejectedWordCount` and
+`RejectedWordRatio`.
+
+## Preprocessing a turned or noisy page
+
+Three switches on `OcrOptions`, all off by default, clean the page before it is read:
+
+```csharp
+var options = new OcrOptions
+{
+    DetectRotation = true,   // 90°, 180° or 270°, detected from the page's ink and turned back
+    Deskew = true,           // a skew of at most 10° either way, removed by one bilinear resample
+    Denoise = true,          // a 3×3 median filter on the luma
+};
+```
+
+The quarter-turn detection reads the direction the page's lines run; a page whose lines are
+vertically symmetric — all capitals, a table rule — gives no signal and is left as it is rather than
+guessed at. The deskew searches a quarter of a degree at a time and leaves a page level to within a
+third of a degree untouched. The median filter removes isolated specks without softening stroke edges
+the way a mean filter would.
+
+What was done is reported on the result, because the boxes and the width and height are the
+preprocessed page's:
+
+```csharp
+OcrResult result = /* … */;
+result.Preprocess.RotationDegrees;   // 0, 90, 180 or 270
+result.Preprocess.SkewDegrees;       // positive clockwise, in [-10, +10]
+result.Preprocess.Denoised;
+```
 
 ## What you get
 
@@ -63,6 +148,9 @@ Latin model.
 - `Lines` — one `OcrLine` per line, in reading order, each with `Bounds` in pixels, `Confidence` and
   `Words` (each word with its own box and confidence).
 - `MeanConfidence` — the mean over the lines.
+- `Preprocess` — what the rotation, deskew and denoise stages did, if they were asked for.
+- `RejectedWordCount` and `RejectedWordRatio` — how many words fell under the word threshold.
+- `Models` — the identity of the weights that produced the reading.
 - `Width`, `Height` — the image, or the rasterised page, in pixels. `OcrPageResult` adds `PageIndex`
   and `Dpi`.
 
@@ -106,7 +194,8 @@ would; a scanned page — an image and a little text — is its easy case.
 - Bytes in, bytes out. No file system, no network, no default model path.
 - CPU only. No GPU, no driver, no device to choose.
 - An engine is thread-safe once created; load it once and share it.
-- A page with no text is not an error: empty `Text`, no lines, `MeanConfidence` 0.
+- A page with no text is a refusal, not an exception: `OcrUnreadable` with `BlankPage`, empty
+  confidence and no text to reach. A blank scan in a batch does not throw.
 - A model that is not a model, an image that will not decode, a PDF that will not parse: an
   `OcrException` with a `Code` of `model`, `image` or `pdf`. A panic in the native code is caught at
   the boundary and reported the same way, never unwound into your process.

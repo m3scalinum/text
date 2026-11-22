@@ -50,6 +50,8 @@ public sealed class McpHttpServer : IMcpTransport, IAsyncDisposable
     private readonly McpServerOptions _serverOptions;
     private readonly McpHttpServerOptions _options;
     private readonly byte[] _tokenHash;
+    private readonly string[] _allowedOrigins;
+    private readonly HashSet<string> _originSet;
     private readonly Dictionary<string, DateTimeOffset> _sessions = new(StringComparer.Ordinal);
     private readonly object _sessionsGate = new();
     private readonly CancellationTokenSource _stop = new();
@@ -77,6 +79,8 @@ public sealed class McpHttpServer : IMcpTransport, IAsyncDisposable
         _serverOptions = serverOptions;
         _options = httpOptions;
         _tokenHash = SHA256.HashData(Encoding.UTF8.GetBytes(httpOptions.BearerToken));
+        _allowedOrigins = [.. httpOptions.NormalizedOrigins()];
+        _originSet = new HashSet<string>(_allowedOrigins, StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>The protocol limits this server applies.</summary>
@@ -309,6 +313,15 @@ public sealed class McpHttpServer : IMcpTransport, IAsyncDisposable
             return false;
         }
 
+        if (!IsOriginAllowed(head.Header("origin"), out var refusedOrigin))
+        {
+            // MCP 2025-06-18, Streamable HTTP: "Servers MUST validate the Origin header on all
+            // incoming connections to prevent DNS rebinding attacks." A browser attaches the page's
+            // origin to a cross-site POST; refusing it here keeps a web page from driving the port.
+            await RejectOriginAsync(stream, head, refusedOrigin).ConfigureAwait(false);
+            return false;
+        }
+
         if (head.Method == "DELETE")
         {
             return await DeleteAsync(stream, head, cancellationToken).ConfigureAwait(false);
@@ -391,7 +404,8 @@ public sealed class McpHttpServer : IMcpTransport, IAsyncDisposable
             }
         }
 
-        var response = await handler.HandleMessageAsync(message, cancellationToken).ConfigureAwait(false);
+        var response = await handler.HandleMessageAsync(message, sessionId ?? issued, cancellationToken)
+            .ConfigureAwait(false);
 
         if (response is null)
         {
@@ -453,6 +467,59 @@ public sealed class McpHttpServer : IMcpTransport, IAsyncDisposable
             .ConfigureAwait(false);
 
         return head.KeepAlive;
+    }
+
+    /// <summary>
+    /// Whether the request's <c>Origin</c> is one of the configured ones; a request with no
+    /// <c>Origin</c> did not come from a browser and is allowed.
+    /// </summary>
+    /// <param name="origin">The <c>Origin</c> header, or <see langword="null"/> when there is none.</param>
+    /// <param name="refused">The value to name in the refusal, when the answer is no.</param>
+    private bool IsOriginAllowed(string? origin, out string refused)
+    {
+        refused = string.Empty;
+
+        if (origin is null)
+        {
+            return true;
+        }
+
+        var value = origin.Trim();
+        refused = value;
+
+        if (value.Length == 0 || _originSet.Count == 0)
+        {
+            return false;
+        }
+
+        // Normalized the same way the configured entries are, so https://host:443 matches https://host
+        // while a header carrying a path — which no browser sends — still has to name an origin.
+        return Uri.TryCreate(value, UriKind.Absolute, out var uri)
+            && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
+            && uri.AbsolutePath.TrimEnd('/').Length == 0
+            && _originSet.Contains(uri.GetComponents(UriComponents.SchemeAndServer, UriFormat.UriEscaped));
+    }
+
+    /// <summary>
+    /// Answers a request whose <c>Origin</c> is not served with <c>403</c>, naming the origin and the
+    /// list it was checked against.
+    /// </summary>
+    private async Task RejectOriginAsync(Stream stream, HttpRequestHead head, string origin)
+    {
+        var allowed = _allowedOrigins.Length == 0
+            ? "none — this server accepts no browser origin"
+            : string.Join(", ", _allowedOrigins);
+
+        var message = $"origin '{origin}' is not served; allowed origins: {allowed}";
+
+        await WriteResponseAsync(
+            stream,
+            head,
+            403,
+            "text/plain; charset=utf-8",
+            Encoding.UTF8.GetBytes(message),
+            issued: null,
+            CancellationToken.None).ConfigureAwait(false);
     }
 
     /// <summary>Compares the bearer token without telling the caller how far it matched.</summary>
@@ -682,6 +749,7 @@ public sealed class McpHttpServer : IMcpTransport, IAsyncDisposable
         204 => "No Content",
         400 => "Bad Request",
         401 => "Unauthorized",
+        403 => "Forbidden",
         404 => "Not Found",
         405 => "Method Not Allowed",
         411 => "Length Required",
