@@ -329,7 +329,9 @@ internal sealed class TypstHtmlWriter
 
         if (image is not null)
         {
-            _out.Append("<img src=\"").Append(EscapeAttribute(image)).Append("\" alt=\"\" />\n");
+            _out.Append("<img src=\"").Append(EscapeAttribute(image)).Append("\" alt=\"");
+            _out.Append(EscapeAttribute(figure.AltText ?? string.Empty));
+            _out.Append("\" />\n");
         }
 
         if (figure.Caption is { } caption && !caption.IsEmpty)
