@@ -108,15 +108,7 @@ pub fn encode(
         .bar_height
         .unwrap_or_else(|| symbology.default_bar_height());
 
-    // rxing wants the total margin across both sides for a one-dimensional symbol, and the margin
-    // per side for a two-dimensional one.
-    let margin = if symbology.is_one_dimensional() {
-        quiet_zone.saturating_mul(2)
-    } else {
-        quiet_zone
-    };
-
-    let mut hints = EncodeHints::default().with(EncodeHintValue::Margin(margin.to_string()));
+    let mut hints = EncodeHints::default().with(EncodeHintValue::Margin("0".to_string()));
 
     if let Some(error_correction) = &options.error_correction {
         hints = hints.with(EncodeHintValue::ErrorCorrection(error_correction.clone()));
@@ -131,6 +123,11 @@ pub fn encode(
         0
     };
 
+    // No margin hint: the quiet zone is added here, by one function, for every symbology. rxing
+    // honours the hint for most writers but the DataMatrix writer ignores it entirely, so asking
+    // it for the margin is how a printed DataMatrix ends up with no quiet zone at all. Padding the
+    // matrix after the fact is the same arithmetic for every symbology and cannot be skipped by a
+    // writer that forgets.
     let modules = MultiFormatWriter
         .encode_with_hints(&contents, &symbology.format(), 0, height, &hints)
         .map_err(|error| {
@@ -147,11 +144,43 @@ pub fn encode(
         )));
     }
 
+    // A one-dimensional symbol needs no quiet zone above or below the bars; a two-dimensional one
+    // needs it on all four sides.
+    let modules = if symbology.is_one_dimensional() {
+        pad(&modules, quiet_zone, 0)
+    } else {
+        pad(&modules, quiet_zone, quiet_zone)
+    };
+
     Ok(Encoded {
         symbology,
         payload: payload.to_string(),
         modules,
     })
+}
+
+/// Adds `horizontal` blank modules to each side and `vertical` to the top and bottom.
+///
+/// The raster and the vector both read this matrix, so the quiet zone the specification requires is
+/// part of the symbol, not something a consumer remembers to leave around it.
+fn pad(modules: &BitMatrix, horizontal: u32, vertical: u32) -> BitMatrix {
+    if horizontal == 0 && vertical == 0 {
+        return modules.clone();
+    }
+
+    let width = modules.width() + horizontal * 2;
+    let height = modules.height() + vertical * 2;
+    let mut padded = BitMatrix::new(width, height).expect("the padded matrix is larger than zero");
+
+    for y in 0..modules.height() {
+        for x in 0..modules.width() {
+            if modules.get(x, y) {
+                padded.set(x + horizontal, y + vertical);
+            }
+        }
+    }
+
+    padded
 }
 
 /// Renders the modules as SVG, one unit per module, in the user-space units the viewBox declares.

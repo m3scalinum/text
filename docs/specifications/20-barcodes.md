@@ -654,3 +654,179 @@ An `index` past the count is `BT_ERR_INVALID_ARGUMENT` naming the count, never a
 
 `bt_decode_box` returns `{"x":12.5,"y":30,"width":80,"height":80}` in the same JSON shape
 `bt_decode_points` uses, and an empty buffer when the detector reported no points.
+
+## 10. Printable output: DPI, quiet zone and a document figure
+
+A PNG at `scale` pixels per module says nothing about paper. The same file is a two centimetre
+sticker or an eight centimetre label depending on what the consumer does with it, and no scanner can
+tell from the bytes whether the module is one that the specification allows. §3 answered "how many
+modules"; this section answers "how many millimetres", and puts the symbol in a document without the
+caller touching a temporary file.
+
+### 10.1 The two entry points
+
+```csharp
+BarcodePrint print = Barcode.Print(
+    BarcodeSymbology.QrCode,
+    "https://example.test/42",
+    new BarcodePrintOptions { Dpi = 300, WidthMillimetres = 30 });
+
+Console.WriteLine($"{print.WidthMillimetres} × {print.HeightMillimetres} mm, module {print.ModuleMillimetres} mm");
+// 29.464 × 29.464 mm, module 1.016 mm
+
+var document = TypstDocument.Create();
+BarcodeFigure figure = Barcode.AddToDocument(
+    document, BarcodeSymbology.Code128, "SN-000042",
+    new BarcodePrintOptions { WidthMillimetres = 50 });
+```
+
+`Barcode.Encode` is unchanged: it keeps its historic quiet zones (§3.1) and returns the module matrix,
+the SVG and the PNG at `Scale`. A caller who already sizes the symbol in a layout keeps that behaviour
+and pays nothing for this section.
+
+### 10.2 `BarcodePrintOptions`
+
+| Member | Contract |
+| --- | --- |
+| `Dpi` | Output resolution, 300 by default; accepted range 72 … 2400. |
+| `WidthMillimetres` | Width of the whole symbol, quiet zone included. Exclusive with `ModuleMillimetres`. |
+| `ModuleMillimetres` | The X-dimension: the printed size of one module. Exclusive with `WidthMillimetres`. |
+| — | With neither set, the module takes the symbology's minimum (§10.4). One width cannot fit every symbology: a Code 128 carries a hundred modules where a QR Code carries twenty-one, so the default is a floor, not a size. |
+| `WidthModules` | The width the caller's layout reserves, in modules. Optional. A layout too narrow for the symbol plus its quiet zone is refused, never cropped. |
+| `QuietZone` | Modules on each side; `null` takes the normative minimum (§10.3). Below the minimum is refused, above is accepted up to 64 modules. |
+| `BarHeight` | Bar height in modules for a one-dimensional symbol; 40 by default. |
+| `ErrorCorrection` | QR Code only, as in `BarcodeOptions`. |
+
+`BarcodePrint` carries the answer: `Png`, `Dpi`, `ModuleMillimetres`, `ModulePixels`,
+`QuietZone`, `WidthModules`, `HeightModules`, `WidthMillimetres`, `HeightMillimetres`,
+`WidthPixels`, `HeightPixels`, and `AspectRatio`.
+
+### 10.3 The quiet zone floor, per symbology
+
+A print target renders at the floor below or wider. The floor is applied by padding the module
+matrix in `encode.rs` — not by asking `rxing` for a margin: the DataMatrix writer ignores the margin
+hint completely, so a printed DataMatrix came out with no quiet zone at all before this section.
+Padding after encoding is the same arithmetic for every symbology and cannot be skipped by a writer
+that forgets. A one-dimensional symbol is padded horizontally only; a two-dimensional one on all
+four sides.
+
+| Symbology | Floor (modules/side) | Source |
+| --- | --- | --- |
+| QR Code | 4 | ISO/IEC 18004:2015, quiet zone of four modules |
+| Micro QR | 2 | ISO/IEC 18004:2015 |
+| DataMatrix | 1 | ISO/IEC 16022:2006; the GS1 DataMatrix Guideline states the quiet zone is one X on each side |
+| Aztec | 1 | ISO/IEC 24778:2024 requires none to decode; one module is kept as a print margin, which is this library's choice, not the norm's |
+| PDF417 | 2 | ISO/IEC 15438:2015, 2X on each side |
+| Code 128, GS1-128 | 10 | ISO/IEC 15417:2007, 10X on each side |
+| Code 39 | 10 | ISO/IEC 16388:2007 |
+| Code 93 | 10 | AIM USS-93 |
+| ITF | 10 | ISO/IEC 16390:2007 |
+| Codabar | 10 | AIM USS-Codabar |
+| Telepen | 10 | the Telepen symbology specification |
+| EAN-13 | 11 | ISO/IEC 15420:2009, eleven modules left and seven right |
+| EAN-8 | 7 | ISO/IEC 15420:2009 |
+| UPC-A, UPC-E | 9 | GS1 General Specifications |
+| GS1 DataBar (Omnidirectional, Expanded) | 1 | GS1 General Specifications |
+| MaxiCode | 1 | ISO/IEC 16023 |
+
+EAN-13 and the UPC family are specified asymmetrically. The renderer pads symmetrically at the
+**larger** side (EAN-13: 11 on both sides, not 11 and 7), because a symbol wider than the norm is
+always readable while one narrower is not, and because a single `quiet_zone` per side is the shape
+the matrix renderer has. The extra white on the narrow side costs paper, not compliance.
+
+### 10.4 The module floor, per family
+
+| Family | Floor (mm) | Source |
+| --- | --- | --- |
+| One-dimensional (Code 128, Code 39, Code 93, ITF, Codabar, Telepen, EAN-13, EAN-8, UPC-A, UPC-E, GS1-128, GS1 DataBar) | 0.25 | ISO 15394:2009 §6.1.3: the narrow element shall not be less than 0.25 mm for Code 39 and Code 128. The GS1 General Specifications set the same absolute floor for the GS1 members; their 0.495 mm is the nominal for general distribution, not the floor. |
+| Two-dimensional (QR Code, Micro QR, DataMatrix, Aztec, PDF417, MaxiCode) | 0.40 | GS1 General Specifications, symbol specification table 1: the minimum X for a GS1 DataMatrix at retail point of sale is 0.396 mm, rounded up here to 0.40 mm |
+
+The floor is enforced on the **printed** module, after pixel snapping, not on the number asked for:
+a request for 0.30 mm that the raster can only realise at 0.25 mm is accepted and reported as
+0.25 mm; one that would realise below the floor is refused.
+
+### 10.5 The three refusals
+
+| Refused | Message names | Why |
+| --- | --- | --- |
+| A quiet zone below the symbology's floor | the specification and the floor | A symbol a reader cannot find is a failed print job, and cropping is silent. |
+| A module below the family floor | the family and the millimetre floor | The same reason, measured in millimetres. |
+| A reserved width (`WidthModules`) too narrow for the symbol plus its quiet zone | the reserved width, the required width and the quiet zone | The zone is not cropped to fit a layout. |
+| A quiet zone past 64 modules | the ceiling | A quiet zone is white space; past that the caller is sizing a page, usually a millimetre/module mix-up. |
+
+`Barcode.MinimumQuietZone(symbology)` and `Barcode.MinimumModuleSize(symbology)` report the floors.
+Both are read from the native capability report — the table a caller sees and the table the renderer
+enforces are one table, reported by `bt_symbology_capabilities`.
+
+### 10.6 How the geometry is computed
+
+1. The quiet zone is resolved (`null` → floor), the symbol is encoded, the matrix is padded.
+2. Pixels per module is an integer: `floor(width_mm ÷ 25.4 × dpi ÷ modules)` for a width target, so
+   the printed symbol never exceeds the width asked for; `round(module_mm ÷ 25.4 × dpi)` for a module
+   target. Zero pixels per module and more than 64 are refused.
+3. The real module is `module_pixels × 25.4 ÷ dpi`, and every millimetre figure is that number times
+   a module count — the raster's size, not the request's. The 100-megapixel raster ceiling of §4.3
+   still applies.
+
+### 10.7 A barcode in a document
+
+```csharp
+var document = TypstDocument.Create();
+document.Heading(1, "Delivery note");
+
+var figure = Barcode.AddToDocument(
+    document, BarcodeSymbology.QrCode, "https://example.test/dn/42");
+
+// …compile:
+var builder = new TypstWorldBuilder().AddSource("main.typ", document.ToMarkup());
+builder.AddAsset(figure.AssetName, figure.Png);
+```
+
+The figure is in the Typst source as `#figure(image("barcode-qrcode-5a3f41d7.png", width: …mm), alt: "QRCode barcode: …")`.
+The alternative text defaults to the symbology and the payload — the text a screen reader needs in
+place of the image — and `altText:` replaces it. The asset name is deterministic (symbology, payload,
+resolution and module size hashed), so two builds of the same report refer to the same asset.
+
+`Barcode.AddGs1ToDocument(document, gs1Data, …)` is the same call for a GS1-128, with the printed
+form `(01)…(10)…` as the default alternative text.
+
+**Why the PNG comes back on the result.** The document model (`M3scalinum.Text.Documents`) is
+write-only Typst source and refers to images by virtual path; it carries no bytes, and the dependency
+direction rules out changing that from here — `Text.Documents` must not learn about barcodes. So the
+method lives in `Text.Barcodes` and takes a `TypstDocument`, adds the figure, and hands the raster
+back as `BarcodeFigure.Png` under `BarcodeFigure.AssetName`. The caller registers one asset with the
+world builder it was going to build anyway; no temporary file, no manual encoding, no byte array
+assembled by hand.
+
+**What is still the caller's:**
+
+- registering the asset (`builder.AddAsset(figure.AssetName, figure.Png)`);
+- the paper: format, orientation and page margins (`TypstDocument.Page`);
+- the space around the figure, including the margin between the quiet zone and any text or border —
+  the quiet zone is part of the image, but "keep 5 mm clear" is a layout decision;
+- the human-readable line under a one-dimensional symbol, which this package does not draw.
+
+### 10.8 The ABI addition
+
+```c
+int32_t bt_barcode_print(const char *symbology, const char *payload,
+                         int32_t quiet_zone, int32_t bar_height,
+                         const char *error_correction,
+                         double dpi, double width_mm, double module_mm,
+                         uint32_t reserved_modules,
+                         BtBuffer *out_png, BtBuffer *out_json, BtError **out_error);
+```
+
+`quiet_zone` below zero takes the symbology floor, and zero is an explicit zero — refused.
+`width_mm` or `module_mm` above zero sizes the symbol (setting both is an error); `reserved_modules`
+zero leaves the layout check out. The geometry JSON is
+`{"dpi":300,"moduleMm":1.016,"modulePixels":12,"quietZone":4,"widthModules":29,"heightModules":29,"widthMm":29.464,"heightMm":29.464,"widthPixels":348,"heightPixels":348}`.
+`bt_symbology_capabilities` gained `quietZone` and `minimumModuleMm` on each entry.
+
+### 10.9 Tests
+
+| Layer | What is asserted |
+| --- | --- |
+| Rust, `print.rs` | The floor is applied per family (QR, DataMatrix, Aztec, PDF417, Code 128, EAN-13, EAN-8, UPC-A, Code 39, ITF, Codabar); a quiet zone below the floor and one past the ceiling are refused; a width target rounds down and a module target rounds to whole pixels; a module below the family floor is refused; a reserved width one module short is refused and the exact width is accepted; less than one pixel per module, more than 64, both sizing options and an out-of-range DPI are refused; the PNG is exactly the geometry's pixels. |
+| Rust, `lib.rs` | `bt_barcode_print` returns the PNG and the geometry, and refuses a three-module QR quiet zone. |
+| C# | `Print` reports the size it really prints, the raster matches, the symbol decodes back; the floors are the specification's; the refusals surface as `BarcodeException` with the specification named; `AddToDocument` emits a figure whose markup carries an `image(…)` and an `alt:`; the default alternative text is the symbology and the payload; the asset name is deterministic and payload-specific; a GS1 symbol uses the human-readable form; two symbols land as two figures. |

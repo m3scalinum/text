@@ -9,6 +9,7 @@ pub mod decode;
 pub mod encode;
 pub mod ffi;
 pub mod gs1;
+pub mod print;
 pub mod symbology;
 
 /// The `rxing` version this build was compiled against. Reported across the ABI and used in the
@@ -174,6 +175,11 @@ pub unsafe extern "C" fn bt_symbologies() -> BtBuffer {
 /// from a label this package did not write, but it cannot be written here, because `rxing` 0.9.4
 /// has no writer for it.
 ///
+/// Each entry also carries the quiet zone and module-size floors a print target enforces:
+/// `{"name":"QRCode","encode":true,"quietZone":4,"minimumModuleMm":0.4}`. They are read from the
+/// same table `bt_barcode_print` applies, so a caller that shows the floor and a caller that hits
+/// it can never disagree.
+///
 /// # Safety
 /// The returned buffer is owned by Rust: free it with `bt_buffer_free`.
 #[unsafe(no_mangle)]
@@ -182,9 +188,11 @@ pub unsafe extern "C" fn bt_symbology_capabilities() -> BtBuffer {
         .iter()
         .map(|s| {
             format!(
-                "{{\"name\":\"{}\",\"encode\":{}}}",
+                "{{\"name\":\"{}\",\"encode\":{},\"quietZone\":{},\"minimumModuleMm\":{}}}",
                 s.name(),
-                s.can_encode()
+                s.can_encode(),
+                s.minimum_quiet_zone(),
+                s.minimum_module_mm()
             )
         })
         .collect();
@@ -425,6 +433,70 @@ pub unsafe extern "C" fn bt_barcode_png(
             let png = encode::to_png(&barcode.inner, scale)?;
             set_buffer(out_png, png)?;
             Ok(())
+        })
+    }
+}
+
+/// Renders `payload` as a printable symbol and returns the PNG and its geometry.
+///
+/// `dpi`, plus one of `width_mm` (whole symbol, quiet zone included) or `module_mm` (the
+/// X-dimension), is the print target. `quiet_zone` is in modules on each side; a negative value
+/// takes the symbology's normative minimum, and a value below it is refused rather than printed.
+/// `reserved_modules` is the width the caller's layout holds, in modules; zero leaves it unchecked.
+/// A negative `bar_height` takes the default.
+///
+/// Writes the PNG into `out_png` and its geometry into `out_json`:
+/// `{"dpi":300,"moduleMm":1.016,"modulePixels":12,"quietZone":4,"widthModules":29,…}`.
+///
+/// # Safety
+/// Every pointer argument follows the contract in `docs/specifications/20-barcodes.md` §4.
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn bt_barcode_print(
+    symbology_name: *const c_char,
+    payload: *const c_char,
+    quiet_zone: i32,
+    bar_height: i32,
+    error_correction: *const c_char,
+    dpi: f64,
+    width_mm: f64,
+    module_mm: f64,
+    reserved_modules: u32,
+    out_png: *mut BtBuffer,
+    out_json: *mut BtBuffer,
+    out_error: *mut *mut BtError,
+) -> i32 {
+    unsafe {
+        guard_status(out_error, || {
+            if out_png.is_null() || out_json.is_null() {
+                return Err(BtError::invalid_argument(
+                    "the PNG and geometry slots must not be null",
+                ));
+            }
+
+            let symbology = symbology::Symbology::parse(read_str(symbology_name, "symbology")?)?;
+            let payload = read_str(payload, "payload")?;
+
+            let error_correction = if error_correction.is_null() {
+                None
+            } else {
+                let value = read_str(error_correction, "error correction")?;
+                (!value.is_empty()).then(|| value.to_string())
+            };
+
+            let request = print::PrintRequest {
+                dpi,
+                width_mm: (width_mm > 0.0).then_some(width_mm),
+                module_mm: (module_mm > 0.0).then_some(module_mm),
+                reserved_modules: (reserved_modules > 0).then_some(reserved_modules),
+                quiet_zone: (quiet_zone >= 0).then_some(quiet_zone as u32),
+                bar_height: (bar_height > 0).then_some(bar_height as u32),
+                error_correction,
+            };
+
+            let output = print::render(symbology, payload, &request)?;
+            set_buffer(out_json, output.geometry.json().into_bytes())?;
+            set_buffer(out_png, output.png)
         })
     }
 }
@@ -1049,6 +1121,67 @@ mod tests {
         unsafe { bt_barcode_free(barcode) };
         assert_eq!(bt_decode_page_live_count(), pages_before);
         assert_eq!(bt_decode_live_count(), decodes_before);
+    }
+
+    #[test]
+    fn the_print_entry_point_reports_geometry_and_refuses_a_tight_quiet_zone() {
+        let name = CString::new("QRCode").unwrap();
+        let payload = CString::new("PRINT ABI").unwrap();
+        let mut error = ptr::null_mut();
+
+        let mut png = BtBuffer::empty();
+        let mut json = BtBuffer::empty();
+        let status = unsafe {
+            bt_barcode_print(
+                name.as_ptr(),
+                payload.as_ptr(),
+                -1,
+                -1,
+                ptr::null(),
+                300.0,
+                30.0,
+                0.0,
+                0,
+                &mut png,
+                &mut json,
+                &mut error,
+            )
+        };
+
+        assert_eq!(status, ffi::BT_OK, "print failed");
+        let geometry = unsafe { std::slice::from_raw_parts(json.ptr, json.len) };
+        let geometry = std::str::from_utf8(geometry).expect("utf-8");
+        assert!(geometry.contains("\"quietZone\":4"), "{geometry}");
+        assert!(geometry.contains("\"widthMm\""), "{geometry}");
+        let signature = unsafe { std::slice::from_raw_parts(png.ptr, png.len.min(8)) };
+        assert_eq!(signature, b"\x89PNG\r\n\x1a\n");
+
+        unsafe { png.free() };
+        unsafe { json.free() };
+
+        // Three modules is below the four ISO/IEC 18004 requires: the call is refused, not cropped.
+        let mut png = BtBuffer::empty();
+        let mut json = BtBuffer::empty();
+        let status = unsafe {
+            bt_barcode_print(
+                name.as_ptr(),
+                payload.as_ptr(),
+                3,
+                -1,
+                ptr::null(),
+                300.0,
+                30.0,
+                0.0,
+                0,
+                &mut png,
+                &mut json,
+                &mut error,
+            )
+        };
+
+        assert_eq!(status, ffi::BT_ERR_INVALID_ARGUMENT);
+        assert!(!error.is_null());
+        unsafe { bt_error_free(error) };
     }
 
     #[test]
