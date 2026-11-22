@@ -1,0 +1,113 @@
+# cargo-deny configuration for the five crates in native/.
+#
+# One file, at the root of the repository, read by every `cargo deny check` run in
+# .github/workflows/cargo-deny.yml. The policy it encodes is docs/specifications/dependencies.md;
+# when the two disagree, the document is the decision and this file is the bug.
+#
+#   cargo deny --manifest-path native/<crate>/Cargo.toml check bans licenses advisories
+#
+# There is no Cargo workspace here: each crate is its own manifest with its own Cargo.lock, so the
+# check runs once per crate and this file is resolved by looking up from each crate's directory.
+
+[graph]
+# The targets this suite actually ships, matching the matrix in .github/workflows/ci-sharptypst.yml
+# (win-x64, win-arm64, linux-x64, linux-arm64, linux-musl-x64, and the universal macOS dylib built
+# from both Apple slices). `cargo deny` otherwise resolves every target its lock file mentions,
+# including ones nothing here is ever built for; restricting the list keeps the graph to the code
+# that ships, so a crate that only exists on wasm or hermit cannot pass by never being built.
+targets = [
+    "x86_64-pc-windows-msvc",
+    "aarch64-pc-windows-msvc",
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    # sharp-typst vendors OpenSSL for this triple, which is the only reason `openssl` and
+    # `openssl-src` are in any graph. Dropping it would silently drop them from the licence check.
+    "x86_64-unknown-linux-musl",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+]
+
+[output]
+feature-depth = 1
+
+[advisories]
+# Every vulnerability advisory fails the check: cargo-deny 0.22 removed the `vulnerability` lint
+# level and always errors on them, so there is nothing to configure here. An advisory that cannot
+# be fixed belongs in `ignore` with a reason and an expiry, not in a relaxed lint level.
+#
+# `unmaintained` takes a scope rather than a lint level in this version. "workspace" means an
+# unmaintained advisory fails only when it hits a crate a manifest declares directly; an
+# unmaintained advisory on something reached through `typst` is reported and does not fail the run.
+# `all` would turn the CI red on a crate this repository cannot fork or replace, and `none` would
+# stop reading the field at all.
+unmaintained = "workspace"
+
+# Two real advisories, both unavoidable in the tree this suite depends on. They are admitted here so
+# the rest of the graph is checked, not to make the build quiet: both carry an expiry, after which
+# the check fails again and the exception has to be re-argued.
+#
+# `quick-xml` 0.38.4 arrives through citationberg 0.7.0 <- hayagriva <- typst-library. The fix is
+# quick-xml >= 0.41, and citationberg 0.7.0 is both the newest release and the only crate in the
+# graph requiring ^0.38.1, so no lock-file update can move it: the bump has to come from Typst.
+# `allow` restricts the exception to citationberg, so a second crate taking a vulnerable quick-xml
+# still fails the check.
+ignore = [
+    { id = "RUSTSEC-2026-0194", reason = "quick-xml 0.38.4 via citationberg 0.7.0; fixed in quick-xml 0.41, no citationberg release requires it yet", allow = ["citationberg"], expiry = "2027-06-30" },
+    { id = "RUSTSEC-2026-0195", reason = "quick-xml 0.38.4 via citationberg 0.7.0; fixed in quick-xml 0.41, no citationberg release requires it yet", allow = ["citationberg"], expiry = "2027-06-30" },
+]
+
+[bans]
+# Duplicates are a warning: they cost binary size and review time, but `image` is pinned in
+# text-barcodes precisely because `rxing` depends on that exact version, and a hard failure here
+# would turn a deliberate pin into a red build.
+multiple-versions = "warn"
+# A `*` requirement is a dependency the lock file cannot bound. There is no reason to write one.
+wildcards = "deny"
+
+[sources]
+# Every crate comes from crates.io. A git dependency or a second registry is a supply-chain change
+# that has to be seen in review, so both are errors rather than notes.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
+
+[licenses]
+# The allow list of docs/specifications/dependencies.md §1: permissive, compatible with the
+# Apache-2.0 this suite is distributed under. Anything absent from this list fails the check.
+#
+# `Apache-2.0 WITH LLVM-exception` is Apache-2.0 plus an exception that only removes restrictions;
+# it arrives on `ar_archive_writer`, a build dependency of `psm`/`stacker` behind `typst-eval`.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "CC0-1.0",
+    "Unlicense",
+]
+# The list above is the repository's allow list, not any single crate's graph: `ISC` is allowed
+# because a future crate may use it, so "no crate here uses ISC" is not worth a line of output on
+# every run. A licence that is wrong, rather than unused, still fails the check.
+unused-allowed-license = "allow"
+confidence-threshold = 0.8
+
+# Weak copyleft, in exactly one place. `option-ext` is MPL-2.0 and reaches the graph through
+# `typst-kit` -> `dirs` -> `dirs-sys` -> `option-ext`; it cannot be dropped without dropping
+# `typst-kit`'s system downloader. MPL-2.0 is file-level copyleft: it asks that modifications of
+# *its own* files stay MPL, not that the linking work does, so it redistributes inside an
+# Apache-2.0 library as long as the crate is used unmodified — which is what a registry dependency
+# is. The exception is scoped to the crate and the minor version, so a second MPL crate fails the
+# build and has to be argued for on its own.
+exceptions = [
+    { crate = "option-ext@0.2", allow = ["MPL-2.0"] },
+]
+
+[licenses.private]
+# Our own five crates declare `publish = false`, and they declare Apache-2.0, which is on the allow
+# list, so there is nothing to hide from the check.
+ignore = false
