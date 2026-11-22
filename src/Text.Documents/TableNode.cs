@@ -8,15 +8,37 @@ internal sealed class TableNode(TypstTable table) : TypstNode
 {
     internal override void Write(TypstMarkupWriter writer)
     {
+        var columns = table.ColumnCount;
+
+        // A table with no widths and no cells has no grid to draw; a row Typst would place nothing
+        // in adds no markup either, which keeps a row swallowed whole by a row span out of the
+        // output.
+        if (columns == 0)
+        {
+            return;
+        }
+
         writer.BlankLine();
         writer.WriteVerbatim("#table(");
 
         using (writer.Indent())
         {
             writer.NewLine();
-            writer.WriteVerbatim("columns: (");
-            writer.WriteVerbatim(string.Join(", ", table.ColumnWidths.Select(width => width.ToString())));
-            writer.WriteVerbatim("),");
+            writer.WriteVerbatim("columns: ");
+
+            if (table.HasColumnWidths)
+            {
+                writer.WriteVerbatim("(");
+                writer.WriteVerbatim(string.Join(", ", table.ColumnWidths.Select(width => width.ToString())));
+                writer.WriteVerbatim(")");
+            }
+            else
+            {
+                // Typst's integer form: that many equal columns, measured from the cells.
+                writer.WriteVerbatim(columns.ToString(CultureInfo.InvariantCulture));
+            }
+
+            writer.WriteVerbatim(",");
 
             if (table.Header.Count > 0)
             {
@@ -28,6 +50,11 @@ internal sealed class TableNode(TypstTable table) : TypstNode
 
             foreach (var row in table.Rows)
             {
+                if (row.Count == 0)
+                {
+                    continue;
+                }
+
                 writer.NewLine();
                 WriteCells(writer, row);
                 writer.WriteVerbatim(",");

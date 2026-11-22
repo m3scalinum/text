@@ -5,7 +5,9 @@ namespace M3scalinum.Text.Documents;
 /// <summary>A table cell, with the spans HTML's <c>colspan</c> and <c>rowspan</c> describe.</summary>
 /// <remarks>
 /// Spans are emitted as <c>table.cell(colspan: …, rowspan: …)</c>. A row that follows a row span
-/// simply provides fewer cells: Typst places them after the spanning cell, exactly as HTML does.
+/// provides fewer cells — none, when the span covers the row whole, which is what
+/// <see cref="TypstTable.Row()"/> writes — and Typst places them after the spanning cell, exactly as
+/// HTML does.
 /// </remarks>
 public sealed class TypstTableCell
 {

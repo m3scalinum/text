@@ -16,6 +16,20 @@ public sealed class TypstTable
 
     internal IReadOnlyList<IReadOnlyList<TypstTableCell>> Rows => _rows;
 
+    internal bool HasColumnWidths => _columns.Count > 0;
+
+    /// <summary>
+    /// How many columns the table has: as many as <see cref="Columns(TypstLength[])"/> set, or, when
+    /// it was never called, as many as the cells need.
+    /// </summary>
+    /// <remarks>
+    /// The cells are laid out as Typst lays them out: left to right, each one after the last, and a
+    /// column a cell above still spans into is not filled again. A row the spans above cover
+    /// completely therefore holds no cell and adds no column, which is exactly the shape a Word
+    /// table with a vertical merge arrives in.
+    /// </remarks>
+    public int ColumnCount => HasColumnWidths ? _columns.Count : MeasuredColumnCount();
+
     /// <summary>Sets the column widths.</summary>
     public TypstTable Columns(params TypstLength[] widths)
     {
@@ -23,6 +37,60 @@ public sealed class TypstTable
         _columns.Clear();
         _columns.AddRange(widths);
         return this;
+    }
+
+    private int MeasuredColumnCount()
+    {
+        // Per column, the first row the column is free again: a cell with a row span holds its
+        // columns for that many rows, so the next row starts after them.
+        var freeFromRow = new List<int>();
+        var columns = 0;
+        var row = 0;
+
+        foreach (var cells in AllRows())
+        {
+            var column = 0;
+
+            foreach (var cell in cells)
+            {
+                while (column < freeFromRow.Count && freeFromRow[column] > row)
+                {
+                    column++;
+                }
+
+                var end = column + cell.Colspan;
+
+                while (freeFromRow.Count < end)
+                {
+                    freeFromRow.Add(0);
+                }
+
+                for (var covered = column; covered < end; covered++)
+                {
+                    freeFromRow[covered] = Math.Max(freeFromRow[covered], row + cell.Rowspan);
+                }
+
+                column = end;
+                columns = Math.Max(columns, end);
+            }
+
+            row++;
+        }
+
+        return columns;
+    }
+
+    private IEnumerable<IReadOnlyList<TypstTableCell>> AllRows()
+    {
+        if (_header.Count > 0)
+        {
+            yield return _header;
+        }
+
+        foreach (var row in _rows)
+        {
+            yield return row;
+        }
     }
 
     /// <summary>
@@ -67,6 +135,20 @@ public sealed class TypstTable
         }
 
         _rows.Add(row);
+        return this;
+    }
+
+    /// <summary>
+    /// Adds a row that holds no cell, which is the row a vertical merge above it fills completely.
+    /// </summary>
+    /// <remarks>
+    /// Typst places such a row on its own: the spanning cell occupies it, and the row emits nothing.
+    /// The reader hands this shape over for a Word row whose cells were all vertical-merge
+    /// continuations.
+    /// </remarks>
+    public TypstTable Row()
+    {
+        _rows.Add([]);
         return this;
     }
 
