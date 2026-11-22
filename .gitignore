@@ -6,7 +6,7 @@ artifacts/
 *.suo
 
 ## Native build
-native/sharp-typst/target/
+native/*/target/
 native/artifacts/
 
 ## Tooling

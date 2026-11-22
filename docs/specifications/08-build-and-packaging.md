@@ -485,3 +485,66 @@ Three files travel with the source and inside the NuGet package:
 `THIRD-PARTY-NOTICES.md` is not generated: it is Typst's own `NOTICE`, copied at each Typst upgrade.
 A generated per-crate list from `Cargo.lock` would be more complete but would not satisfy 4(d), which
 asks for the *upstream* notices, not a summary of them.
+
+## 11. Rust version floors
+
+`rust-version` in a crate's `[package]` is a promise to whoever builds this repository: with that
+toolchain or newer, the crate compiles. It is not a preference, and it is not an estimate. The floor
+of a crate is a property of its resolved dependency graph, computed as the highest `rust-version`
+declared by any package the crate actually pulls in — transitive packages included, every target
+included — or the floor of the crate's own edition when that is higher. Edition 2024 asks for Rust
+1.85, so no crate here can promise less.
+
+The rule follows from what the number means to a consumer:
+
+- **A declared value below the graph's floor is a broken promise.** Cargo accepts the manifest and
+  then fails inside a dependency with `requires rustc 1.89`, naming a crate the consumer never
+  heard of. This is the failure the check exists for.
+- **A declared value above the graph's floor is a refusal.** It turns away toolchains that would
+  have compiled the crate, for no reason anyone can act on.
+
+The committed `Cargo.lock` is what the floor is computed over, not the version ranges in the
+manifests: the lock is what every build of this repository resolves. Bumping a dependency therefore
+moves the floor, and the comment above each `rust-version` names the dependency that sets it so a
+reviewer can see which bump did it.
+
+| Crate | `rust-version` | Imposed by | Edition |
+| --- | --- | --- | --- |
+| `sharp-typst` | 1.92 | The `typst` 0.15.1 crates and the PDF stack they pull in — fifteen `typst-*`, nine `hayro`, two `krilla` crates; 26 packages declare 1.92 | 2024 (1.85) |
+| `sharp-text-barcodes` | 1.85 | `rxing` 0.9.4, `image` 0.25.8, `moxcms` 0.7.11, `pxfm` 0.1.30 and `unicode-segmentation` 1.13.3 all declare 1.85, which is also the edition 2024 floor | 2024 (1.85) |
+| `sharp-text-docx` | 1.89 | `zip` 9.8.1 declares 1.89; `roxmltree` 0.21 asks for less, and edition 2024 asks 1.85 | 2024 (1.85) |
+| `sharp-text-ocr` | 1.94 | `rten` 0.28.0 and `rten-simd` 0.28.0 declare 1.94. `hayro` 0.9.0 declares 1.92, which is why this crate's floor is not `hayro`'s | 2024 (1.85) |
+| `sharp-text-xlsx` | 1.89 | `zip` 9.8.1, reached through `calamine` 0.38.0 — `calamine` itself declares 1.88, and `zip` is also a dev-dependency for the tests that write real packages | 2024 (1.85) |
+
+### The check
+
+`tools/check-msrv.py` computes the floor per crate and compares it with the declared value. It
+prints a table of crate, declared value, computed floor and the dependency that imposes it, and
+exits 1 when a crate is off in either direction, naming the file, the declared value, the computed
+value and the chain that reaches the dependency.
+
+```bash
+python3 tools/check-msrv.py                    # cargo metadata --locked, needs cargo and the registry
+python3 tools/check-msrv.py --offline          # Cargo.lock plus the cargo registry cache, no cargo
+python3 tools/check-msrv.py --verbose text-ocr # one crate, every package that declares a floor
+```
+
+The default mode asks `cargo metadata --locked` for each crate, so the graph compared is the one
+Cargo resolves from the committed lock, dev-dependencies and target-specific dependencies included.
+`--offline` makes no cargo call: it reads each `Cargo.lock` for the resolved set and the
+`rust-version` field out of every dependency's manifest in the cargo registry cache. A manifest that
+has never been fetched cannot be read; the script then falls back to the crate's own declared value
+and prints a `WARNING` naming each package it could not read, so a degraded verdict says so instead
+of passing silently.
+
+`.github/workflows/msrv.yml` runs the default mode on every pull request and on demand, on
+`ubuntu-latest` with `contents: read`. **The control is static: no job downloads an old toolchain
+and nothing is compiled with 1.89.** Building each crate at its floor on five platforms would be a
+matrix of its own for a number that can be read out of the graph in seconds, and a build on the
+runner's current stable toolchain proves nothing about the floor — 1.97 compiles whatever the
+manifest claims. What the static control buys is the pair of failures a stable build hides: a
+promise lower than a dependency allows, and a refusal of toolchains that would have worked.
+
+The proof that a crate compiles at all remains the release workflows, which build each crate for
+real on the five RIDs with the stable toolchain. Those runs demonstrate the crates compile at the
+current stable version; they do not demonstrate the declared floor, and no job here claims to.
