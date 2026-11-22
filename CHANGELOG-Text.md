@@ -203,6 +203,17 @@ Not yet published.
   entity, byte, depth and node ceilings. `PdfSignatureVerifier` then reports, per signature, whether a
   qualified service covered the signer's certificate at the judged instant. The list's own XAdES
   signature is not verified here, and the specification says so.
+- Every barcode on a page: `Barcode.DecodeAll` returns all the symbols an image carries, each with its
+  bounding box and its symbology, under a pixel ceiling read from the PNG header before the decoder
+  allocates and a byte ceiling — a page that claims a gigapixel is refused, not decoded. A PDF page
+  goes through `PdfRaster` first, which keeps the barcode package free of the PDF package and its
+  native library; the recipe and its measurements are in the specification.
+- OCR models are validated, identified and discovered: a set is loaded from two files, each is checked
+  against the format before the engine is built (with a typed defect saying what is wrong rather than
+  a panic at inference), each carries a SHA-256 fingerprint, and the identity of the set travels with
+  the result — so a report can say which weights produced it. `OcrEngine.FromDirectory` names the file
+  it expected when one is missing. `ocrs` is now built with its `rten` feature, without which the
+  `.rten` files the documentation names could not be loaded at all.
 
 ### Security
 
@@ -213,3 +224,10 @@ Not yet published.
   XML parser, and it reaches .NET as `DocxErrorCode.XmlPolicy` with the part and the rule named.
   Verified with an external entity over a file and over HTTP, a billion-laughs document, an entity
   loop, a depth and a size past their bound, and a valid document that still reads.
+- `M3scalinum.Text.Pdf` bounds what a received document can cost to read: the XMP packet is parsed
+  under a policy — 4 MiB, 64 levels, 100 000 nodes, no DTD, no external entity, the byte ceiling
+  applied before the packet becomes a string — and a Flate stream stops at 32 MiB of decoded bytes,
+  measured while the filter produces them, so a decompression bomb costs nothing. Both refusals are
+  typed and name the rule, the ceiling and the value observed. `M3scalinum.Text.Xlsx` gains sheet,
+  per-cell text and total text ceilings; the DOCX reader's node, entity, run, cell, media and
+  relationship ceilings gain the tests they were missing.

@@ -80,3 +80,11 @@ Not yet published on nuget.org.
   come from the layout; a PDF page rendered to PNG for preview and OCR; the GS1 family of barcodes in
   both directions; OCR preprocessing for rotated, skewed and noisy scans; and the European trust list
   read so a qualified signature can be told from a merely valid one.
+- Notes and figures numbered per section, table headers repeated on every page, and a row that can be
+  kept whole across a page break — all resolved by the layout, verified against the real compiler.
+- Per-compilation metrics on the result: duration, pages, fonts and their bytes, diagnostics by
+  severity, and the size of the last export.
+- Every barcode on a page decoded under pixel and byte ceilings; OCR models validated, fingerprinted
+  and discovered from a directory so a report can name the weights it used.
+- Ceilings where a received document could cost unbounded work: the PDF XMP packet, a Flate stream's
+  decoded size, the XLSX sheet and text counts.

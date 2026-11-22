@@ -352,6 +352,31 @@ original, and both can be compiled concurrently.
 This is the primitive behind "one template world, one clone per request". A clone never re-scans
 fonts and never re-reads packages, so its cost is a few map copies.
 
+### 3.12 Compilation metrics
+
+```c
+int32_t tn_document_metrics(const TnDocument *document,
+                            TnBuffer *out,
+                            TnError **out_error);
+```
+
+Returns a JSON object describing what the compilation cost, as the library saw it:
+
+```json
+{"compileNanos": 4123456, "pages": 1, "fontsTotal": 12, "fontsEmbedded": 11, "fontBytes": 7340032}
+```
+
+`compileNanos` is the time spent inside `typst::compile` (plus the bundle export when the document
+is a bundle), `pages` is the laid-out page count and is zero for an HTML or bundle document,
+`fontsTotal` is the fonts the world resolved — embedded and host — and `fontBytes` the bytes of the
+distinct font buffers behind them, a font collection counted once. The managed side measures the
+whole call itself, so a caller sees both the total and the part only the library can see; neither is
+kept in a process-wide counter, because two compilations may run at the same time (spec 03 §12).
+
+The function is additive: it was added without changing any existing symbol, so `TN_ABI_VERSION`
+stayed at 2. A library built before it does not export it — the managed layer only calls it on a
+document handle from a library that does.
+
 ## 4. Handles and threading
 
 - `TnWorld` and `TnDocument` are owned by exactly one managed `SafeHandle`. Rust never frees them

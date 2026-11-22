@@ -67,9 +67,11 @@ Each row of the table in §5 is an instance of one of these, and a new parser is
 **PDF.** `src/Text.Pdf/Internal/PdfFile.cs` reads the header, the cross-reference (tables and
 streams), indirect objects, object streams and the filters the checks need. `PdfLexer` parses one
 object, `PdfTextReader` walks a page's content streams and form XObjects, `PdfStandardSecurity`
-parses `/Encrypt`, and `PdfAXmp` edits the XMP packet. No page is rendered, no font program is
-interpreted: the reader is a structural and textual parser, which is why its limits are counts,
-depths and byte lengths rather than pixels.
+parses `/Encrypt`, and `PdfAXmp` edits the XMP packet. This reader renders no page and interprets no
+font program: it is a structural and textual parser, which is why its limits are counts, depths and
+byte lengths rather than pixels. Rendering is a separate path — `PdfRaster` over the
+`native/text-pdf` crate (`hayro`), bounded in pixels and in decoded bytes, with both ceilings checked
+before the raster is allocated.
 
 **DOCX.** `native/text-docx` opens the zip (`package.rs`), reads each part under a per-part cap, and
 parses every XML part through `xml.rs::parse`, the crate's only parser call. The XML policy — no
@@ -87,7 +89,10 @@ is shaped into the AST, not on what the dependency allocates (§6).
 separate paths with separate bounds; neither is bounded by the caller's document size.
 
 **Barcodes.** `native/text-barcodes` bounds the encoded payload and the rasterised pixels on the
-encode side, and decodes one PNG through `image` on the decode side.
+encode side, and on the decode side bounds the image it decodes — a pixel ceiling read from the PNG
+header before the decoder allocates, and a byte ceiling — then returns every symbol it finds rather
+than the first. A PDF page is not decoded here: the caller renders it through `PdfRaster`, which
+carries the rendering ceilings, and hands the image to `Barcode.DecodeAll`.
 
 ## 5. Surface → limit → test
 
@@ -142,7 +147,8 @@ the counts in §7 are the runs. "No limit" and "no test" are stated as such, wit
 | OCR: pages read from a PDF | caller's `page_count` (0 means to the end), no suite cap | none | **no test** — a page range is a caller decision, not a parser bound |
 | Barcode: encoded payload | 4 096 bytes (`encode::MAX_PAYLOAD_BYTES`) | `BarcodeException` with `Limit` (`BT_ERR_LIMIT`) | `native/text-barcodes/src/encode.rs` — `an_oversized_payload_is_a_limit_error` |
 | Barcode: rasterised symbol | 100 000 000 pixels (`encode::MAX_RASTER_PIXELS`), scale 1–64 | `BarcodeException` with `Limit` | `encode.rs` — `a_scale_that_would_exceed_the_raster_limit_is_rejected` |
-| Barcode: decoded PNG | **no dimension or byte cap** — `decode::decode_png` through `image`, only "empty is refused" | `BarcodeException` with `Decode` for bytes that are not a PNG; a document without a symbol is a failed decode, not an error | **no test** — `decode.rs::an_empty_image_is_rejected` pins the empty case only |
+| PDF page render | 50 000 000 pixels and 256 MiB of decoded raster by default (`native/text-pdf/src/raster.rs`, `DEFAULT_MAX_PIXELS`, `DEFAULT_MAX_BYTES`), a caller may raise them only up to 200 000 000 pixels and 1 GiB, and both are checked before the raster is allocated | `PdfRasterException` with `Limit` (`TP_ERR_LIMIT`), naming the ceiling and the value it refused | `native/text-pdf/src/raster.rs` — `a_ceiling_is_enforced_before_the_render_allocates`, `the_byte_ceiling_catches_what_the_pixel_ceiling_let_through`, `a_ceiling_above_the_hard_cap_is_refused_not_clamped`; through the managed surface, `PdfRasterTests.Render_refuses_a_page_past_the_pixel_ceiling` and `…_past_the_byte_ceiling` |
+| Barcode: decoded image | 64 000 000 pixels, read from the PNG header before the decoder allocates, and 256 MiB of input bytes (`decode::DEFAULT_MAXIMUM_PIXELS`, `DEFAULT_MAXIMUM_BYTES`); both are options and may only be lowered | `BarcodeException` with `Limit` (`BT_ERR_LIMIT`), naming the size and the ceiling | `native/text-barcodes/src/decode.rs` — `an_image_one_pixel_past_the_ceiling_is_a_limit_error`, `an_image_past_the_byte_ceiling_is_a_limit_error` |
 
 ## 6. What this library does not protect
 
