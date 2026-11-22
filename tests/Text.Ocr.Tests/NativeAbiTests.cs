@@ -21,7 +21,7 @@ internal static class NativeProbe
             try
             {
                 NativeOcr.Initialize();
-                return NativeMethods.AbiVersion() == 1;
+                return NativeMethods.AbiVersion() == 2;
             }
             catch (DllNotFoundException)
             {
@@ -52,15 +52,15 @@ internal static class NativeProbe
 public sealed class NativeAbiTests
 {
     [Fact]
-    public void The_native_library_reports_abi_version_one()
+    public void The_native_library_reports_abi_version_two()
     {
         if (!NativeProbe.IsAvailable)
         {
             Assert.Skip(NativeProbe.SkipReason);
         }
 
-        Assert.Equal(1u, NativeMethods.AbiVersion());
-        Assert.Equal(1u, NativeOcr.Library.AbiVersion());
+        Assert.Equal(2u, NativeMethods.AbiVersion());
+        Assert.Equal(2u, NativeOcr.Library.AbiVersion());
     }
 
     [Fact]
@@ -118,9 +118,9 @@ public sealed class NativeAbiTests
         }
 
         var imageStatus = NativeOcr.Library.EngineRecognize(
-            IntPtr.Zero, [], out var imageDocument, out var imageError);
+            IntPtr.Zero, [], 0.6, 0.5, 0.5, out var imageDocument, out var imageError);
         var pdfStatus = NativeOcr.Library.EngineRecognizePdf(
-            IntPtr.Zero, [], 300, 0, 0, out var pdfDocument, out var pdfError);
+            IntPtr.Zero, [], 300, 0, 0, 0.6, 0.5, 0.5, out var pdfDocument, out var pdfError);
 
         Assert.NotEqual(0, imageStatus);
         Assert.NotEqual(0, pdfStatus);

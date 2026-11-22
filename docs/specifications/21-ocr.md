@@ -11,15 +11,18 @@ package turns that page into text.
 
 - `OcrEngine.FromModels(byte[] detectionModel, byte[] recognitionModel, byte[]? characterDictionary = null)`
   loads two models the caller supplies.
-- `OcrEngine.Recognize(byte[] imageBytes)` returns an `OcrResult`: the text, one `OcrLine` per line
-  with its box in pixels and its words, and a `MeanConfidence`.
+- `OcrEngine.Recognize(byte[] imageBytes, OcrOptions? options = null)` returns an `OcrRecognition`: either an
+  `OcrResult` (the text, one `OcrLine` per line with its box in pixels and its words, and a `MeanConfidence`),
+  or an `OcrUnreadable` naming the threshold the page failed.
 - `OcrEngine.RecognizePdf(byte[] pdf, OcrPdfOptions? options = null)` rasterises each requested page
-  at a given DPI and recognises it, returning one `OcrPageResult` per page.
+  at a given DPI and recognises it, returning one `OcrPageOutcome` per page — an `OcrPageResult` or an
+  `OcrPageUnreadable`.
 
 **In scope.** Model loading from caller-supplied bytes; text detection and line recognition on the
 CPU through `ocrs` and `rten`; PNG, JPEG, BMP, GIF, TIFF and WebP input; PDF page rasterisation
-through a pure-Rust renderer; per-line and per-word boxes; a confidence signal; a native ABI that
-cannot unwind into the host.
+through a pure-Rust renderer; per-line and per-word boxes; a confidence signal; confidence
+thresholds that refuse a page instead of returning approximate text; a native ABI that cannot
+unwind into the host.
 
 **Out of scope, deliberately.**
 
@@ -43,10 +46,24 @@ byte[] recognition = File.ReadAllBytes("/opt/models/text-recognition.rten");
 
 using OcrEngine engine = OcrEngine.FromModels(detection, recognition);
 
-OcrResult result = engine.Recognize(File.ReadAllBytes("scan.png"));
+OcrRecognition outcome = engine.Recognize(File.ReadAllBytes("scan.png"), new OcrOptions
+{
+    MinimumPageConfidence = 0.6,     // the defaults; below them, the page is refused
+    MinimumWordConfidence = 0.5,
+    MaximumRejectedWordRatio = 0.5,
+});
+
+if (outcome is not OcrResult result)
+{
+    // OcrUnreadable: no text, and the reason it was refused.
+    var refusal = ((OcrUnreadable)outcome).Refusal;
+    Console.Error.WriteLine(refusal.Message);
+    return;
+}
 
 Console.WriteLine(result.Text);
 Console.WriteLine($"{result.Lines.Count} lines, mean confidence {result.MeanConfidence:F3}");
+Console.WriteLine($"{result.RejectedWordCount} word(s) below the word threshold");
 
 foreach (OcrLine line in result.Lines)
 {
@@ -54,7 +71,8 @@ foreach (OcrLine line in result.Lines)
 
     foreach (OcrWord word in line.Words)
     {
-        Console.WriteLine($"    {word.Bounds} {word.Text} {word.Confidence:F3}");
+        var doubt = word.Rejected ? "  <- not reliable" : string.Empty;
+        Console.WriteLine($"    {word.Bounds} {word.Text} {word.Confidence:F3}{doubt}");
     }
 }
 ```
@@ -62,21 +80,35 @@ foreach (OcrLine line in result.Lines)
 A scanned document, page by page:
 
 ```csharp
-IReadOnlyList<OcrPageResult> pages = engine.RecognizePdf(
+IReadOnlyList<OcrPageOutcome> pages = engine.RecognizePdf(
     File.ReadAllBytes("received.pdf"),
     new OcrPdfOptions { Dpi = 300, FirstPage = 0, LastPage = 4 });
 
-foreach (OcrPageResult page in pages)
+foreach (OcrPageOutcome page in pages)
 {
     Console.WriteLine($"--- page {page.PageIndex} ({page.Width}x{page.Height} at {page.Dpi} dpi)");
-    Console.WriteLine(page.Text);
+
+    switch (page)
+    {
+        case OcrPageResult reading:
+            Console.WriteLine(reading.Text);
+            break;
+        case OcrPageUnreadable refused:
+            Console.WriteLine(refused.Refusal.Message);
+            break;
+    }
 }
 ```
 
-`OcrResult` carries `Text`, `Lines`, `MeanConfidence`, `Width` and `Height`. `OcrLine` carries `Text`,
-`Bounds`, `Confidence` and `Words`. `OcrWord` carries `Text`, `Bounds` and `Confidence`. `OcrBox` is
-`X`, `Y`, `Width`, `Height` in pixels, with the origin at the top-left. `OcrPageResult` adds
-`PageIndex` and `Dpi`.
+`OcrResult` carries `Text`, `Lines`, `MeanConfidence`, `RejectedWordCount`, `RejectedWordRatio`,
+`Width` and `Height`. `OcrLine` carries `Text`, `Bounds`, `Confidence` and `Words`. `OcrWord` carries
+`Text`, `Bounds`, `Confidence` and `Rejected`. `OcrBox` is `X`, `Y`, `Width`, `Height` in pixels, with
+the origin at the top-left. `OcrPageResult` adds `PageIndex` and `Dpi`.
+
+An `OcrResult` and an `OcrUnreadable` share the `OcrRecognition` base, which carries `Width`, `Height`
+and `Outcome`; a page's two outcomes share `OcrPageOutcome`, which adds `PageIndex` and `Dpi`. Only
+the reading carries `Text`: **the compiler has no way to reach the text of a refusal**, which is the
+point of §12.
 
 An engine is safe to share: `OcrEngine` may be used from several threads at once, and the models are
 loaded once.
@@ -113,6 +145,8 @@ The cost is real and documented: computing it runs the detection model a second 
 line boxes are produced by a detection pass this crate cannot read the mask of. On a 300 DPI A4 page
 that is roughly a third more time. A caller who does not need the number should be aware it is being
 computed; a caller who needs a threshold should prefer it to a constant.
+
+That constant is exactly what `OcrOptions` carries, and §12 states the rule it drives.
 
 ## 5. What recognition is worth
 
@@ -169,20 +203,43 @@ Exports: `to_abi_version`, `to_abi_version_string`, `to_build_info`, `to_error_*
 `to_buffer_free`, `to_engine_create`, `to_engine_free`, `to_engine_live_count`,
 `to_engine_recognize`, `to_engine_recognize_pdf`.
 
+`to_abi_version` is **2**. Version 1's two recognise exports took no thresholds; version 2 takes
+three `f64`s — page confidence, word confidence, tolerated rejected-word ratio — in that order,
+between the existing arguments and the out-parameters. A v1 host against a v2 library would pass
+the wrong number of arguments, so the version is the handshake that stops it, and the managed side
+asserts it before it calls anything.
+
 Results cross as UTF-8 JSON, parsed in one place on the managed side:
 
 ```json
-{"width":2480,"height":3508,"text":"INVOICE 2026","meanConfidence":0.913,
+{"width":2480,"height":3508,"status":"recognized","text":"INVOICE 2026","meanConfidence":0.913,
+ "wordCount":2,"rejectedWordCount":1,
  "lines":[{"text":"INVOICE 2026","bounds":{"x":120,"y":300,"width":540,"height":40},
            "confidence":0.927,
            "words":[{"text":"INVOICE","bounds":{"x":120,"y":300,"width":300,"height":40},
-                     "confidence":0.935}]}]}
+                     "confidence":0.935,"rejected":false},
+                    {"text":"2026","bounds":{"x":440,"y":300,"width":220,"height":40},
+                     "confidence":0.412,"rejected":true}]}]}
 ```
 
+A refused page carries `"status":"unreadable"`, an empty `text`, no lines, and a `refusal` object:
+
+```json
+{"width":2480,"height":3508,"status":"unreadable","text":"","meanConfidence":0.214,
+ "wordCount":6,"rejectedWordCount":6,"lines":[],
+ "refusal":{"reason":"mean_confidence","threshold":0.6,"observed":0.214,"wordCount":6}}
+```
+
+`reason` is one of `blank_page`, `mean_confidence` or `rejected_words`; `threshold` is the one that
+rule compares against and `observed` is what the page produced. A `status` the managed side does not
+know, or a `reason` it does not know, is refused rather than guessed — but a document with **no**
+`status` reads as a reading, because only a native library older than this feature writes one, and
+reading it as a refusal would turn every page into nothing.
+
 `RecognizePdf` returns `{"pages":[...]}`, each page carrying `pageIndex`, `width`, `height`, `dpi`
-and the same `text`/`lines`/`meanConfidence` triple. A PDF read takes `first_page` and `page_count`
-(zero meaning "to the end") so a caller reading five pages of a thousand never renders the other
-nine hundred and ninety-five.
+and the same document one image gets. A PDF read takes `first_page` and `page_count` (zero meaning
+"to the end") so a caller reading five pages of a thousand never renders the other nine hundred and
+ninety-five.
 
 ## 8. Refusals
 
@@ -194,9 +251,12 @@ nine hundred and ninety-five.
 | The bytes are not a PDF | `OcrException` with `Code == "pdf"` |
 | The DPI is outside 72–1200 | `ArgumentOutOfRangeException` |
 | `LastPage` precedes `FirstPage` | `ArgumentOutOfRangeException` |
+| A threshold is outside 0–1, or NaN | `ArgumentOutOfRangeException` naming the property, before any native call |
 | A page renders past 120 million pixels | `OcrException` with `Code == "pdf"`, naming the page; a hostile document must not exhaust memory |
 | The engine was disposed | `ObjectDisposedException` |
-| An image or page holds no text | Not an error: an empty `Text`, no lines, `MeanConfidence` 0 |
+| An image or page holds no text | Not an error and not an empty string: `OcrUnreadable` / `OcrPageUnreadable` with `Refusal.Reason == BlankPage` |
+| A page is too faint, or too many words are doubtful | `OcrUnreadable` / `OcrPageUnreadable`, naming the rule, the threshold, the value and the word count |
+| One word is doubtful | Not a refusal: the word is returned with `Rejected == true`, its box and its score |
 
 ## 9. Licences
 
@@ -262,10 +322,16 @@ which.
 - **The managed surface** — validation, result shape, disposal, the page-range arithmetic and the
   `ObjectDisposedException` after dispose — is asserted against a deterministic fake backend, because
   it is the surface's contract and needs no model.
-- **The result documents** — the exact JSON `native/text-ocr` writes, including a page with no text
-  and a page with no lines — are parsed and asserted field by field. This is the contract between the
-  two halves, and it is tested without a native library.
-- **The ABI** — the version handshake, the build information naming `ocrs`/`rten`/`hayro`, a model
+- **The result documents** — the exact JSON `native/text-ocr` writes, including a page with no text,
+  a page with no lines, and a refused page — are parsed and asserted field by field. This is the
+  contract between the two halves, and it is tested without a native library.
+- **The refusal rule** — a blank page, a page with every word below the word threshold, a page with a
+  minority of doubtful words, a correct page, and thresholds at 0 and at 1 — is proved in Rust, in
+  `native/text-ocr/src/engine.rs`, on readings built without models: `cargo test --lib` runs it.
+  Nothing in the C# suite can prove it, because nothing in the C# suite has an engine.
+- **The options reach the ABI unchanged** — the three thresholds cross as three `f64`s and are
+  asserted at the boundary, without a model.
+- **The ABI** — the version handshake (2), the build information naming `ocrs`/`rten`/`hayro`, a model
   that is not a model being refused with `Code == "model"` and no handle leaked — runs against the
   real library, which is where a broken export or a panicking boundary shows up.
 - **Recognition itself** needs two models, and this repository ships none: the published models weigh
@@ -275,3 +341,77 @@ which.
   says so rather than passing quietly. **On a machine without those models, the recognition path is
   unproven by this suite** — the code runs, and no test in this repository has watched it read a
   character.
+
+## 12. Confidence thresholds, and refusing instead of guessing
+
+A page read at 40 % mean confidence is not a success: the caller has no way to know it must not use
+it. Worse, a blank page used to come back as `Success` with an empty string, which is
+indistinguishable from a page the recogniser looked at and found nothing on. This section states the
+rule that replaces both.
+
+### 12.1 The three thresholds
+
+They are properties of `OcrOptions`, and `OcrPdfOptions` inherits them, so one set of numbers governs
+images and pages alike. There is no second scale: each is compared directly against the detection
+probability of §4, a number already in [0, 1], and no conversion happens anywhere.
+
+| Property | Default | Meaning |
+| --- | --- | --- |
+| `MinimumPageConfidence` | 0.6 | A page whose mean line confidence is below this is refused. |
+| `MinimumWordConfidence` | 0.5 | A word **strictly** below this is flagged (`OcrWord.Rejected`) and is not reliable text. |
+| `MaximumRejectedWordRatio` | 0.5 | A page with more than this proportion of flagged words is refused, even when its mean confidence passes. |
+
+A value outside [0, 1] — and NaN, which would silently disable every comparison — is refused with
+`ArgumentOutOfRangeException` on the managed side and `invalid_argument` at the ABI. The ABI range test
+is not redundant: a host written in C can call it directly.
+
+**No opt-in flag, and no second API.** The thresholds are part of the options; the refusal is what
+the engine does. A caller who wants yesterday's behaviour sets the thresholds to 0 and accepts
+`MaximumRejectedWordRatio` 1 — which leaves exactly one refusal in force, the blank page, because no
+text is not a reading at any threshold.
+
+### 12.2 The rule
+
+Checked in this order; the first that fires is the reason reported:
+
+1. **`BlankPage`** — no line was found at all. Observed is 0, and no word is concerned. This fires
+   whatever the thresholds are: an empty string is never a reading.
+2. **`MeanConfidence`** — the page's mean line confidence is below `MinimumPageConfidence` and the
+   page holds at least one line. Observed is that mean; the word count is every word on the page.
+3. **`RejectedWords`** — the proportion of words below `MinimumWordConfidence` exceeds
+   `MaximumRejectedWordRatio`. Observed is that proportion; the word count is the number of flagged
+   words.
+
+A page that fails none of them is an `OcrResult`, and every word that was below the word threshold is
+returned anyway — with its box, its score and `Rejected == true` — because knowing *where* the doubt
+was is useful, and dropping the word would silently shorten the line.
+
+A refusal carries no text and no lines. It is an `OcrUnreadable` (or `OcrPageUnreadable`) with:
+`Reason`, `Threshold` (the number that rule compares against), `Observed` (what the page produced),
+`WordCount`, and a `Message` naming all four in one sentence. That is the whole point of a separate
+type: `Refusal.Reason` can be switched on, and `Text` cannot be reached by accident.
+
+Each page of a PDF is assessed on its own. One blank page in a hundred does not turn the other
+ninety-nine into refusals, and the page index travels with the outcome.
+
+### 12.3 What the threshold does not do
+
+- **It does not correct recognition.** It compares a score to a number. Text over a photograph is
+  still wrong in the same way; it is now refused instead of returned.
+- **It is not a recognition likelihood.** The number is the detector's probability, per §4. A page
+  can score 0.95 and still read "INV0ICE".
+- **It does not make a bad scan readable.** Raising `Dpi`, or a better scan, is the fix; a lower
+  threshold only accepts the same bad reading.
+- **It does not delete the flagged words from the text.** A reading keeps them and marks them. A
+  caller who needs only reliable text filters on `OcrWord.Rejected`.
+- **It does not apply to the models.** Nothing here inspects a model's quality; it inspects one page's
+  reading.
+
+### 12.4 Choosing a value
+
+The defaults leave a crisp 300 DPI scan of printed text untouched: such a page scores above 0.75 on
+every line and every word. Raise `MinimumPageConfidence` toward 0.8 when a false reading is much more
+expensive than a refusal (an invoice pipeline, an archive); lower it toward 0.4 when a refusal costs a
+human review and a slightly wrong string is cheaper. `MaximumRejectedWordRatio` is the lever for "the
+page is mostly fine but a whole column is noise": at 0.5, half the words may be doubtful before the
+page is refused.

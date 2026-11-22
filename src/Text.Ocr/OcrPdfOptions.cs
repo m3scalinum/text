@@ -3,14 +3,16 @@ using System;
 namespace M3scalinum.Text.Ocr;
 
 /// <summary>
-/// How a PDF is rasterised before it is read.
+/// How a PDF is rasterised before it is read, and the thresholds that decide whether
+/// a page is readable.
 /// </summary>
 /// <remarks>
 /// 300 DPI is the usual scan resolution and the default: below roughly 150 DPI the
 /// recogniser loses small text, and above roughly 600 DPI it costs time without
-/// gaining accuracy.
+/// gaining accuracy. The confidence thresholds are <see cref="OcrOptions"/>'s, and
+/// they apply to every page.
 /// </remarks>
-public sealed class OcrPdfOptions
+public sealed class OcrPdfOptions : OcrOptions
 {
     /// <summary>The default resolution.</summary>
     public const int DefaultDpi = 300;
@@ -36,8 +38,10 @@ public sealed class OcrPdfOptions
     /// </summary>
     public int? LastPage { get; init; }
 
-    internal void Validate()
+    internal override void Validate()
     {
+        base.Validate();
+
         if (Dpi is < MinimumDpi or > MaximumDpi)
         {
             throw new ArgumentOutOfRangeException(

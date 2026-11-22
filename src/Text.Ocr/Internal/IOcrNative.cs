@@ -41,7 +41,14 @@ internal interface IOcrNative
     uint EngineLiveCount();
 
     /// <summary>Recognises an encoded image; the result document is written to <paramref name="json"/>.</summary>
-    int EngineRecognize(IntPtr engine, byte[] image, out NativeBuffer json, out IntPtr error);
+    int EngineRecognize(
+        IntPtr engine,
+        byte[] image,
+        double pageConfidence,
+        double wordConfidence,
+        double maxRejectedWordRatio,
+        out NativeBuffer json,
+        out IntPtr error);
 
     /// <summary>Renders and recognises pages of a PDF; the result document is written to <paramref name="json"/>.</summary>
     int EngineRecognizePdf(
@@ -50,6 +57,9 @@ internal interface IOcrNative
         uint dpi,
         uint firstPage,
         uint pageCount,
+        double pageConfidence,
+        double wordConfidence,
+        double maxRejectedWordRatio,
         out NativeBuffer json,
         out IntPtr error);
 
