@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using M3scalinum.Text.Templates;
 
 namespace M3scalinum.Text.Mcp;
@@ -80,6 +81,38 @@ public sealed class McpServerOptions
     public TimeSpan RenderTimeout { get; init; } = TimeSpan.FromSeconds(30);
 
     /// <summary>
+    /// How many document calls one client may make in a sliding minute;
+    /// <see langword="null"/> applies no ceiling.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A <em>render</em> is a call that reads, compiles or rewrites a document — <c>render_document</c>,
+    /// <c>sign_document</c>, <c>merge_documents</c> and <c>extract_text</c>. <c>list_templates</c> is
+    /// metadata and is never counted. A call is counted when it is admitted, before its arguments are
+    /// checked: the ceiling bounds attempts, so a caller cannot buy unlimited work with malformed
+    /// calls.
+    /// </para>
+    /// <para>
+    /// The client is the transport's session — the <c>Mcp-Session-Id</c> of the HTTP transport, and one
+    /// bucket for a stdio process. The window is in memory: it survives a request, not a process, so a
+    /// restart forgets it.
+    /// </para>
+    /// </remarks>
+    public int? MaxRendersPerMinute { get; init; }
+
+    /// <summary>
+    /// Where the per-call journal is written, or <see langword="null"/> (the default) to keep none.
+    /// </summary>
+    /// <remarks>
+    /// One JSON object per line, written after the answer is produced: the tool, the session, the
+    /// sizes of the arguments and of the result in bytes, the duration, and the outcome. It carries
+    /// no document text — only identifiers and sizes — so a host can reconstruct who rendered what
+    /// without the journal becoming a copy of the documents. A writer that throws does not fail the
+    /// call it was journaling.
+    /// </remarks>
+    public TextWriter? CallJournal { get; init; }
+
+    /// <summary>
     /// Rejects a limit that cannot work, and a template id the pack does not carry.
     /// </summary>
     /// <exception cref="ArgumentException">
@@ -114,6 +147,12 @@ public sealed class McpServerOptions
         if (RenderTimeout <= TimeSpan.Zero)
         {
             throw new ArgumentException("RenderTimeout must be positive");
+        }
+
+        if (MaxRendersPerMinute is <= 0)
+        {
+            throw new ArgumentException(
+                "MaxRendersPerMinute must be null or positive: a ceiling of zero serves nothing");
         }
 
         if (AllowedTemplateIds is null)

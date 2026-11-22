@@ -23,13 +23,13 @@ namespace M3scalinum.Text.Mcp;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The server is the protocol core: <see cref="HandleMessageAsync"/> takes one message and returns one
-/// answer, and it never sees a stream, a header or a socket. <see cref="IMcpTransport"/> is the
-/// framing — <see cref="StdioTransport"/> (one message per line, bound to the process's pipes by
-/// <see cref="RunStdioAsync"/>) or <see cref="McpHttpServer"/> (the streamable-HTTP shape). It serves
-/// five tools — <c>render_document</c>, <c>list_templates</c>, <c>sign_document</c>,
-/// <c>merge_documents</c> and <c>extract_text</c> — and it holds no state between
-/// messages.
+/// The server is the protocol core: <see cref="HandleMessageAsync(string, CancellationToken)"/> takes
+/// one message and returns one answer, and it never sees a stream, a header or a socket.
+/// <see cref="IMcpTransport"/> is the framing — <see cref="StdioTransport"/> (one message per line,
+/// bound to the process's pipes by <see cref="RunStdioAsync"/>) or <see cref="McpHttpServer"/> (the
+/// streamable-HTTP shape). It serves five tools — <c>render_document</c>, <c>list_templates</c>,
+/// <c>sign_document</c>, <c>merge_documents</c> and <c>extract_text</c> — and one resource per layout
+/// of the pack.
 /// </para>
 /// <para>
 /// The security posture is the point of the package. A tool call is authored by a model, so it can
@@ -37,6 +37,11 @@ namespace M3scalinum.Text.Mcp;
 /// compiling. The server reads no file it was not told to read, writes nothing unless the host
 /// enabled file output, opens no socket, and applies <see cref="McpServerOptions"/>'s limits before
 /// it compiles anything.
+/// </para>
+/// <para>
+/// Two pieces of state survive a message, and only for as long as the process: the per-client render
+/// window of <see cref="McpServerOptions.MaxRendersPerMinute"/>, and the journal
+/// <see cref="McpServerOptions.CallJournal"/> appends to. Neither holds a document.
 /// </para>
 /// </remarks>
 public sealed class McpServer : IMcpMessageHandler
@@ -49,12 +54,80 @@ public sealed class McpServer : IMcpMessageHandler
     internal const int MethodNotFound = -32601;
     internal const int InvalidParams = -32602;
 
+    /// <summary>
+    /// The code a call over <see cref="McpServerOptions.MaxRendersPerMinute"/> is answered with: a
+    /// server-defined error in the JSON-RPC implementation range, never a cut connection.
+    /// </summary>
+    internal const int QuotaExceeded = -32000;
+
+    /// <summary>The prefix of the resource URI one layout is read under.</summary>
+    internal const string TemplateResourcePrefix = "m3scalinum://templates/";
+
+    /// <summary>The code the journal records for a tool result that carried <c>isError</c>.</summary>
+    /// <remarks>
+    /// The wire carries a result, not an error object, so no JSON-RPC code is sent; the journal uses
+    /// the one MCP reserves for a tool failure so the outcome is greppable.
+    /// </remarks>
+    private const int ToolErrorCode = -32603;
+
     private static readonly string[] KnownProtocolVersions = ["2024-11-05", "2025-03-26", ProtocolVersion];
+
+    /// <summary>
+    /// The tools the server serves, in the order <c>tools/list</c> announces them.
+    /// </summary>
+    /// <remarks>
+    /// One table, two readers: <c>tools/list</c> projects it and <c>tools/call</c> dispatches through
+    /// it, so a tool cannot be advertised without being callable, nor callable without being
+    /// advertised.
+    /// </remarks>
+    private static readonly ToolBinding[] Tools =
+    [
+        new ToolBinding(
+            McpToolNames.RenderDocument,
+            "Render a PDF from Typst source, or from one layout of M3scalinum.Text.Templates "
+                + "with the parameters list_templates declares. Returns the PDF as a base64 "
+                + "embedded resource, or writes it to 'outputPath' when the host allows file output.",
+            McpToolSchemas.RenderDocument,
+            Renders: true,
+            static (server, arguments, cancellationToken) => server.RenderDocumentAsync(arguments, cancellationToken)),
+        new ToolBinding(
+            McpToolNames.ListTemplates,
+            "List the business-document layouts this server serves: their ids, versions, "
+                + "languages and declared parameters.",
+            McpToolSchemas.ListTemplates,
+            Renders: false,
+            static (server, _, _) => Task.FromResult(server.ListTemplates())),
+        new ToolBinding(
+            McpToolNames.SignDocument,
+            "Sign a PDF with a PKCS#12 certificate, as a PAdES-B signature, and return the "
+                + "signed file. Pass the PDF base64-encoded, or name a path when the host allows "
+                + "file output; the password is required, and an empty one is accepted.",
+            McpToolSchemas.SignDocument,
+            Renders: true,
+            static (server, arguments, cancellationToken) => server.SignDocumentAsync(arguments, cancellationToken)),
+        new ToolBinding(
+            McpToolNames.MergeDocuments,
+            "Merge two or more PDFs into one, in the order given, keeping every page's "
+                + "content, fonts, images and annotations.",
+            McpToolSchemas.MergeDocuments,
+            Renders: true,
+            static (server, arguments, cancellationToken) => server.MergeDocumentsAsync(arguments, cancellationToken)),
+        new ToolBinding(
+            McpToolNames.ExtractText,
+            "Read the text each page of a PDF draws, through the fonts' ToUnicode maps, and "
+                + "answer it per page. A page whose text cannot be decoded is reported empty.",
+            McpToolSchemas.ExtractText,
+            Renders: true,
+            static (server, arguments, _) => Task.FromResult(server.ExtractText(arguments))),
+    ];
 
     private readonly McpServerOptions _options;
     private readonly TemplateCatalog _catalog;
     private readonly Lazy<TypstCompiler> _compiler;
     private readonly string _serverVersion;
+    private readonly RenderQuota? _quota;
+    private readonly TextWriter? _journal;
+    private readonly object _journalGate = new();
 
     /// <summary>Creates a server with the default limits, the whole layout pack, and no file output.</summary>
     public McpServer()
@@ -90,6 +163,8 @@ public sealed class McpServer : IMcpMessageHandler
         _serverVersion = options.ServerVersion
             ?? typeof(McpServer).Assembly.GetName().Version?.ToString()
             ?? "0.0.0";
+        _quota = options.MaxRendersPerMinute is { } limit ? new RenderQuota(limit) : null;
+        _journal = options.CallJournal;
     }
 
     /// <summary>The limits this server applies.</summary>
@@ -145,13 +220,34 @@ public sealed class McpServer : IMcpMessageHandler
     /// The bytes carry the message only: framing — the newline of stdio, the headers and status of
     /// HTTP — belongs to the transport.
     /// </remarks>
-    public async Task<byte[]?> HandleMessageAsync(string message, CancellationToken cancellationToken)
+    public Task<byte[]?> HandleMessageAsync(string message, CancellationToken cancellationToken)
+        => HandleMessageAsync(message, sessionId: null, cancellationToken);
+
+    /// <summary>
+    /// Handles one message that arrived inside a transport session.
+    /// </summary>
+    /// <param name="message">One complete JSON-RPC message.</param>
+    /// <param name="sessionId">
+    /// The session the transport put the message in — <c>Mcp-Session-Id</c> for HTTP — or
+    /// <see langword="null"/> when the transport has no sessions, as stdio does not.
+    /// </param>
+    /// <param name="cancellationToken">Ends the work when the transport is closing.</param>
+    /// <returns>The response as UTF-8 JSON, or <see langword="null"/> when there is nothing to answer.</returns>
+    /// <remarks>
+    /// The session is the client of <see cref="McpServerOptions.MaxRendersPerMinute"/> and the
+    /// <c>session</c> field of the journal, and it changes nothing else: the answer is the same one
+    /// <see cref="HandleMessageAsync(string, CancellationToken)"/> produces for the same message.
+    /// </remarks>
+    public async Task<byte[]?> HandleMessageAsync(
+        string message,
+        string? sessionId,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(message);
 
         using var buffer = new MemoryStream(256);
 
-        var answered = await HandleAsync(message, buffer, cancellationToken).ConfigureAwait(false);
+        var answered = await HandleAsync(message, sessionId, buffer, cancellationToken).ConfigureAwait(false);
 
         return answered ? buffer.ToArray() : null;
     }
@@ -172,7 +268,7 @@ public sealed class McpServer : IMcpMessageHandler
             cancellationToken);
 
     /// <summary>Handles one message: a request is answered, a notification is not.</summary>
-    private async Task<bool> HandleAsync(string line, Stream output, CancellationToken cancellationToken)
+    private async Task<bool> HandleAsync(string line, string? sessionId, Stream output, CancellationToken cancellationToken)
     {
         JsonDocument document;
 
@@ -289,7 +385,20 @@ public sealed class McpServer : IMcpMessageHandler
                     return true;
 
                 case "tools/call":
-                    await CallToolAsync(output, id, parameters, cancellationToken).ConfigureAwait(false);
+                    await CallToolAsync(output, id, parameters, sessionId, cancellationToken).ConfigureAwait(false);
+                    return true;
+
+                case "resources/list":
+                    await WriteResultAsync(
+                        output,
+                        id,
+                        ListResources(),
+                        McpJsonContext.Default.ResourcesListResultDto,
+                        cancellationToken).ConfigureAwait(false);
+                    return true;
+
+                case "resources/read":
+                    await ReadResourceAsync(output, id, parameters, cancellationToken).ConfigureAwait(false);
                     return true;
 
                 // Lifecycle notifications never reach here: a message without an id is dropped
@@ -306,9 +415,7 @@ public sealed class McpServer : IMcpMessageHandler
         }
     }
 
-    /// <summary>
-    /// Answers <c>tools/call</c>, in its three outcomes: result, invalid arguments, failure.
-    /// </summary>
+    /// <summary>Answers <c>tools/call</c>, in its three outcomes: result, invalid arguments, failure.</summary>
     [System.Diagnostics.CodeAnalysis.SuppressMessage(
         "Design",
         "CA1031:Do not catch general exception types",
@@ -318,6 +425,7 @@ public sealed class McpServer : IMcpMessageHandler
         Stream output,
         JsonElement? id,
         JsonElement? parameters,
+        string? sessionId,
         CancellationToken cancellationToken)
     {
         if (parameters is not { ValueKind: JsonValueKind.Object } call)
@@ -345,17 +453,49 @@ public sealed class McpServer : IMcpMessageHandler
                 ? argumentsElement
                 : default;
 
+        var inputBytes = arguments.ValueKind == JsonValueKind.Object
+            ? Encoding.UTF8.GetByteCount(arguments.GetRawText())
+            : 0;
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+
+        var tool = Find(name);
+
+        if (tool is null)
+        {
+            await WriteErrorAsync(
+                output, id, InvalidParams, UnknownTool(name), cancellationToken).ConfigureAwait(false);
+            Journal(name, sessionId, inputBytes, outputBytes: 0, started, "invalid_params", InvalidParams);
+            return;
+        }
+
+        if (tool.Renders && _quota is not null
+            && !_quota.TryAcquire(sessionId ?? string.Empty, DateTimeOffset.UtcNow, out var retryAfterSeconds))
+        {
+            var message =
+                $"render quota exceeded: session '{Describe(sessionId)}' already made {_quota.Limit} "
+                + $"document call(s) in the last minute; retry in {retryAfterSeconds} second(s)";
+
+            await WriteQuotaErrorAsync(output, id, message, _quota.Limit, retryAfterSeconds, cancellationToken)
+                .ConfigureAwait(false);
+
+            Journal(name, sessionId, inputBytes, outputBytes: 0, started, "quota_exceeded", QuotaExceeded);
+            return;
+        }
+
         ToolCallResultDto result;
+        string outcome;
 
         try
         {
-            result = await InvokeAsync(name, arguments, cancellationToken).ConfigureAwait(false);
+            result = await tool.Invoke(this, arguments, cancellationToken).ConfigureAwait(false);
+            outcome = result.IsError == true ? "tool_error" : "ok";
         }
         catch (McpToolArgumentsException exception)
         {
             await WriteErrorAsync(
                 output, id, InvalidParams, $"invalid params: {exception.Message}", cancellationToken)
                 .ConfigureAwait(false);
+            Journal(name, sessionId, inputBytes, outputBytes: 0, started, "invalid_params", InvalidParams);
             return;
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
@@ -363,29 +503,100 @@ public sealed class McpServer : IMcpMessageHandler
             // The call was well formed and the work failed: that is a tool error, not a protocol
             // error. The client sees what went wrong and can change the call.
             result = Failure(exception.Message);
+            outcome = "tool_error";
         }
 
         await WriteResultAsync(
             output, id, result, McpJsonContext.Default.ToolCallResultDto, cancellationToken)
             .ConfigureAwait(false);
+
+        var outputBytes = _journal is null
+            ? 0
+            : JsonSerializer.SerializeToUtf8Bytes(result, McpJsonContext.Default.ToolCallResultDto).Length;
+
+        Journal(
+            name,
+            sessionId,
+            inputBytes,
+            outputBytes,
+            started,
+            outcome,
+            outcome == "ok" ? null : (int?)ToolErrorCode);
     }
 
-    /// <summary>Dispatches a well-formed tool call.</summary>
-    private async Task<ToolCallResultDto> InvokeAsync(
-        string name,
-        JsonElement arguments,
-        CancellationToken cancellationToken) => name switch
+    /// <summary>Finds the tool a call names, or <see langword="null"/> when the table has none.</summary>
+    private static ToolBinding? Find(string name)
+    {
+        foreach (var tool in Tools)
         {
-            McpToolNames.RenderDocument => await RenderDocumentAsync(arguments, cancellationToken).ConfigureAwait(false),
-            McpToolNames.ListTemplates => ListTemplates(),
-            McpToolNames.SignDocument => await SignDocumentAsync(arguments, cancellationToken).ConfigureAwait(false),
-            McpToolNames.MergeDocuments => await MergeDocumentsAsync(arguments, cancellationToken).ConfigureAwait(false),
-            McpToolNames.ExtractText => ExtractText(arguments),
-            _ => throw new McpToolArgumentsException(
-                $"unknown tool '{name}'; this server serves {McpToolNames.RenderDocument}, "
-                + $"{McpToolNames.ListTemplates}, {McpToolNames.SignDocument}, "
-                + $"{McpToolNames.MergeDocuments} and {McpToolNames.ExtractText}"),
+            if (string.Equals(tool.Name, name, StringComparison.Ordinal))
+            {
+                return tool;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>The message a call for a tool the server does not serve is answered with.</summary>
+    private static string UnknownTool(string name)
+        => $"unknown tool '{name}'; this server serves {string.Join(", ", Tools.Select(tool => tool.Name))}";
+
+    /// <summary>Names a session in an error message without inventing one.</summary>
+    private static string Describe(string? sessionId)
+        => string.IsNullOrEmpty(sessionId) ? "stdio" : sessionId;
+
+    /// <summary>Appends one journal line for a call, when the host enabled the journal.</summary>
+    /// <remarks>
+    /// A writer that throws — a full disk, a closed stream — loses the line, never the call: the
+    /// answer has already been written, and the journal is observability, not a protocol participant.
+    /// </remarks>
+    [System.Diagnostics.CodeAnalysis.SuppressMessage(
+        "Design",
+        "CA1031:Do not catch general exception types",
+        Justification = "A journal is observability: a writer that throws must not turn a served "
+            + "call into a failure the client sees.")]
+    private void Journal(
+        string tool,
+        string? sessionId,
+        int inputBytes,
+        int outputBytes,
+        long startedTimestamp,
+        string outcome,
+        int? errorCode)
+    {
+        if (_journal is null)
+        {
+            return;
+        }
+
+        var entry = new CallJournalEntryDto
+        {
+            Timestamp = DateTimeOffset.UtcNow,
+            Session = string.IsNullOrEmpty(sessionId) ? null : sessionId,
+            Tool = tool,
+            InputBytes = inputBytes,
+            OutputBytes = outputBytes,
+            DurationMs = (long)System.Diagnostics.Stopwatch.GetElapsedTime(startedTimestamp).TotalMilliseconds,
+            Outcome = outcome,
+            ErrorCode = errorCode,
         };
+
+        var line = JsonSerializer.Serialize(entry, McpJsonContext.Default.CallJournalEntryDto);
+
+        lock (_journalGate)
+        {
+            try
+            {
+                _journal.WriteLine(line);
+                _journal.Flush();
+            }
+            catch (Exception exception) when (exception is IOException or ObjectDisposedException)
+            {
+                // The journal is best effort by design.
+            }
+        }
+    }
 
     /// <summary>Renders Typst source, or one layout of the pack with its parameters.</summary>
     private async Task<ToolCallResultDto> RenderDocumentAsync(
@@ -762,55 +973,154 @@ public sealed class McpServer : IMcpMessageHandler
         },
     };
 
-    /// <summary>The <c>tools/list</c> result.</summary>
+    /// <summary>The <c>tools/list</c> result, projected from the table <c>tools/call</c> dispatches through.</summary>
     private static ToolsListResultDto ListTools() => new()
     {
-        Tools =
-        [
-            new ToolDefinitionDto
-            {
-                Name = McpToolNames.RenderDocument,
-                Description =
-                    "Render a PDF from Typst source, or from one layout of M3scalinum.Text.Templates "
-                    + "with the parameters list_templates declares. Returns the PDF as a base64 "
-                    + "embedded resource, or writes it to 'outputPath' when the host allows file output.",
-                InputSchema = McpToolSchemas.RenderDocument,
-            },
-            new ToolDefinitionDto
-            {
-                Name = McpToolNames.ListTemplates,
-                Description =
-                    "List the business-document layouts this server serves: their ids, versions, "
-                    + "languages and declared parameters.",
-                InputSchema = McpToolSchemas.ListTemplates,
-            },
-            new ToolDefinitionDto
-            {
-                Name = McpToolNames.SignDocument,
-                Description =
-                    "Sign a PDF with a PKCS#12 certificate, as a PAdES-B signature, and return the "
-                    + "signed file. Pass the PDF base64-encoded, or name a path when the host allows "
-                    + "file output; the password is required, and an empty one is accepted.",
-                InputSchema = McpToolSchemas.SignDocument,
-            },
-            new ToolDefinitionDto
-            {
-                Name = McpToolNames.MergeDocuments,
-                Description =
-                    "Merge two or more PDFs into one, in the order given, keeping every page's "
-                    + "content, fonts, images and annotations.",
-                InputSchema = McpToolSchemas.MergeDocuments,
-            },
-            new ToolDefinitionDto
-            {
-                Name = McpToolNames.ExtractText,
-                Description =
-                    "Read the text each page of a PDF draws, through the fonts' ToUnicode maps, and "
-                    + "answer it per page. A page whose text cannot be decoded is reported empty.",
-                InputSchema = McpToolSchemas.ExtractText,
-            },
-        ],
+        Tools = [.. Tools.Select(tool => new ToolDefinitionDto
+        {
+            Name = tool.Name,
+            Description = tool.Description,
+            InputSchema = tool.InputSchema,
+        })],
     };
+
+    /// <summary>The <c>resources/list</c> result: one URI per layout the host allows.</summary>
+    private ResourcesListResultDto ListResources() => new()
+    {
+        Resources = [.. _catalog.Templates
+            .Where(descriptor => IsAllowed(descriptor.Id))
+            .Select(descriptor => new ResourceDefinitionDto
+            {
+                Uri = TemplateResourcePrefix + descriptor.Id,
+                Name = descriptor.Id,
+                Description = descriptor.Description,
+                MimeType = "application/json",
+            })],
+    };
+
+    /// <summary>
+    /// Answers <c>resources/read</c>: the manifest of the layout the URI names, read-only.
+    /// </summary>
+    /// <remarks>
+    /// The manifest, not the template's Typst source: the source is not part of the layout pack's
+    /// public surface, and what a client needs to call <c>render_document</c> with a layout is exactly
+    /// its declared parameters, its languages and its entry point. The contents are bounded by
+    /// <see cref="McpServerOptions.MaxDocumentSize"/> like any other document the server produces.
+    /// </remarks>
+    private async Task ReadResourceAsync(
+        Stream output,
+        JsonElement? id,
+        JsonElement? parameters,
+        CancellationToken cancellationToken)
+    {
+        string uri;
+
+        if (parameters is not { ValueKind: JsonValueKind.Object } request
+            || !request.TryGetProperty("uri", out var uriElement)
+            || uriElement.ValueKind != JsonValueKind.String)
+        {
+            await WriteErrorAsync(
+                output, id, InvalidParams, "invalid params: 'resources/read' needs a 'uri' string", cancellationToken)
+                .ConfigureAwait(false);
+            return;
+        }
+
+        uri = uriElement.GetString() ?? string.Empty;
+
+        if (!uri.StartsWith(TemplateResourcePrefix, StringComparison.Ordinal))
+        {
+            await WriteErrorAsync(
+                output,
+                id,
+                InvalidParams,
+                $"invalid params: this server reads no resource '{uri}'; it serves "
+                    + $"{TemplateResourcePrefix}{{id}} for the layouts of the pack",
+                cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        var templateId = uri[TemplateResourcePrefix.Length..];
+
+        if (!IsAllowed(templateId) || !_catalog.TryGet(templateId, null, out var descriptor))
+        {
+            await WriteErrorAsync(
+                output,
+                id,
+                InvalidParams,
+                $"invalid params: no layout '{templateId}' is served; resources/list names the ones that are",
+                cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        var manifest = new TemplateManifestDto
+        {
+            Id = descriptor.Id,
+            Name = descriptor.Manifest.Name,
+            Version = descriptor.Version,
+            Entry = descriptor.Manifest.Entry,
+            Description = descriptor.Description,
+            Authors = [.. descriptor.Manifest.Authors],
+            Languages = [.. descriptor.Languages.Select(LanguageName)],
+            Parameters = [.. descriptor.Manifest.Parameters.Values.Select(parameter => new TemplateParameterDto
+            {
+                Name = parameter.Name,
+                Type = TypeName(parameter.Type),
+                Required = parameter.Required,
+            })],
+            AllowExtraParameters = descriptor.Manifest.AllowExtraParameters,
+            MinTypst = descriptor.Manifest.MinTypst,
+        };
+
+        var text = JsonSerializer.Serialize(manifest, McpJsonContext.Default.TemplateManifestDto);
+
+        if (Encoding.UTF8.GetByteCount(text) > _options.MaxDocumentSize)
+        {
+            // A pack whose manifest exceeds the document ceiling is a configuration the host chose;
+            // refusing the read keeps the resource bound as tight as the tools.
+            await WriteErrorAsync(
+                output,
+                id,
+                InvalidParams,
+                $"invalid params: the manifest of '{templateId}' exceeds this server's "
+                    + $"{_options.MaxDocumentSize}-byte document ceiling",
+                cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        await WriteResultAsync(
+            output,
+            id,
+            new ResourceReadResultDto
+            {
+                Contents =
+                [
+                    new ResourceContentsDto
+                    {
+                        Uri = uri,
+                        MimeType = "application/json",
+                        Text = text,
+                    },
+                ],
+            },
+            McpJsonContext.Default.ResourceReadResultDto,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>One tool: what <c>tools/list</c> announces, and what <c>tools/call</c> runs.</summary>
+    /// <param name="Name">The protocol name.</param>
+    /// <param name="Description">The prose a model reads before calling it.</param>
+    /// <param name="InputSchema">The JSON Schema of its arguments.</param>
+    /// <param name="Renders">
+    /// Whether the call reads, compiles or rewrites a document, and so counts against
+    /// <see cref="McpServerOptions.MaxRendersPerMinute"/>.
+    /// </param>
+    /// <param name="Invoke">The work, given the server, the call's arguments and the token.</param>
+    private sealed record ToolBinding(
+        string Name,
+        string Description,
+        JsonElement InputSchema,
+        bool Renders,
+        Func<McpServer, JsonElement, CancellationToken, Task<ToolCallResultDto>> Invoke);
 
     /// <summary>The revision this server will speak, given what the client asked for.</summary>
     private static string Negotiate(JsonElement? parameters)
@@ -990,6 +1300,38 @@ public sealed class McpServer : IMcpMessageHandler
                 writer.WriteStartObject();
                 writer.WriteNumber("code", code);
                 writer.WriteString("message", message);
+                writer.WriteEndObject();
+            },
+            cancellationToken);
+
+    /// <summary>Writes the typed error a call over the render quota is answered with.</summary>
+    /// <remarks>
+    /// An error object, not a closed connection and not a <c>202</c>: the client learns the ceiling,
+    /// the window and how long it has to wait, so it can retry and succeed.
+    /// </remarks>
+    private static Task WriteQuotaErrorAsync(
+        Stream output,
+        JsonElement? id,
+        string message,
+        int limit,
+        int retryAfterSeconds,
+        CancellationToken cancellationToken)
+        => WriteMessageAsync(
+            output,
+            writer =>
+            {
+                WritePrologue(writer, id);
+                writer.WritePropertyName("error");
+                writer.WriteStartObject();
+                writer.WriteNumber("code", QuotaExceeded);
+                writer.WriteString("message", message);
+                writer.WritePropertyName("data");
+                writer.WriteStartObject();
+                writer.WriteString("reason", "render_quota_exceeded");
+                writer.WriteNumber("limit", limit);
+                writer.WriteNumber("windowSeconds", (long)RenderQuota.Window.TotalSeconds);
+                writer.WriteNumber("retryAfterSeconds", retryAfterSeconds);
+                writer.WriteEndObject();
                 writer.WriteEndObject();
             },
             cancellationToken);
