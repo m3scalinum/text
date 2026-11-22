@@ -130,7 +130,9 @@ def relative_spread(values: list[float]) -> float:
     return statistics.median(differences) if differences else float("nan")
 
 
-def bootstrap_interval(ratios: list[float], rng: random.Random, confidence: float = 0.95) -> tuple[float, float]:
+def bootstrap_interval(
+    ratios: list[float], rng: random.Random, confidence: float = 0.95,
+) -> tuple[float, float]:
     """Percentile bootstrap on the median of the paired ratios."""
     if len(ratios) < 2:
         return float("nan"), float("nan")
@@ -271,7 +273,9 @@ def analyse(
     return verdicts, notes, status
 
 
-def print_report(verdicts: list[Verdict], notes: list[str], baseline: list[Result], candidate: list[Result]) -> None:
+def print_report(
+    verdicts: list[Verdict], notes: list[str], baseline: list[Result], candidate: list[Result],
+) -> None:
     base_label = baseline[0].label or "baseline"
     cand_label = candidate[0].label or "candidate"
     print(f"baseline : {base_label}  ({len(baseline)} run(s))")
@@ -283,8 +287,9 @@ def print_report(verdicts: list[Verdict], notes: list[str], baseline: list[Resul
     print(header)
     print("-" * len(header))
     for verdict in verdicts:
-        base = statistics.median([centre(r.scenarios[verdict.scenario]) for r in baseline if verdict.scenario in r.scenarios])
-        cand = statistics.median([centre(r.scenarios[verdict.scenario]) for r in candidate if verdict.scenario in r.scenarios])
+        name = verdict.scenario
+        base = statistics.median([centre(r.scenarios[name]) for r in baseline if name in r.scenarios])
+        cand = statistics.median([centre(r.scenarios[name]) for r in candidate if name in r.scenarios])
         if verdict.interval[0] == verdict.interval[0]:  # not NaN
             interval = f"[{verdict.interval[0]:.3f}, {verdict.interval[1]:.3f}]"
         else:
@@ -333,8 +338,8 @@ def build_command(repo: Path, output: Path, no_restore: bool) -> list[str]:
 
 def run_harness(dll: Path, out_path: Path, label: str, args: argparse.Namespace) -> None:
     command = [
-        "dotnet", str(dll), "--samples", str(out_path),
-        "--label", label, "--iterations", str(args.iterations), "--warmup", str(args.warmup),
+        "dotnet", str(dll), "--samples", str(out_path), "--label", label,
+        "--iterations", str(args.iterations), "--warmup", str(args.warmup),
         "--min-iteration-ms", str(args.min_iteration_ms),
     ]
     completed = subprocess.run(command, capture_output=True, text=True)
@@ -343,6 +348,15 @@ def run_harness(dll: Path, out_path: Path, label: str, args: argparse.Namespace)
             f"the harness failed for {label} (exit {completed.returncode}):\n"
             f"{completed.stdout}{completed.stderr}"
         )
+
+
+def head_of(repo: Path) -> str:
+    """The short commit of a checkout, for a label that survives the report."""
+    completed = subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "--short", "HEAD"],
+        capture_output=True, text=True,
+    )
+    return completed.stdout.strip() if completed.returncode == 0 else "unknown"
 
 
 def cmd_run(args: argparse.Namespace) -> int:
@@ -366,8 +380,8 @@ def cmd_run(args: argparse.Namespace) -> int:
             raise UsageError(f"build failed for {name}:\n{completed.stdout[-4000:]}{completed.stderr[-4000:]}")
         dlls[name] = target / "Text.Typst.Benchmarks.dll"
 
-    label_a = args.label_a or f"a:{subprocess.run(['git', '-C', str(repo_a), 'rev-parse', '--short', 'HEAD'], capture_output=True, text=True).stdout.strip() or 'a'}"
-    label_b = args.label_b or f"b:{subprocess.run(['git', '-C', str(repo_b), 'rev-parse', '--short', 'HEAD'], capture_output=True, text=True).stdout.strip() or 'b'}"
+    label_a = args.label_a or f"a:{head_of(repo_a)}"
+    label_b = args.label_b or f"b:{head_of(repo_b)}"
 
     files: dict[str, list[Path]] = {"a": [], "b": []}
     for round_index in range(args.rounds):
