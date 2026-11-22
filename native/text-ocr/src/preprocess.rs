@@ -167,8 +167,12 @@ pub fn preprocess(
 /// The luma of every pixel, in the 0–255 range. Integer weights, so the result is
 /// identical on every target.
 fn luma(pixels: &[u8], w: usize, h: usize) -> Vec<u8> {
+    // The caller guarantees `w * h * 3` bytes: `preprocess` returns the input untouched
+    // when the buffer is shorter than the size it claims.
     pixels
-        .chunks_exact(3)
+        .as_chunks::<3>()
+        .0
+        .iter()
         .take(w * h)
         .map(|pixel| {
             ((77 * u32::from(pixel[0]) + 150 * u32::from(pixel[1]) + 29 * u32::from(pixel[2])) >> 8)
