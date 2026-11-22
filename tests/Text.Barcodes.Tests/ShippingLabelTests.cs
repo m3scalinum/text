@@ -202,6 +202,43 @@ public sealed class ShippingLabelTests
         Assert.True(label.Pdf.Length > 1024, $"the sample produced a {label.Pdf.Length}-byte PDF");
     }
 
+    [Fact]
+    public void An_option_out_of_range_is_refused_before_anything_is_encoded()
+    {
+        var bad = new[]
+        {
+            new ShippingLabelOptions { AddressLines = ["1 Test Street"], Dpi = 10 },
+            new ShippingLabelOptions { AddressLines = ["1 Test Street"], ModuleMillimetres = 0 },
+            new ShippingLabelOptions { AddressLines = ["1 Test Street"], BarHeightModules = 0 },
+            new ShippingLabelOptions { AddressLines = ["1 Test Street"], Format = (ShippingLabelFormat)99 },
+            new ShippingLabelOptions { AddressLines = [""] },
+            new ShippingLabelOptions { AddressLines = ["1", "2", "3", "4", "5", "6"] },
+            new ShippingLabelOptions { AddressLines = [new string('A', 43)] },
+            new ShippingLabelOptions { AddressLines = ["1 Test Street"], Recipient = new string('B', 43) },
+            new ShippingLabelOptions { AddressLines = ["1 Test Street"], Reference = new string('C', 33) },
+            new ShippingLabelOptions { AddressLines = ["1 Test Street"], Reference = "LS\u0001" },
+        };
+
+        foreach (var options in bad)
+        {
+            var error = Assert.Throws<BarcodeException>(() => ShippingLabel.Create(Sscc, options));
+            Assert.Equal(BarcodeErrorCode.InvalidArgument, error.Code);
+        }
+    }
+
+    [Fact]
+    public void A_module_the_page_cannot_hold_is_refused_with_both_widths()
+    {
+        var error = Assert.Throws<BarcodeException>(() => ShippingLabel.Create(Sscc, new ShippingLabelOptions
+        {
+            AddressLines = ["1 Test Street"],
+            ModuleMillimetres = 1.2,
+        }));
+
+        Assert.Contains("leaves 92 mm", error.Message, StringComparison.Ordinal);
+        Assert.Contains("ModuleMillimetres", error.Message, StringComparison.Ordinal);
+    }
+
     private static ShippingLabel Create() => ShippingLabel.Create(Sscc, new ShippingLabelOptions
     {
         Recipient = "Camille Dubois",

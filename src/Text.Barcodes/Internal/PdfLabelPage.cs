@@ -291,28 +291,28 @@ internal static class WinAnsiText
             {
                 bytes.Add((byte)character);
             }
-            else if (character is >= '\u00a0' and <= '\u00ff')
+            else if (character is >= ' ' and <= 'ÿ')
             {
                 bytes.Add((byte)character);
             }
-            else if (Special.TryGetValue(character, out var code))
-            {
-                bytes.Add(code);
-            }
-            else if (character is '\t')
+            else if (character is '	')
             {
                 bytes.Add((byte)' ');
             }
             else
             {
-                bytes.Add((byte)'?');
+                var index = HighHalf.IndexOf(character);
+
+                // Outside 0x80-0x9F there is no byte to give, and the slot itself may be one the
+                // encoding leaves undefined; both become '?'.
+                bytes.Add(index >= 0 ? (byte)(0x80 + index) : (byte)'?');
             }
         }
 
         return [.. bytes];
     }
 
-    /// <summary>Escapes the four characters a PDF literal string reserves, and high bytes.</summary>
+    /// <summary>Escapes the three characters a PDF literal string reserves, and high bytes.</summary>
     public static string Escape(byte[] data)
     {
         var text = new StringBuilder(data.Length);
@@ -336,35 +336,12 @@ internal static class WinAnsiText
         return text.ToString();
     }
 
-    /// <summary>The characters Windows-1252 puts in 0x80–0x9F, where Latin-1 has controls.</summary>
-    private static readonly Dictionary<char, byte> Special = new()
-    {
-        ['\u20ac'] = 0x80, // euro
-        ['\u201a'] = 0x82,
-        ['\u0192'] = 0x83,
-        ['\u201e'] = 0x84,
-        ['\u2026'] = 0x85, // ellipsis
-        ['\u2020'] = 0x86,
-        ['\u2021'] = 0x87,
-        ['\u02c6'] = 0x88,
-        ['\u2030'] = 0x89,
-        ['\u0160'] = 0x8a,
-        ['\u2039'] = 0x8b,
-        ['\u0152'] = 0x8c, // OE
-        ['\u017d'] = 0x8e,
-        ['\u2018'] = 0x91,
-        ['\u2019'] = 0x92,
-        ['\u201c'] = 0x93,
-        ['\u201d'] = 0x94,
-        ['\u2022'] = 0x95,
-        ['\u2013'] = 0x96, // en dash
-        ['\u2014'] = 0x97, // em dash
-        ['\u02dc'] = 0x98,
-        ['\u2122'] = 0x99,
-        ['\u0161'] = 0x9a,
-        ['\u203a'] = 0x9b,
-        ['\u0153'] = 0x9c, // oe
-        ['\u017e'] = 0x9e,
-        ['\u0178'] = 0x9f,
-    };
+    /// <summary>
+    /// Windows-1252 at 0x80-0x9F: the thirty-two positions where the encoding leaves Latin-1's
+    /// control range for the euro, the dashes and the curly quotes, in byte order. The five slots
+    /// it leaves undefined keep their control character, so no byte is invented for them.
+    /// </summary>
+    private const string HighHalf =
+        "\u20ac\u0081\u201a\u0192\u201e\u2026\u2020\u2021\u02c6\u2030\u0160\u2039\u0152\u008d\u017d\u008e"
+        + "\u008f\u0090\u2018\u2019\u201c\u201d\u2022\u2013\u2014\u02dc\u2122\u0161\u203a\u0153\u009d\u017e\u0178";
 }
