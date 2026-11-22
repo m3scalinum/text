@@ -212,3 +212,115 @@ tests use, with two pages, compressed content streams, subset fonts and `/ToUnic
 
 The probe is test code, not a package entry point. Reading a received document is a separate
 deliverable, `PdfText`, specified in [18-pdf-text.md](18-pdf-text.md).
+
+## 7. `PdfOutline`
+
+`PdfOutline` reads the bookmarks a document already carries and writes a plan onto a document that
+has none. It is bytes-in, bytes-out like the rest of the package, and it does not refer to the
+compiler: a plan read from one document can be written onto another.
+
+```csharp
+using M3scalinum.Text.Pdf;
+
+byte[] pdf = File.ReadAllBytes("rapport.pdf");
+
+PdfOutline outline = PdfOutline.Read(pdf);
+foreach (PdfOutlineEntry entry in outline.Entries)
+{
+    Console.WriteLine($"{entry.Title} -> page {entry.PageNumber}");
+}
+
+var plan = new List<PdfOutlineEntry>
+{
+    new PdfOutlineEntry("Rapport", 1) { IsOpen = true, IsBold = true }
+        .Add(new PdfOutlineEntry("Résultats", 1))
+        .Add(new PdfOutlineEntry("Annexes", 2)),
+};
+
+byte[] withPlan = PdfOutline.Write(pdf, plan);
+```
+
+### 7.1 What is read
+
+An entry is a title, a one-based page in the flattened page tree, its children, and the state the
+file states for it:
+
+| Member | Read from | Meaning |
+| --- | --- | --- |
+| `Title` | `/Title` | The text a viewer shows, decoded as a PDF text string (UTF-16BE with a byte-order mark, PDFDocEncoding otherwise). |
+| `PageNumber` | the destination | One-based page, `null` when the destination names none or names a page the tree does not hold. |
+| `Destination` | `/Dest` or `/A` | The fit type (`XYZ`, `Fit`, `FitH`, `FitV`, `FitBH`, `FitBV`, `FitR`, `FitB`), the coordinates the fit type carries, and the name of the named destination the item pointed at. |
+| `Children` | `/First` … `/Next` | The entries under the item, in document order. |
+| `IsOpen` | `/Count` | `false` for a negative `/Count` and for an item with no child; `true` otherwise. |
+| `IsBold`, `IsItalic` | `/F` | Bit 2 and bit 1 of the item's flags. |
+
+A destination is resolved through every shape the format allows:
+
+- a direct array, `[page /XYZ left top zoom]`, where `page` is an indirect reference to a page
+  object or a zero-based page index;
+- the catalog's name tree, `/Names` → `/Dests` → `/Names` and `/Kids`, whose keys are strings;
+- the older `/Dests` dictionary, whose keys are names;
+- a `/GoTo` action, `/A << /S /GoTo /D … >>`;
+- a dictionary that wraps the array in `/D`, as named destinations may.
+
+A document without `/Outlines` reads as an empty collection, not an exception. So does a broken
+chain: an item whose `/First` is not a dictionary ends the branch, a `/Next` that revisits an
+object ends the sibling chain, and nesting beyond 32 levels, or more than 10 000 siblings in one
+chain, is cut rather than followed. An encrypted document is refused until it is decrypted with
+`PdfEncryption.Open`, and bytes that are not a PDF are refused.
+
+### 7.2 What is written
+
+`Write` appends an incremental update: the item dictionaries, a new `/Type /Outlines` root, and the
+catalog with `/Outlines` and `/PageMode /UseOutlines` set. A new cross-reference section chains to
+the previous one with `/Prev`, the trailer keeps the document's `/ID`, and every byte of the
+original file stays where it was — which is what keeps an existing signature over that revision
+verifiable. The update is a classic cross-reference table even when the previous section was a
+stream, which the format allows.
+
+The entries are written exactly as given: the tree, `IsOpen` as the sign of each parent's `/Count`,
+`IsBold` and `IsItalic` as `/F`, and each title as UTF-16BE so accents survive. A destination is
+written as the fit type the entry carries — `Fit`, `FitH` with `Top`, `FitV` with `Left`, or `XYZ`
+with `Left`, `Top` and `Zoom`; an entry with no destination is written as `/XYZ null null null`,
+which leaves the viewer where it is on the target page. Writing an empty collection points the
+catalog at an empty `/Type /Outlines` dictionary, which removes the plan a viewer would show.
+
+Writing never allocates an entry a page it does not name: an entry with a null `PageNumber`, or one
+past the last page, is refused before anything is built.
+
+### 7.3 What is not read
+
+The presentation entries some producers add are not exposed: the colour of a title (`/C`), its
+icon, the `/SE` element an item points at, and the JavaScript action some viewers attach to a
+bookmark. A written plan carries none of them either, and `/F` is limited to bold and italic —
+the bit that asks a viewer to hide the title is not written back.
+
+### 7.4 Failure model
+
+| Situation | Result |
+| --- | --- |
+| Bytes are not a PDF | `PdfOperationException` |
+| Document is encrypted | `PdfOperationException`; `PdfEncryption.Open` makes it readable |
+| Document has no plan | Empty `Entries` |
+| Broken `/First`, `/Next` cycle, excessive nesting | Read stops there; what was read is returned |
+| A written entry names no page | `PdfOperationException` |
+| A written entry names a page past the last | `PdfOperationException` |
+| The outline nests more than 64 levels as written | `PdfOperationException` |
+| The catalog holds a stream the writer cannot restate | `PdfOperationException` |
+
+### 7.5 Verification
+
+`tests/Text.Pdf.Tests/PdfOutlineTests.cs` builds the shapes with `PdfTestDocument` and reads the
+plan of a document `typst-pdf 0.15.1` produced — `fixtures/pdfua/a4.pdf`, whose headings are the
+bookmarks Typst writes, with the parent's `/Count -1` and a direct `/XYZ` destination per heading.
+
+- **Reading** asserts an empty plan, a flat plan, three nested levels with their open, closed, bold
+  and italic state, a direct `/XYZ` destination and its coordinates, a named destination through
+  the `/Names` name tree and through `/Dests`, a `/GoTo` action, and an entry whose page cannot be
+  resolved.
+- **Writing** asserts that the plan reads back identically, including the fit type, that the
+  original bytes are a prefix of the result, that a second write over the first reads the newest
+  plan, and that an empty plan leaves an empty outline.
+- **The compiler's documents** are read back and written back: the entries of `a4.pdf` are the
+  headings of `fixtures/pdfua/document.typ`, and reading what was written gives the same titles,
+  pages and states.
