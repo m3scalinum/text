@@ -27,6 +27,7 @@ file names, to find what you want.
 | 04 | [04-document-model.md](04-document-model.md) | The fluent builder and its Markup writer, in `M3scalinum.Text.Documents` |
 | 05 | [05-templates.md](05-templates.md) | Template packages, typed parameters, resolution, the Roslyn generator |
 | 06 | [06-markdown-and-text-export.md](06-markdown-and-text-export.md) | Semantic extraction and its fidelity contract |
+| 27 | [27-html-export.md](27-html-export.md) | Writing the model as semantic HTML5, and what HTML cannot hold |
 | 12 | [12-dependency-injection.md](12-dependency-injection.md) | The `M3scalinum.Text.Typst.DependencyInjection` package: services, lifetimes, options, validation |
 
 ## The PDF family
