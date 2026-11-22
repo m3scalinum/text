@@ -57,6 +57,7 @@ byte[] pdf = TypstCompiler.CompileToPdf("""
 | `M3scalinum.Text.Barcodes` | QR, DataMatrix, Aztec, PDF417, Code 128/39, EAN-13/8, ITF and Codabar: encode to SVG or PNG, decode back | — |
 | `M3scalinum.Text.Ocr` | Text, lines and boxes out of a page image, with the models supplied by the caller | — |
 | `M3scalinum.Text.Docx` | A Word document read into the document model, then renderable like any other | Documents, Typst |
+| `M3scalinum.Text.Xlsx` | An Excel workbook read into typed sheets and cells — text, numbers, booleans, dates, errors, formulas with their cached results — then renderable as a table | Documents, Typst |
 
 Two trains carry them: a package that embeds the compiler takes its version from Typst itself, and the
 rest release on their own schedule — a signing fix must not read as a compiler release. See
@@ -309,7 +310,7 @@ compilation are each capped. The PDF tools take their documents as base64 and re
 
 ## The other formats
 
-Three packages, one format each, each usable on its own. None embeds a second engine: what needs a
+Four packages, one format each, each usable on its own. None embeds a second engine: what needs a
 page goes through `M3scalinum.Text.Typst`, and the rest emits bytes.
 
 ### M3scalinum.Text.Docx — read a Word document
@@ -323,6 +324,20 @@ using M3scalinum.Text.Docx;
 
 DocxDocument document = DocxReader.Read(File.ReadAllBytes("received.docx"));
 byte[] pdf = TypstCompiler.CompileToPdf(document.ToTypstDocument());
+```
+
+### M3scalinum.Text.Xlsx — read an Excel workbook
+
+`XlsxReader` turns a `.xlsx` into an `XlsxWorkbook` — every sheet in workbook order, its used region,
+and typed cells: text, number, boolean, date, duration and error. A formula keeps the result the
+workbook cached for it, and the formula itself. `ToTypstDocument()` renders the workbook as one table
+per sheet, so an invoice typed into a spreadsheet reaches a PDF without Excel.
+
+```csharp
+using M3scalinum.Text.Xlsx;
+
+XlsxWorkbook workbook = XlsxReader.Read(File.ReadAllBytes("facture.xlsx"));
+byte[] pdf = TypstCompiler.CompileToPdf(workbook.ToTypstDocument());
 ```
 
 ### M3scalinum.Text.Barcodes — QR to Codabar, in-process
@@ -356,7 +371,7 @@ Two trains, two numbers, because they answer different questions.
 | Train | Packages | Version |
 | --- | --- | --- |
 | **Typst** | the four compiler packages | `0.15.1.<revision>` — the version *is* the embedded Typst, plus a build count |
-| **Suite** | `M3scalinum.Text.Pdf`, `.Templates`, `.Mcp`, `.Barcodes`, `.Docx`, `.Ocr` | whatever the tag names: `v0.51.2` publishes `0.51.2` |
+| **Suite** | `M3scalinum.Text.Pdf`, `.Templates`, `.Mcp`, `.Barcodes`, `.Docx`, `.Xlsx`, `.Ocr` | whatever the tag names: `v0.51.2` publishes `0.51.2` |
 
 A signing fix published as `0.15.1.43` would read as a compiler release, and would jump to `0.16.0`
 the day Typst does, for code that contains no compiler at all. So the two trains tag and release
@@ -381,7 +396,7 @@ page for each, then one page per topic.
 | **[Typst](https://github.com/m3scalinum/text/wiki/Typst-Getting-Started)** | [Getting started](https://github.com/m3scalinum/text/wiki/Typst-Getting-Started), [Compiling](https://github.com/m3scalinum/text/wiki/Typst-Compiling), [Templates](https://github.com/m3scalinum/text/wiki/Typst-Templates), [Diagnostics](https://github.com/m3scalinum/text/wiki/Typst-Diagnostics), [Packages and fonts](https://github.com/m3scalinum/text/wiki/Typst-Packages-and-Fonts), [Dependency injection](https://github.com/m3scalinum/text/wiki/Typst-Dependency-Injection), [Performance](https://github.com/m3scalinum/text/wiki/Typst-Performance), [Troubleshooting](https://github.com/m3scalinum/text/wiki/Typst-Troubleshooting) |
 | **[Documents](https://github.com/m3scalinum/text/wiki/Documents-Model)** | [The document model](https://github.com/m3scalinum/text/wiki/Documents-Model), [Importing HTML](https://github.com/m3scalinum/text/wiki/Documents-Html-Import), [Importing Markdown](https://github.com/m3scalinum/text/wiki/Documents-Markdown-Import) |
 | **[Pdf](https://github.com/m3scalinum/text/wiki/Pdf-Getting-Started)** | [Getting started](https://github.com/m3scalinum/text/wiki/Pdf-Getting-Started), [Signing](https://github.com/m3scalinum/text/wiki/Pdf-Signing), [Conformance](https://github.com/m3scalinum/text/wiki/Pdf-Conformance), [Pages and forms](https://github.com/m3scalinum/text/wiki/Pdf-Pages-and-Forms), [Reading text](https://github.com/m3scalinum/text/wiki/Pdf-Text), [Encryption](https://github.com/m3scalinum/text/wiki/Pdf-Encryption), [Converting to PDF/A](https://github.com/m3scalinum/text/wiki/Pdf-Conversion) |
-| **Formats** | [Barcodes](https://github.com/m3scalinum/text/wiki/Barcodes), [Reading DOCX](https://github.com/m3scalinum/text/wiki/Docx), [OCR](https://github.com/m3scalinum/text/wiki/Ocr) |
+| **Formats** | [Barcodes](https://github.com/m3scalinum/text/wiki/Barcodes), [Reading DOCX](https://github.com/m3scalinum/text/wiki/Docx), [Reading XLSX](https://github.com/m3scalinum/text/wiki/Xlsx), [OCR](https://github.com/m3scalinum/text/wiki/Ocr) |
 | **[MCP](https://github.com/m3scalinum/text/wiki/Mcp-Server)** | [The MCP server](https://github.com/m3scalinum/text/wiki/Mcp-Server), [Building from source](https://github.com/m3scalinum/text/wiki/Typst-Building-from-Source) |
 
 The [specifications](docs/specifications/README.md) are the contract the implementation is held to:

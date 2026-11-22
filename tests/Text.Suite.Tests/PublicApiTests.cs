@@ -22,6 +22,7 @@ public sealed class PublicApiTests
         yield return typeof(M3scalinum.Text.Barcodes.Barcode).Assembly;
         yield return typeof(M3scalinum.Text.Ocr.OcrEngine).Assembly;
         yield return typeof(M3scalinum.Text.Docx.DocxReader).Assembly;
+        yield return typeof(M3scalinum.Text.Xlsx.XlsxReader).Assembly;
     }
 
     [Fact]

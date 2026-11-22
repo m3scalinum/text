@@ -12,6 +12,7 @@
     <Project Path="src/Text.Documents/Text.Documents.csproj" />
     <Project Path="src/Text.Docx/Text.Docx.csproj" />
     <Project Path="src/Text.Ocr/Text.Ocr.csproj" />
+    <Project Path="src/Text.Xlsx/Text.Xlsx.csproj" />
   </Folder>
 
   <Folder Name="/tests/">
@@ -25,6 +26,7 @@
     <Project Path="tests/Text.Barcodes.Tests/Text.Barcodes.Tests.csproj" />
     <Project Path="tests/Text.Docx.Tests/Text.Docx.Tests.csproj" />
     <Project Path="tests/Text.Ocr.Tests/Text.Ocr.Tests.csproj" />
+    <Project Path="tests/Text.Xlsx.Tests/Text.Xlsx.Tests.csproj" />
   </Folder>
 
   <Folder Name="/samples/">

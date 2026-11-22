@@ -1,0 +1,36 @@
+[package]
+name = "sharp-text-xlsx"
+version = "0.1.0"
+edition = "2024"
+# calamine 0.38 asks for 1.88, the `zip` 9.8 it reads through asks for 1.89, and edition 2024 asks
+# for 1.85. The highest floor wins.
+rust-version = "1.89"
+publish = false
+description = "C ABI over an XLSX reader, for M3scalinum.Text.Xlsx"
+license = "Apache-2.0"
+
+[lib]
+name = "sharp_text_xlsx"
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+# The spreadsheet reader. MIT. Its own features are off: dates come back as serial numbers this
+# crate converts itself, so the graph carries no `chrono`, and pictures are not read at all.
+calamine = { version = "0.38", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+# The tests write real `.xlsx` packages rather than committing a binary fixture. Already in the
+# graph through calamine, so this adds no version to build.
+zip = { version = "9.8", default-features = false, features = ["deflate"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+# catch_unwind at the FFI boundary requires unwinding: never set panic = "abort".
+panic = "unwind"
+strip = "debuginfo"
+
+[profile.dev]
+panic = "unwind"

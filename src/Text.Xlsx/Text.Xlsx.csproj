@@ -1,0 +1,71 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!--
+      This package follows the suite, not the compiler: see Directory.Build.props.
+      The release tag is the version, so a release passes -p:SuiteVersion=<tag>; nothing here derives
+      the number from anything else. A local build has no tag, so it falls back to TextVersion.
+    -->
+    <SuiteVersion Condition="'$(SuiteVersion)' == ''">$(TextVersion)</SuiteVersion>
+    <Version>$(SuiteVersion)</Version>
+    <AssemblyVersion>$(SuiteVersion)</AssemblyVersion>
+    <FileVersion>$(SuiteVersion)</FileVersion>
+    <InformationalVersion>$(Version)</InformationalVersion>
+    <IsPackable>true</IsPackable>
+    <IsAotCompatible>true</IsAotCompatible>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <PackageId>M3scalinum.Text.Xlsx</PackageId>
+    <Description>Read Excel .xlsx workbooks into typed sheets and cells — text, numbers, booleans, dates, errors, and formulas with their cached results — and render a sheet with M3scalinum.Text.Typst.</Description>
+    <PackageTags>xlsx;excel;spreadsheet;ooxml;typst;documents;conversion</PackageTags>
+    <TargetFrameworks>net8.0;net9.0;net10.0;net11.0</TargetFrameworks>
+    <!-- Clears the single-TFM default Directory.Build.props sets, as the other multi-targeted
+         projects do; without it only net11.0 is built and pack fails on the missing assemblies. -->
+    <TargetFramework />
+    <SuppressTfmSupportBuildWarnings>true</SuppressTfmSupportBuildWarnings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      Same two ways to reach the compiler wrapper as M3scalinum.Text.Docx: a project reference in the
+      repository, a package reference when the release passes CoreVersion. This package exists to
+      produce a TypstDocument, so the dependency is the point, not an accident.
+    -->
+    <ProjectReference Include="..\Text.Typst\Text.Typst.csproj" Condition="'$(CoreVersion)' == ''" />
+    <PackageReference Include="M3scalinum.Text.Typst" Condition="'$(CoreVersion)' != ''" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="M3scalinum.Text.Xlsx.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="/" />
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="/" />
+    <None Include="..\..\NOTICE" Pack="true" PackagePath="/" />
+    <None Include="..\..\THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="/" Condition="Exists('..\..\THIRD-PARTY-NOTICES.md')" />
+  </ItemGroup>
+
+  <!--
+    The reader is a Rust cdylib of its own, packed under the standard runtimes/<rid>/native/ layout.
+    The files are produced by the release job; a checkout without them still builds, because a
+    managed build never depends on a Rust toolchain.
+  -->
+  <ItemGroup>
+    <None Include="$(NativeArtifactsDir)\win-x64\sharp_text_xlsx.dll"
+          Pack="true" PackagePath="runtimes/win-x64/native/" Visible="false"
+          Condition="Exists('$(NativeArtifactsDir)\win-x64\sharp_text_xlsx.dll')" />
+    <None Include="$(NativeArtifactsDir)\win-arm64\sharp_text_xlsx.dll"
+          Pack="true" PackagePath="runtimes/win-arm64/native/" Visible="false"
+          Condition="Exists('$(NativeArtifactsDir)\win-arm64\sharp_text_xlsx.dll')" />
+    <None Include="$(NativeArtifactsDir)\linux-x64\libsharp_text_xlsx.so"
+          Pack="true" PackagePath="runtimes/linux-x64/native/" Visible="false"
+          Condition="Exists('$(NativeArtifactsDir)\linux-x64\libsharp_text_xlsx.so')" />
+    <None Include="$(NativeArtifactsDir)\linux-arm64\libsharp_text_xlsx.so"
+          Pack="true" PackagePath="runtimes/linux-arm64/native/" Visible="false"
+          Condition="Exists('$(NativeArtifactsDir)\linux-arm64\libsharp_text_xlsx.so')" />
+    <None Include="$(NativeArtifactsDir)\osx\libsharp_text_xlsx.dylib"
+          Pack="true" PackagePath="runtimes/osx/native/" Visible="false"
+          Condition="Exists('$(NativeArtifactsDir)\osx\libsharp_text_xlsx.dylib')" />
+  </ItemGroup>
+
+</Project>

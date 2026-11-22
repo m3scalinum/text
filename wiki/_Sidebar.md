@@ -34,6 +34,7 @@
 
 - [Barcodes](Barcodes)
 - [Reading DOCX](Docx)
+- [Reading XLSX](Xlsx)
 - [OCR](Ocr)
 
 **MCP** — serve it over the protocol

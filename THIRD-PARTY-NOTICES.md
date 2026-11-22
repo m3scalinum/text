@@ -453,9 +453,10 @@ POSSIBILITY OF SUCH DAMAGE.
 ================================================================================
 The native libraries that are not Typst
 ================================================================================
-`M3scalinum.Text.Barcodes`, `M3scalinum.Text.Ocr` and `M3scalinum.Text.Docx` each embed a Rust
-library of their own rather than the compiler. Every crate below is pinned in the `Cargo.lock` beside
-the library that uses it, and every one is reproduced under the licence its own package declares.
+`M3scalinum.Text.Barcodes`, `M3scalinum.Text.Ocr`, `M3scalinum.Text.Docx` and
+`M3scalinum.Text.Xlsx` each embed a Rust library of their own rather than the compiler. Every crate
+below is pinned in the `Cargo.lock` beside the library that uses it, and every one is reproduced
+under the licence its own package declares.
 
 | Crate | Version | Licence | Source |
 | --- | --- | --- | --- |
@@ -467,6 +468,15 @@ the library that uses it, and every one is reproduced under the licence its own 
 | hayro | 0.9.0 | Apache-2.0 OR MIT | https://github.com/LaurenzV/hayro |
 | zip | 9.8.1 | MIT | https://github.com/zip-rs/zip2 |
 | roxmltree | 0.21.2 | MIT OR Apache-2.0 | https://github.com/RazrFalcon/roxmltree |
+| calamine | 0.38.0 | MIT | https://github.com/tafia/calamine |
+| quick-xml | 0.42.0 | MIT | https://github.com/tafia/quick-xml |
+| codepage | 0.1.3 | Apache-2.0 OR MIT | https://github.com/tafia/codepage |
+| encoding_rs | 0.8.35 | (Apache-2.0 OR MIT) AND BSD-3-Clause | https://github.com/hsivonen/encoding_rs |
+| atoi_simd | 0.18.1 | MIT OR Apache-2.0 | https://github.com/Konvt/atoi_simd |
+| fast-float2 | 0.2.4 | MIT OR Apache-2.0 | https://github.com/aldanor/fast-float-rust |
+| zopfli | 0.8.3 | Apache-2.0 | https://github.com/zopfli-rs/zopfli |
+| byteorder | 1.5.0 | Unlicense OR MIT | https://github.com/BurntSushi/byteorder |
+| zlib-rs | 0.6.8 | Zlib | https://github.com/trifectatechfoundation/zlib-rs |
 
 `rxing` is a Rust port of ZXing and carries Apache-2.0, the same licence as this project. The full
 text of the Apache License, Version 2.0 is in the `LICENSE` file at the root of this package and
@@ -476,6 +486,12 @@ The MIT-licensed components, with the copyright line each package carries:
 
 * `zip` 9.8.1 — Copyright (c) 2014 Mathijs van de Nes
 * `roxmltree` 0.21.2 — Copyright (c) 2018 Yevhenii Reizner
+* `calamine` 0.38.0 — Copyright (c) 2016 Johann Tuffe
+* `quick-xml` 0.42.0 — Copyright the quick-xml contributors
+* `codepage` 0.1.3 — Copyright (c) 2016 Johann Tuffe
+* `atoi_simd` 0.18.1 — Copyright the atoi_simd contributors
+* `fast-float2` 0.2.4 — Copyright the fast-float2 contributors
+* `byteorder` 1.5.0 — Copyright (c) 2015 Andrew Gallant (taken under the MIT half)
 * `image` 0.25.x — Copyright the image-rs developers
 * `ocrs` 0.14.0, `rten` 0.28.0, `rten-tensor` 0.28.0 — Copyright Robert Knight
 * `hayro` 0.9.0 — Copyright the Hayro Authors
@@ -496,3 +512,59 @@ NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPO
 NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES
 OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+Two components of the `M3scalinum.Text.Xlsx` graph carry a licence the paragraphs above do not cover,
+because `encoding_rs` embeds data derived from the WHATWG Encoding Standard and `zlib-rs` is under
+the Zlib licence. Both texts are reproduced verbatim.
+
+encoding_rs 0.8.35 — https://github.com/hsivonen/encoding_rs — BSD 3-Clause, for the data derived
+from the WHATWG Encoding Standard:
+
+Copyright © WHATWG (Apple, Google, Mozilla, Microsoft).
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its
+   contributors may be used to endorse or promote products derived from
+   this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+zlib-rs 0.6.8 — https://github.com/trifectatechfoundation/zlib-rs — Zlib licence:
+
+(C) 2024 Trifecta Tech Foundation
+
+This software is provided 'as-is', without any express or implied
+warranty. In no event will the authors be held liable for any damages
+arising from the use of this software.
+
+Permission is granted to anyone to use this software for any purpose,
+including commercial applications, and to alter it and redistribute it
+freely, subject to the following restrictions:
+
+1. The origin of this software must not be misrepresented; you must not
+   claim that you wrote the original software. If you use this software
+   in a product, an acknowledgment in the product documentation would be
+   appreciated but is not required.
+
+2. Altered source versions must be plainly marked as such, and must not be
+   misrepresented as being the original software.
+
+3. This notice may not be removed or altered from any source distribution.
