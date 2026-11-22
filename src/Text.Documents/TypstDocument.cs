@@ -18,6 +18,7 @@ public sealed partial class TypstDocument
     private TypstMetadata? _metadata;
     private TypstPageSetup? _page;
     private TypstDirection? _direction;
+    private TypstDocumentStyle? _style;
 
     private TypstDocument()
     {
@@ -66,6 +67,23 @@ public sealed partial class TypstDocument
         ArgumentNullException.ThrowIfNull(configure);
         _page ??= new TypstPageSetup();
         configure(_page);
+        return this;
+    }
+
+    /// <summary>
+    /// Applies a reusable <see cref="TypstDocumentStyle"/>: its page, body, heading, language, header
+    /// and footer rules are written once, after the document's own <c>#set</c> rules and before the
+    /// body. Applying the same style twice writes the same markup once.
+    /// </summary>
+    /// <remarks>
+    /// The style only speaks where it is configured: a document that also set a page fill, a
+    /// language or a header keeps them wherever the style stays silent, and a document with no style
+    /// keeps exactly the markup it had.
+    /// </remarks>
+    public TypstDocument Apply(TypstDocumentStyle style)
+    {
+        ArgumentNullException.ThrowIfNull(style);
+        _style = style;
         return this;
     }
 
@@ -735,6 +753,15 @@ public sealed partial class TypstDocument
         var writer = new TypstMarkupWriter();
         WriteSetRules(writer);
 
+        if (_style is not null)
+        {
+            foreach (var rule in _style.SetRules)
+            {
+                writer.WriteVerbatim(rule);
+                writer.NewLine();
+            }
+        }
+
         foreach (var line in _preamble)
         {
             writer.WriteVerbatim(line);
@@ -759,7 +786,7 @@ public sealed partial class TypstDocument
 
         if (_page is not null)
         {
-            writer.WriteVerbatim("#set page(" + PageArguments(_page) + ")");
+            writer.WriteVerbatim("#set page(" + string.Join(", ", PageArguments(_page)) + ")");
             writer.NewLine();
         }
 
@@ -803,7 +830,14 @@ public sealed partial class TypstDocument
         return string.Join(", ", parts);
     }
 
-    private static string PageArguments(TypstPageSetup page)
+    /// <summary>
+    /// The <c>#set page</c> arguments a page setup declares, one string per argument, in the order
+    /// Typst reads them. The header and footer can be left to a <see cref="TypstDocumentStyle"/>.
+    /// </summary>
+    internal static IReadOnlyList<string> PageArguments(
+        TypstPageSetup page,
+        bool includeHeader = true,
+        bool includeFooter = true)
     {
         var parts = new List<string>();
 
@@ -870,17 +904,17 @@ public sealed partial class TypstDocument
             parts.Add("numbering: " + LinkNode.Quote(numbering));
         }
 
-        if (page.Header is not null)
+        if (includeHeader && page.Header is not null)
         {
             parts.Add("header: [" + EscapeInline(page.Header) + "]");
         }
 
-        if (page.Footer is not null)
+        if (includeFooter && page.Footer is not null)
         {
             parts.Add("footer: [" + EscapeInline(page.Footer) + "]");
         }
 
-        return string.Join(", ", parts);
+        return parts;
     }
 
     /// <summary>Renders content to a string for embedding inside a <c>[…]</c> block.</summary>
