@@ -166,6 +166,74 @@ internal sealed class PdfDss
     public bool Contains(X509Certificate2 certificate)
         => Certificates.Any(entry => entry.RawData.AsSpan().SequenceEqual(certificate.RawData));
 
+    /// <summary>
+    /// For every certificate the store embeds, which revocation data covers it — a CRL signed by
+    /// its issuer, or an OCSP answer that names its serial and issuer — and when that data was
+    /// issued.
+    /// </summary>
+    /// <remarks>
+    /// The same rules the level proof applies, reported rather than judged: an entry that would not
+    /// count towards PAdES-B-LT is not "covering" here either. An anchor has no issuer inside the
+    /// store and is reported as uncovered, which is expected — a root is its own authority.
+    /// </remarks>
+    public IReadOnlyList<PdfRevocationCoverage> Coverage()
+    {
+        var coverage = new List<PdfRevocationCoverage>(Certificates.Count);
+
+        foreach (var certificate in Certificates)
+        {
+            var issuer = IssuerOf(certificate);
+
+            DateTimeOffset? ocspIssuedAt = null;
+            DateTimeOffset? crlIssuedAt = null;
+
+            if (issuer is not null)
+            {
+                foreach (var response in Ocsp)
+                {
+                    if (response.Answers(certificate, issuer) && response.SignatureVerifies(issuer))
+                    {
+                        ocspIssuedAt = response.ProducedAt;
+                    }
+                }
+
+                foreach (var crl in Crls)
+                {
+                    if (crl.IssuedBy(issuer) && crl.SignatureVerifies(issuer))
+                    {
+                        crlIssuedAt = crl.ThisUpdate;
+                    }
+                }
+            }
+
+            coverage.Add(new PdfRevocationCoverage(
+                certificate.Subject,
+                certificate.Issuer,
+                Convert.ToHexString(certificate.SerialNumberBytes.Span),
+                ocspIssuedAt is not null,
+                ocspIssuedAt,
+                crlIssuedAt is not null,
+                crlIssuedAt));
+        }
+
+        return coverage;
+    }
+
+    /// <summary>The embedded certificate that issued <paramref name="certificate"/>, or null for an anchor.</summary>
+    private X509Certificate2? IssuerOf(X509Certificate2 certificate)
+    {
+        foreach (var candidate in Certificates)
+        {
+            if (!candidate.RawData.AsSpan().SequenceEqual(certificate.RawData)
+                && candidate.SubjectName.RawData.AsSpan().SequenceEqual(certificate.IssuerName.RawData))
+            {
+                return candidate;
+            }
+        }
+
+        return null;
+    }
+
     private bool HasGoodStanding(X509Certificate2 subject, X509Certificate2 issuer)
     {
         var serial = subject.SerialNumberBytes.Span;

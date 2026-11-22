@@ -55,7 +55,7 @@ internal sealed class FakeNativeLibrary : IOcrNative
     internal string BuildInfoJson { get; set; } = """{"ocrs":"0.14"}""";
 
     /// <summary>The ABI version <see cref="AbiVersion"/> reports.</summary>
-    internal uint AbiVersionValue { get; set; } = 1;
+    internal uint AbiVersionValue { get; set; } = 2;
 
     /// <summary>The handle count <see cref="EngineLiveCount"/> reports.</summary>
     internal uint LiveCount { get; set; } = 1;
@@ -83,6 +83,12 @@ internal sealed class FakeNativeLibrary : IOcrNative
     internal uint LastFirstPage { get; private set; }
 
     internal uint LastPageCount { get; private set; }
+
+    internal double LastPageConfidence { get; private set; }
+
+    internal double LastWordConfidence { get; private set; }
+
+    internal double LastMaxRejectedWordRatio { get; private set; }
 
     internal byte[]? LastDetectionModel { get; private set; }
 
@@ -125,11 +131,21 @@ internal sealed class FakeNativeLibrary : IOcrNative
 
     public uint EngineLiveCount() => LiveCount;
 
-    public int EngineRecognize(IntPtr engine, byte[] image, out NativeBuffer json, out IntPtr error)
+    public int EngineRecognize(
+        IntPtr engine,
+        byte[] image,
+        double pageConfidence,
+        double wordConfidence,
+        double maxRejectedWordRatio,
+        out NativeBuffer json,
+        out IntPtr error)
     {
         RecognizeCalls++;
         LastEngine = engine;
         LastImage = image;
+        LastPageConfidence = pageConfidence;
+        LastWordConfidence = wordConfidence;
+        LastMaxRejectedWordRatio = maxRejectedWordRatio;
 
         return Complete(Status == 0 ? Document : DocumentOnFailure, out json, out error);
     }
@@ -140,6 +156,9 @@ internal sealed class FakeNativeLibrary : IOcrNative
         uint dpi,
         uint firstPage,
         uint pageCount,
+        double pageConfidence,
+        double wordConfidence,
+        double maxRejectedWordRatio,
         out NativeBuffer json,
         out IntPtr error)
     {
@@ -149,6 +168,9 @@ internal sealed class FakeNativeLibrary : IOcrNative
         LastDpi = dpi;
         LastFirstPage = firstPage;
         LastPageCount = pageCount;
+        LastPageConfidence = pageConfidence;
+        LastWordConfidence = wordConfidence;
+        LastMaxRejectedWordRatio = maxRejectedWordRatio;
 
         return Complete(Status == 0 ? Document : DocumentOnFailure, out json, out error);
     }

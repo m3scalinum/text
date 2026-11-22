@@ -37,6 +37,13 @@ Not yet published. Embeds Typst 0.15.1.
   asset resolver or inlined as a data URL, figures with their captions — with every node that has no
   HTML equivalent counted in the result. Entities are escaped in text and in attributes, and the
   output is deterministic, so a document diff is a document diff.
+- `TypstFigure.Alt` and `TypstTableCell.HeaderScope`: the model carries what an accessible PDF needs.
+  A description on a figure becomes `/Alt` on the `/Figure`; a table header row becomes
+  `table.header(…)` and a header cell carries its scope as `pdf.header-cell(scope: "row"|"column"|
+  "both")`, merged or aligned cells included, so the produced file carries `/TH` with `/A /Scope`
+  instead of `/TD`. The language an accessible document also needs was already there, through
+  `Metadata.Language`. `pdf.header-cell` requires Typst's `a11y-extras` feature, which the compiler
+  enables, and PDF 1.5.
 - In-process compilation of Typst source through a C ABI over the Rust `typst` crate. No process
   spawn, no binary on `PATH`, no temporary files.
 - Export to PDF, SVG (single page or merged), PNG (single page or merged), HTML, Markdown, plain

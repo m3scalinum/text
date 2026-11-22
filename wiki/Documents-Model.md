@@ -38,6 +38,25 @@ var pdf = TypstCompiler.CompileToPdf(document);
 | `Divider()`, `PageBreak()`, `ColumnBreak()`, `ParagraphBreak()` | the matching call |
 | `Footnote(content)`, `Cite(key)`, `Bibliography(path, style?)` | the matching call |
 
+## Tables
+
+`TypstTable` takes either content cells or `TypstTableCell`s, and a cell can cover several columns
+or rows the way HTML's `colspan`/`rowspan` do:
+
+```csharp
+.Table(t => t
+    .Columns(TypstLength.Fr(1), TypstLength.Fr(1), TypstLength.Fr(1))
+    .Row(new TypstTableCell("Merged", colspan: 2, rowspan: 2), new TypstTableCell("Third"))
+    .Row()                                  // the row the span above fills
+    .Row("Bottom a", "Bottom b", "Bottom c"));
+```
+
+A row below a row span lists only the cells the span leaves it, and a fully covered row is `Row()`
+with no cell. `Columns(…)` states the widths; without it the table measures its column count from
+the cells and emits that many equal columns. `HeaderRow(…)` marks the header row, and
+`HeaderScope = TypstHeaderScope.Column | Row | Both` names what a header cell labels — a merged
+header cell keeps both its span and its scope.
+
 ## Layout
 
 ```csharp

@@ -13,7 +13,7 @@ namespace M3scalinum.Text.Ocr.Internal;
 /// </remarks>
 internal interface IOcrBackend
 {
-    OcrResult Recognize(byte[] image);
+    OcrRecognition Recognize(byte[] image, OcrOptions options);
 
-    IReadOnlyList<OcrPageResult> RecognizePdf(byte[] pdf, OcrPdfOptions options);
+    IReadOnlyList<OcrPageOutcome> RecognizePdf(byte[] pdf, OcrPdfOptions options);
 }

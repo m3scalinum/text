@@ -33,14 +33,14 @@ internal sealed class FakeOcrBackend : IOcrBackend, IDisposable
 
         Pages =
         [
-            new OcrPageResult(0, "first line", [Result.Lines[0]], 0.94, 2480, 3508, 300),
-            new OcrPageResult(1, "second line", [Result.Lines[1]], 0.88, 2480, 3508, 300),
+            new OcrPageResult(0, "first line", [((OcrResult)Result).Lines[0]], 0.94, 2480, 3508, 300),
+            new OcrPageResult(1, "second line", [((OcrResult)Result).Lines[1]], 0.88, 2480, 3508, 300),
         ];
     }
 
-    internal OcrResult Result { get; set; }
+    internal OcrRecognition Result { get; set; }
 
-    internal IReadOnlyList<OcrPageResult> Pages { get; set; }
+    internal IReadOnlyList<OcrPageOutcome> Pages { get; set; }
 
     internal int RecognizeCalls { get; private set; }
 
@@ -50,22 +50,25 @@ internal sealed class FakeOcrBackend : IOcrBackend, IDisposable
 
     internal byte[]? LastPdf { get; private set; }
 
-    internal OcrPdfOptions? LastOptions { get; private set; }
+    internal OcrOptions? LastOptions { get; private set; }
+
+    internal OcrPdfOptions? LastPdfOptions { get; private set; }
 
     internal bool Disposed { get; private set; }
 
-    public OcrResult Recognize(byte[] image)
+    public OcrRecognition Recognize(byte[] image, OcrOptions options)
     {
         RecognizeCalls++;
         LastImage = image;
+        LastOptions = options;
         return Result;
     }
 
-    public IReadOnlyList<OcrPageResult> RecognizePdf(byte[] pdf, OcrPdfOptions options)
+    public IReadOnlyList<OcrPageOutcome> RecognizePdf(byte[] pdf, OcrPdfOptions options)
     {
         RecognizePdfCalls++;
         LastPdf = pdf;
-        LastOptions = options;
+        LastPdfOptions = options;
         return Pages;
     }
 

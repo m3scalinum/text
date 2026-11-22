@@ -1,11 +1,11 @@
 using System.Collections.Generic;
-using System.Text.Json;
 
 namespace M3scalinum.Text.Ocr.Internal;
 
 /// <summary>
 /// The backend that calls the Rust library. It does no parsing of its own: the
-/// result documents go to <see cref="ResultParser"/>.
+/// result documents go to <see cref="ResultParser"/>, and the thresholds go straight
+/// to the ABI, so the decision and the text come from one place.
 /// </summary>
 internal sealed class NativeOcrBackend : IOcrBackend
 {
@@ -22,19 +22,17 @@ internal sealed class NativeOcrBackend : IOcrBackend
     /// </summary>
     internal static NativeOcrBackend Create(OcrEngineHandle handle) => new(handle);
 
-    public OcrResult Recognize(byte[] image)
-        => ResultParser.ParseImage(_handle.Recognize(image));
+    public OcrRecognition Recognize(byte[] image, OcrOptions options)
+        => ResultParser.ParseImage(_handle.Recognize(image, options));
 
-    public IReadOnlyList<OcrPageResult> RecognizePdf(byte[] pdf, OcrPdfOptions options)
+    public IReadOnlyList<OcrPageOutcome> RecognizePdf(byte[] pdf, OcrPdfOptions options)
     {
         var firstPage = (uint)options.FirstPage;
         var pageCount = options.LastPage is { } last ? (uint)(last - options.FirstPage + 1) : 0u;
 
-        return ResultParser.ParsePages(
-            _handle.RecognizePdf(pdf, (uint)options.Dpi, firstPage, pageCount));
+        return ResultParser.ParsePages(_handle.RecognizePdf(pdf, options, firstPage, pageCount));
     }
 
     /// <summary>Releases the native handle, and with it both models.</summary>
     public void Dispose() => _handle.Dispose();
 }
-

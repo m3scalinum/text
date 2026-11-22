@@ -31,7 +31,7 @@ public sealed class ModelBackedTests
 
         var pages = engine.RecognizePdf(pdf, new OcrPdfOptions { Dpi = 300 });
 
-        var page = Assert.Single(pages);
+        var page = Assert.IsType<OcrPageResult>(Assert.Single(pages));
         Assert.Equal(0, page.PageIndex);
         Assert.True(page.Width > 2000, $"a 300 DPI A4 page is about 2480 px wide, not {page.Width}");
         Assert.NotEmpty(page.Lines);
@@ -55,7 +55,7 @@ public sealed class ModelBackedTests
 
         using var engine = Engine();
 
-        var result = engine.Recognize(File.ReadAllBytes(path!));
+        var result = Assert.IsType<OcrResult>(engine.Recognize(File.ReadAllBytes(path!)));
 
         Assert.True(result.Width > 0);
         Assert.True(result.Height > 0);
@@ -67,7 +67,8 @@ public sealed class ModelBackedTests
     {
         using var engine = Engine();
 
-        var page = Assert.Single(engine.RecognizePdf(MinimalPdf.WithText("TOTAL 42")));
+        var page = Assert.IsType<OcrPageResult>(
+            Assert.Single(engine.RecognizePdf(MinimalPdf.WithText("TOTAL 42"))));
 
         var words = page.Lines.SelectMany(line => line.Words).ToArray();
         Assert.NotEmpty(words);

@@ -68,7 +68,7 @@ public one.
 | `BulletList(items)` | `- item` per line | Nesting via `BulletList` inside an item, indented 2 spaces per level |
 | `NumberedList(items)` | `+ item` per line | Same nesting rule |
 | `TermList(terms)` | `/ term: description` | |
-| `Table` | `#table(columns: (…), [..], …)` | Cells are content blocks; the header row is `table.header(…)`; `TypstTableCell` adds `colspan`/`rowspan`, and `HeaderScope` marks a header cell and its scope |
+| `Table` | `#table(columns: (…), [..], …)` | Cells are content blocks; the header row is `table.header(…)`; `TypstTableCell` adds `colspan`/`rowspan`, and `HeaderScope` marks a header cell and its scope; see §3 "Merged cells" |
 | `Figure` | `#figure(image(…), alt: "…", caption: [..]) <label>` | Alternative text, caption and label are optional |
 | `Image(path, width?, height?, fit?)` | `#image("path", width: …)` | `path` is a virtual asset path; the method lives on `TypstFigure` |
 | `CodeBlock(language, code)` | fenced block with language tag | Public: `TypstDocument.Code(language, code)`. Code is emitted verbatim, never escaped |
@@ -115,6 +115,50 @@ is the supported way to use a Typst feature the model does not cover.
 
 The complete mapping between the Typst reference and this node set — including what is
 deliberately left to `Raw` — is in [11-reference-coverage.md](11-reference-coverage.md).
+
+### Merged cells
+
+A merged table is not a rectangle. A cell covers `Colspan` columns and `Rowspan` rows, and the rows
+below a vertical merge hold only the cells that are not covered. Word writes that merge as a cell
+that restarts it plus one continuation cell per row below; the reader counts and drops the
+continuations, so what reaches the model is a row with fewer cells — possibly none at all.
+
+```csharp
+var table = new TypstTable()
+    .Columns(TypstLength.Fr(1), TypstLength.Fr(1), TypstLength.Fr(1))
+    .Row(new TypstTableCell("Merged", colspan: 2, rowspan: 2), new TypstTableCell("Third"))
+    .Row()
+    .Row("Bottom a", "Bottom b", "Bottom c");
+```
+
+That table emits:
+
+```typst
+#table(
+  columns: (1fr, 1fr, 1fr),
+  table.cell(colspan: 2, rowspan: 2)[Merged], [Third],
+  [Bottom a], [Bottom b], [Bottom c],
+)
+```
+
+| Call | Emitted Typst |
+| --- | --- |
+| `new TypstTableCell(content, colspan: 2, rowspan: 3)` | `table.cell(colspan: 2, rowspan: 3)[…]` |
+| `new TypstTableCell(content, colspan: 2) { HeaderScope = … }` | `pdf.header-cell(table.cell(colspan: 2)[…], scope: "…")` |
+| `TypstTable.Row()` | nothing: the row belongs to the span above it |
+| `TypstTable.ColumnCount` | the number of widths `Columns` set, or, when it was never called, the number of columns the cells need |
+
+- **Placement is Typst's.** Cells are emitted left to right, and a column a cell above still spans
+  into is not filled again, so a row starts after the spans that cover it. A merged cell is written
+  once, in the row that opens the merge; nothing repeats it.
+- **The column count is measured when widths are not set.** `Columns(widths)` states it. Without it,
+  `ColumnCount` lays the cells out the way Typst will and the markup declares that many equal
+  columns: `columns: 3`. A count of zero — no widths, no cells — emits no table at all, and a table
+  whose spans cover every column of a row emits no empty cell list for that row.
+- **A header cell can be merged too.** `pdf.header-cell` takes the `table.cell(…)` call as its
+  content argument, so a corner cell spanning two columns keeps both its span and its `Both` scope.
+- **A ragged grid is a grid.** Row sums stay equal because each row states exactly the cells the
+  spans above leave it; the writer does not pad, and the model does not require a rectangle.
 
 ### Alternative text, table headers and language
 

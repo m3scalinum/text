@@ -24,10 +24,19 @@ internal sealed class PdfCrl
     private readonly byte[] _signature;
     private readonly string _algorithm;
 
-    private PdfCrl(byte[] issuerName, List<byte[]> revoked, byte[] tbs, byte[] signature, string algorithm)
+    private PdfCrl(
+        byte[] issuerName,
+        List<byte[]> revoked,
+        DateTimeOffset thisUpdate,
+        DateTimeOffset? nextUpdate,
+        byte[] tbs,
+        byte[] signature,
+        string algorithm)
     {
         IssuerName = issuerName;
         Revoked = revoked;
+        ThisUpdate = thisUpdate;
+        NextUpdate = nextUpdate;
         _tbs = tbs;
         _signature = signature;
         _algorithm = algorithm;
@@ -38,6 +47,12 @@ internal sealed class PdfCrl
 
     /// <summary>The serial numbers the list names, as DER integers' two's-complement bytes.</summary>
     public IReadOnlyList<byte[]> Revoked { get; }
+
+    /// <summary>The moment the list says it was issued, from its <c>thisUpdate</c>.</summary>
+    public DateTimeOffset ThisUpdate { get; }
+
+    /// <summary>The moment the issuer wants the list replaced, from its <c>nextUpdate</c>, when it has one.</summary>
+    public DateTimeOffset? NextUpdate { get; }
 
     /// <summary>Reads a DER CRL, or returns <see langword="null"/> when it cannot be read.</summary>
     public static PdfCrl? Parse(ReadOnlySpan<byte> der)
@@ -58,11 +73,12 @@ internal sealed class PdfCrl
             ReadOptionalNull(signatureAlgorithm);
 
             var issuer = tbs.ReadEncodedValue().ToArray();
-            ReadTime(tbs);
+            var thisUpdate = ReadTime(tbs);
 
+            DateTimeOffset? nextUpdate = null;
             if (tbs.HasData && IsTime(tbs.PeekTag()))
             {
-                ReadTime(tbs);
+                nextUpdate = ReadTime(tbs);
             }
 
             var revoked = new List<byte[]>();
@@ -80,7 +96,7 @@ internal sealed class PdfCrl
             value.ReadObjectIdentifier();
             var signature = outer.ReadBitString(out _);
 
-            return new PdfCrl(issuer, revoked, tbsEncoded.ToArray(), signature, algorithm);
+            return new PdfCrl(issuer, revoked, thisUpdate, nextUpdate, tbsEncoded.ToArray(), signature, algorithm);
         }
         catch (AsnContentException)
         {
@@ -117,17 +133,10 @@ internal sealed class PdfCrl
     private static bool IsTime(Asn1Tag tag)
         => tag.TagValue is (int)UniversalTagNumber.UtcTime or (int)UniversalTagNumber.GeneralizedTime;
 
-    private static void ReadTime(AsnReader reader)
-    {
-        if (reader.PeekTag().TagValue == (int)UniversalTagNumber.GeneralizedTime)
-        {
-            reader.ReadGeneralizedTime();
-        }
-        else
-        {
-            reader.ReadUtcTime();
-        }
-    }
+    private static DateTimeOffset ReadTime(AsnReader reader)
+        => reader.PeekTag().TagValue == (int)UniversalTagNumber.GeneralizedTime
+            ? reader.ReadGeneralizedTime()
+            : reader.ReadUtcTime();
 
     private static void ReadOptionalNull(AsnReader reader)
     {
@@ -145,9 +154,10 @@ internal sealed class PdfOcspResponse
     private readonly byte[] _signature;
     private readonly string _algorithm;
 
-    private PdfOcspResponse(List<PdfOcspEntry> entries, byte[] tbs, byte[] signature, string algorithm)
+    private PdfOcspResponse(List<PdfOcspEntry> entries, DateTimeOffset producedAt, byte[] tbs, byte[] signature, string algorithm)
     {
         Entries = entries;
+        ProducedAt = producedAt;
         _tbs = tbs;
         _signature = signature;
         _algorithm = algorithm;
@@ -155,6 +165,9 @@ internal sealed class PdfOcspResponse
 
     /// <summary>The single responses the answer carries.</summary>
     public IReadOnlyList<PdfOcspEntry> Entries { get; }
+
+    /// <summary>The moment the responder says it produced the answer, from its <c>producedAt</c>.</summary>
+    public DateTimeOffset ProducedAt { get; }
 
     /// <summary>Reads a DER <c>OCSPResponse</c>, or returns <see langword="null"/> when it cannot be read.</summary>
     public static PdfOcspResponse? Parse(ReadOnlySpan<byte> der)
@@ -192,7 +205,7 @@ internal sealed class PdfOcspResponse
             }
 
             tbs.ReadEncodedValue();        // responderID
-            tbs.ReadGeneralizedTime();     // producedAt
+            var producedAt = tbs.ReadGeneralizedTime();
 
             var entries = new List<PdfOcspEntry>();
             var responses = tbs.ReadSequence();
@@ -202,7 +215,7 @@ internal sealed class PdfOcspResponse
                 entries.Add(PdfOcspEntry.Read(responses.ReadSequence()));
             }
 
-            return new PdfOcspResponse(entries, tbsEncoded.ToArray(), signature, algorithm);
+            return new PdfOcspResponse(entries, producedAt, tbsEncoded.ToArray(), signature, algorithm);
         }
         catch (AsnContentException)
         {
@@ -230,14 +243,23 @@ internal sealed class PdfOcspResponse
     /// reader does not follow that path.
     /// </remarks>
     public bool GivesGoodAnswer(X509Certificate2 subject, X509Certificate2 issuer)
+        => EntryFor(subject, issuer) is { Status: 0 };
+
+    /// <summary>
+    /// Whether the answer carries a response about <paramref name="subject"/>, whatever its status.
+    /// Used to say a certificate is covered even when the answer is not "good".
+    /// </summary>
+    public bool Answers(X509Certificate2 subject, X509Certificate2 issuer)
+        => EntryFor(subject, issuer) is not null;
+
+    private PdfOcspEntry? EntryFor(X509Certificate2 subject, X509Certificate2 issuer)
     {
         var nameHash = PdfAsn.Sha1(issuer.SubjectName.RawData);
         var keyHash = PdfAsn.Sha1(issuer.PublicKey.EncodedKeyValue.RawData);
 
         foreach (var entry in Entries)
         {
-            if (entry.Status != 0
-                || !entry.Serial.AsSpan().SequenceEqual(subject.SerialNumberBytes.Span))
+            if (!entry.Serial.AsSpan().SequenceEqual(subject.SerialNumberBytes.Span))
             {
                 continue;
             }
@@ -245,11 +267,11 @@ internal sealed class PdfOcspResponse
             if (entry.IssuerNameHash.AsSpan().SequenceEqual(nameHash)
                 || entry.IssuerKeyHash.AsSpan().SequenceEqual(keyHash))
             {
-                return true;
+                return entry;
             }
         }
 
-        return false;
+        return null;
     }
 }
 
@@ -259,12 +281,14 @@ internal sealed class PdfOcspResponse
 /// <param name="IssuerKeyHash">The hash of the issuer's public key.</param>
 /// <param name="Serial">The certificate's serial number, as DER bytes.</param>
 /// <param name="Status"><c>0</c> good, <c>1</c> revoked, <c>2</c> unknown.</param>
+/// <param name="ThisUpdate">The moment the responder says this status is current.</param>
 internal sealed record PdfOcspEntry(
     string HashAlgorithm,
     byte[] IssuerNameHash,
     byte[] IssuerKeyHash,
     byte[] Serial,
-    int Status)
+    int Status,
+    DateTimeOffset ThisUpdate)
 {
     public static PdfOcspEntry Read(AsnReader response)
     {
@@ -280,13 +304,14 @@ internal sealed record PdfOcspEntry(
             : tag.HasSameClassAndValue(new Asn1Tag(TagClass.ContextSpecific, 1)) ? 1
             : 2;
 
-        // The status itself is a CHOICE of empty or complex values; nothing to read for "good".
-        if (status == 0)
-        {
-            response.ReadEncodedValue();
-        }
+        // The status is a CHOICE — empty for "good", a revocation time for "revoked", nothing for
+        // "unknown" — but it is one encoded element either way, and only its tag matters here.
+        response.ReadEncodedValue();
+        var thisUpdate = response.PeekTag().TagValue == (int)UniversalTagNumber.GeneralizedTime
+            ? response.ReadGeneralizedTime()
+            : response.ReadUtcTime();
 
-        return new PdfOcspEntry(hash, nameHash, keyHash, serial, status);
+        return new PdfOcspEntry(hash, nameHash, keyHash, serial, status, thisUpdate);
     }
 }
 
@@ -346,4 +371,59 @@ internal static class PdfAsn
 internal enum OcspResponseStatus
 {
     Successful = 0,
+}
+
+/// <summary>
+/// What a document security store carries for one certificate: whether revocation data covers it,
+/// and when that data was issued.
+/// </summary>
+/// <remarks>
+/// The report exists so a caller can keep — or refresh — its own cache: an answer issued yesterday
+/// is still good for the certificate it names, and the moment it was issued is what says how long
+/// that will last. It says nothing about whether the certificate's chain is trusted, and nothing
+/// about whether the signer's own policy accepts the responder that signed the answer.
+/// </remarks>
+public sealed class PdfRevocationCoverage
+{
+    internal PdfRevocationCoverage(
+        string subject,
+        string issuer,
+        string serialNumber,
+        bool ocspCovers,
+        DateTimeOffset? ocspIssuedAt,
+        bool crlCovers,
+        DateTimeOffset? crlIssuedAt)
+    {
+        Subject = subject;
+        Issuer = issuer;
+        SerialNumber = serialNumber;
+        OcspCovers = ocspCovers;
+        OcspIssuedAt = ocspIssuedAt;
+        CrlCovers = crlCovers;
+        CrlIssuedAt = crlIssuedAt;
+    }
+
+    /// <summary>The subject of the certificate, as an X.500 string.</summary>
+    public string Subject { get; }
+
+    /// <summary>The issuer of the certificate, as an X.500 string.</summary>
+    public string Issuer { get; }
+
+    /// <summary>The certificate's serial number, as uppercase hexadecimal, in the DER byte order.</summary>
+    public string SerialNumber { get; }
+
+    /// <summary>Whether an embedded OCSP answer names this certificate and was signed by its issuer.</summary>
+    public bool OcspCovers { get; }
+
+    /// <summary>The moment the covering OCSP answer was produced; null when none covers.</summary>
+    public DateTimeOffset? OcspIssuedAt { get; }
+
+    /// <summary>Whether an embedded CRL was signed by this certificate's issuer.</summary>
+    public bool CrlCovers { get; }
+
+    /// <summary>The moment the covering CRL says it was issued; null when none covers.</summary>
+    public DateTimeOffset? CrlIssuedAt { get; }
+
+    /// <summary>Whether either kind of evidence covers this certificate.</summary>
+    public bool IsCovered => OcspCovers || CrlCovers;
 }

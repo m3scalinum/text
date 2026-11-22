@@ -260,31 +260,46 @@ jobs:
     # Dependabot bump of `zip` in native/text-docx reached main with every check green and a broken
     # build.
     name: native (${{ matrix.crate }}, ${{ matrix.rid }})
-    # Five RIDs per crate, the same set the package ships, because `verify-package.py` demands every
+    # Six RIDs per crate, the same set the package ships, because `verify-package.py` demands every
     # one of them: a linux-only job packs a package with one native and the check then fails, or worse,
-    # passes for a package missing four architectures. The compiler workflow pays the same price for
-    # the compiler's six.
+    # passes for a package missing five architectures. That is the compiler's six, `linux-musl-x64`
+    # included — the three format packages carry a hand-linked musl build for the same reason the
+    # compiler does, so an Alpine consumer of `mcr.microsoft.com/dotnet/runtime-deps:11.0-alpine`
+    # gets a library it can load.
     strategy:
       fail-fast: false
       matrix:
         crate: [text-barcodes, text-ocr, text-docx, text-xlsx]
-        rid: [win-x64, win-arm64, linux-x64, linux-arm64, osx]
+        rid: [win-x64, win-arm64, linux-x64, linux-arm64, linux-musl-x64, osx]
         # `rid` is an axis, not an `include` entry: an include that adds a key absent from every
         # combination is merged into each of them in turn, so the last one wins and the matrix
         # collapses to the crates on macOS alone. Crossing on both axes and letting these entries
-        # supply the runner per rid gives the 15 combinations the packages actually need.
+        # supply the runner per rid gives the 24 combinations the packages actually need.
         include:
-          - { rid: win-x64, os: windows-latest }
-          - { rid: win-arm64, os: windows-11-arm }
-          - { rid: linux-x64, os: ubuntu-latest }
-          - { rid: linux-arm64, os: ubuntu-24.04-arm }
-          - { rid: osx, os: macos-15-intel }
+          - { rid: win-x64, os: windows-latest, target: "" }
+          - { rid: win-arm64, os: windows-11-arm, target: "" }
+          - { rid: linux-x64, os: ubuntu-latest, target: "" }
+          - { rid: linux-arm64, os: ubuntu-24.04-arm, target: "" }
+          # Alpine and musl-based images cannot load a glibc build, and the RID graph resolves
+          # `linux-musl-x64` to `linux-x64` without a word. Built on the x64 pool: the target is a
+          # cross-compile, and musl-tools only ships an x86_64 host toolchain.
+          - { rid: linux-musl-x64, os: ubuntu-latest, target: x86_64-unknown-linux-musl }
+          - { rid: osx, os: macos-15-intel, target: "" }
     runs-on: ${{ matrix.os }}
+    env:
+      # Empty for a host build; `--target <triple>` for the musl entry.
+      CRT_TARGET: ${{ matrix.target != '' && format('--target {0}', matrix.target) || '' }}
+      # musl-gcc comes from musl-tools: the default cc would link a glibc binary that Alpine cannot
+      # load. None of these four crates vendors a C library — the trees are `rxing`/`image`,
+      # `ocrs`/`rten`/`hayro`, `zip`/`roxmltree` and `calamine`/`zip`, all pure Rust — so no
+      # `[target.x86_64-unknown-linux-musl.dependencies]` block is needed the way OpenSSL is for
+      # the compiler.
+      RUSTFLAGS: ${{ matrix.target != '' && '-C linker=musl-gcc' || '' }}
     steps:
       - uses: actions/checkout@v7
-      # Fifteen Rust builds that no managed change can invalidate: each crate is hashed on its own,
-      # so a pull request touching only C# restores all fifteen libraries instead of compiling them.
-      # Restored after the checkout, because `hashFiles` reads the workspace.
+      # Twenty-four Rust builds that no managed change can invalidate: each crate is hashed on its
+      # own, so a pull request touching only C# restores all twenty-four libraries instead of
+      # compiling them. Restored after the checkout, because `hashFiles` reads the workspace.
       - uses: actions/cache@v4
         id: natives
         with:
@@ -296,6 +311,12 @@ jobs:
         if: steps.natives.outputs.cache-hit != 'true'
         with:
           workspaces: native/${{ matrix.crate }}
+      - name: Install the musl toolchain
+        if: steps.natives.outputs.cache-hit != 'true' && matrix.target != ''
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+          rustup target add ${{ matrix.target }}
       - name: Format
         if: steps.natives.outputs.cache-hit != 'true'
         working-directory: native/${{ matrix.crate }}
@@ -303,15 +324,44 @@ jobs:
       - name: Clippy
         if: steps.natives.outputs.cache-hit != 'true'
         working-directory: native/${{ matrix.crate }}
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy $CRT_TARGET --all-targets -- -D warnings
       - name: Unit tests
         if: steps.natives.outputs.cache-hit != 'true'
         working-directory: native/${{ matrix.crate }}
-        run: cargo test --lib
+        # A musl test binary is statically linked, so it runs on this glibc runner: the entry proves
+        # the crate *builds* for musl, the test run proves it passes there too.
+        run: cargo test $CRT_TARGET --lib
       - name: Build
-        if: steps.natives.outputs.cache-hit != 'true'
+        if: steps.natives.outputs.cache-hit != 'true' && matrix.target == ''
         working-directory: native/${{ matrix.crate }}
         run: cargo build --release
+      - name: Build (musl)
+        if: steps.natives.outputs.cache-hit != 'true' && matrix.target != ''
+        working-directory: native/${{ matrix.crate }}
+        shell: bash
+        run: |
+          # Rust cannot emit a cdylib for a musl target: it drops the crate type with a warning and
+          # produces only the staticlib. Link that into a shared object, forcing every exported entry
+          # point to be kept, then strip it — the compiler's recipe, with this crate's own prefixes.
+          cargo build --release $CRT_TARGET
+          case "${{ matrix.crate }}" in
+            text-barcodes) prefix=bt_ ;;
+            text-ocr)      prefix=to_ ;;
+            text-docx)     prefix=td_ ;;
+            text-xlsx)     prefix=tx_ ;;
+          esac
+          archive=$(ls "target/${{ matrix.target }}/release/libsharp_text_"*.a)
+          library=$(basename "$archive" .a)
+          symbols=$(nm -g --defined-only "$archive" | awk -v p="$prefix" '$2=="T" && index($3,p)==1 {print "-Wl,-u,"$3}')
+          if [ -z "$symbols" ]; then
+            echo "no $prefix entry point in $archive: the ABI would be stripped by the linker" >&2
+            exit 1
+          fi
+          echo "exporting $(printf '%s\n' $symbols | wc -l) entry points of $library"
+          mkdir -p target/release
+          musl-gcc -shared -o "target/release/$library.so" $symbols "$archive" -lpthread -ldl -lm
+          strip --strip-all "target/release/$library.so"
+          ls -la "target/release/$library.so"
       - name: Stage the library
         if: steps.natives.outputs.cache-hit != 'true'
         shell: bash
@@ -409,6 +459,62 @@ jobs:
           name: packages-extras
           path: artifacts/packages/*.nupkg
           if-no-files-found: error
+
+  musl:
+    name: musl (Alpine)
+    # The six-RID matrix proves each crate compiles for musl and links; only running the packaged
+    # binaries inside a musl image proves the package a consumer installs actually loads there.
+    # That is the item's own completion criterion — "installs and works on
+    # mcr.microsoft.com/dotnet/runtime-deps:11.0-alpine" — so it is a gate, not a note: a package
+    # whose musl library is absent or unloadable fails the build here instead of in a consumer's
+    # container. The four examples are the same ones the `examples` job runs from the same packages.
+    needs: [native, native-extras]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 11.0.x
+      - uses: actions/download-artifact@v8
+        with:
+          name: native-linux-x64
+          path: native/artifacts/linux-x64
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: text-*-*
+          merge-multiple: true
+          path: native/artifacts
+      - run: dotnet restore
+      - run: dotnet build -c Release --no-restore
+      - name: Pack every package under test
+        # The four native packages, plus the rest of the feed: Docx and Xlsx pin the compiler wrapper
+        # and Docx's example converts through `.Documents`, so a feed holding one run's packages is
+        # the only way those dependencies resolve to the build under test rather than to nuget.org.
+        run: |
+          for project in Text.Pdf Text.Templates Text.Mcp Text.Barcodes Text.Ocr Text.Docx Text.Xlsx Text.Typst Text.Documents; do
+            dotnet pack "src/$project" -c Release --no-build -o artifacts/packages
+          done
+          ls -l artifacts/packages
+      - name: Run one example per package on Alpine
+        # A framework-dependent layout would leave the native library in the NuGet cache where the
+        # container cannot see it, so each example is published self-contained for linux-musl-x64:
+        # every native asset of the package is then on disk next to the executable, and the image is
+        # the one a default .NET container ships.
+        run: |
+          chmod +x samples/examples/run.sh
+          while read -r example package; do
+            nupkg=$(ls "artifacts/packages/$package".*.nupkg | head -n 1)
+            version=${nupkg#"artifacts/packages/$package".}
+            export M3SCALINUM_PUBLISH_DIR="$PWD/artifacts/musl/$example"
+            samples/examples/run.sh "$example" "$package" "${version%.nupkg}" "$PWD/artifacts/packages" --self-contained linux-musl-x64
+            docker run --rm -v "$M3SCALINUM_PUBLISH_DIR:/app" -w /app \
+              mcr.microsoft.com/dotnet/runtime-deps:11.0-alpine ./Example
+          done <<'TABLE'
+          Barcodes M3scalinum.Text.Barcodes
+          Ocr M3scalinum.Text.Ocr
+          Docx M3scalinum.Text.Docx
+          Xlsx M3scalinum.Text.Xlsx
+          TABLE
 
   examples:
     name: examples
