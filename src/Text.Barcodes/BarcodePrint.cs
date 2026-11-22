@@ -61,8 +61,9 @@ public sealed class BarcodePrint
     public string Payload { get; }
 
     /// <summary>
-    /// The symbol as an 8-bit greyscale PNG at <see cref="Dpi"/>, black and white only, sized to
-    /// <see cref="WidthPixels"/> by <see cref="HeightPixels"/>.
+    /// The symbol as an 8-bit PNG at <see cref="Dpi"/>, sized to <see cref="WidthPixels"/> by
+    /// <see cref="HeightPixels"/>: greyscale and black and white only, unless the print options name a
+    /// style, in which case it is RGB in exactly those colours with the reserved centre painted.
     /// </summary>
     public byte[] Png { get; }
 
