@@ -109,6 +109,36 @@ internal interface IOcrNative
     /// <summary>The <c>{"code","message"}</c> document of an error object.</summary>
     NativeBuffer ErrorJson(IntPtr error);
 
+    /// <summary>
+    /// Inspects model bytes without loading them; the report is written to
+    /// <paramref name="json"/>.
+    /// </summary>
+    /// <remarks>
+    /// The default implementation refuses, so a double written before models were
+    /// identified keeps compiling and fails loudly rather than silently reporting
+    /// no identity.
+    /// </remarks>
+    int ModelInspect(byte[] model, int kind, out NativeBuffer json, out IntPtr error)
+        => throw new NotSupportedException("this native backend does not inspect models");
+
+    /// <summary>
+    /// Validates and identifies the two models of a directory; the report is
+    /// written to <paramref name="json"/>.
+    /// </summary>
+    /// <remarks>Same default as <see cref="ModelInspect"/>.</remarks>
+    int ModelSetInspect(byte[] directory, out NativeBuffer json, out IntPtr error)
+        => throw new NotSupportedException("this native backend does not inspect model directories");
+
+    /// <summary>Creates an engine from the two models of a directory.</summary>
+    /// <remarks>Same default as <see cref="ModelInspect"/>.</remarks>
+    IntPtr EngineCreateFromDirectory(byte[] directory, byte[]? dictionary, out IntPtr error)
+        => throw new NotSupportedException("this native backend cannot load models from a directory");
+
+    /// <summary>The identity of the models an engine runs.</summary>
+    /// <remarks>Same default as <see cref="ModelInspect"/>.</remarks>
+    int EngineModels(IntPtr engine, out NativeBuffer json, out IntPtr error)
+        => throw new NotSupportedException("this native backend does not identify its models");
+
     /// <summary>Frees an error object.</summary>
     void ErrorFree(IntPtr error);
 

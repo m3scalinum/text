@@ -12,6 +12,7 @@ use rten_tensor::prelude::*;
 use serde_json::{Value, json};
 
 use crate::ffi::{TO_ERR_IMAGE, TO_ERR_MODEL, TO_ERR_OCR, ToError};
+use crate::models::{self, ModelDefect, ModelIdentity, ModelKind, ModelSet};
 use crate::pdf;
 use crate::preprocess::{self, PreprocessOptions, Preprocessed};
 
@@ -297,6 +298,7 @@ impl Page {
 /// A loaded engine. It owns both models: dropping it drops them.
 pub struct Engine {
     inner: OcrEngine,
+    models: ModelIdentity,
 }
 
 impl std::fmt::Debug for Engine {
@@ -316,6 +318,11 @@ impl Engine {
     /// error, not a download. `dictionary` is the character alphabet the
     /// recognition model was trained on, and only matters for a model that is not
     /// the default Latin one.
+    ///
+    /// The bytes are validated before they are parsed — see
+    /// [`crate::models`] for the three layers — so a file that is not a model, or
+    /// a model of the wrong generation, is refused with an error naming what is
+    /// wrong instead of a `panic` inside a recognition call.
     pub fn new(
         detection_model: &[u8],
         recognition_model: &[u8],
@@ -328,10 +335,27 @@ impl Engine {
             return Err(ToError::invalid_argument("recognition model is empty"));
         }
 
-        let detection = Model::load(detection_model.to_vec())
-            .map_err(|e| ToError::new(TO_ERR_MODEL, format!("detection model: {e}")))?;
-        let recognition = Model::load(recognition_model.to_vec())
-            .map_err(|e| ToError::new(TO_ERR_MODEL, format!("recognition model: {e}")))?;
+        let set = ModelSet::from_bytes(detection_model, recognition_model)?;
+        Self::from_model_set(&set, dictionary)
+    }
+
+    /// Build an engine from the two models of a directory.
+    ///
+    /// The directory must hold `detection.rten` and `recognition.rten`; a missing
+    /// one is an error naming the file it expected. Nothing is downloaded and no
+    /// other path is looked in.
+    pub fn from_directory(
+        directory: &std::path::Path,
+        dictionary: Option<&str>,
+    ) -> Result<Self, ToError> {
+        let set = ModelSet::from_directory(directory)?;
+        Self::from_model_set(&set, dictionary)
+    }
+
+    /// Builds an engine from a validated pair, keeping its identity.
+    pub fn from_model_set(set: &ModelSet, dictionary: Option<&str>) -> Result<Self, ToError> {
+        let detection = load_model(set, ModelKind::Detection)?;
+        let recognition = load_model(set, ModelKind::Recognition)?;
 
         let params = OcrEngineParams {
             detection_model: Some(detection),
@@ -345,7 +369,15 @@ impl Engine {
         let inner = OcrEngine::new(params)
             .map_err(|e| ToError::new(TO_ERR_MODEL, format!("engine: {e}")))?;
 
-        Ok(Self { inner })
+        Ok(Self {
+            inner,
+            models: set.identity(),
+        })
+    }
+
+    /// The identity of the weights this engine runs.
+    pub fn models(&self) -> &ModelIdentity {
+        &self.models
     }
 
     /// Recognise the text of an encoded image, returning the result as JSON.
@@ -378,6 +410,7 @@ impl Engine {
         let mut value = page.to_json();
         value["width"] = json!(prepared.width);
         value["height"] = json!(prepared.height);
+        value["models"] = self.models.to_json();
         add_preprocess_report(&mut value, &prepared);
 
         Ok(value.to_string().into_bytes())
@@ -420,7 +453,9 @@ impl Engine {
             pages.push(value);
         }
 
-        Ok(json!({ "pages": pages }).to_string().into_bytes())
+        Ok(json!({ "pages": pages, "models": self.models.to_json() })
+            .to_string()
+            .into_bytes())
     }
 
     fn recognize_pixels(
@@ -469,6 +504,32 @@ impl Engine {
 
         Ok(Page::assess(readings, thresholds))
     }
+}
+
+/// Parses one model of the set, and refuses a graph `ocrs` could not run.
+///
+/// The parse is the authoritative container check; the shape check that follows
+/// is what keeps a model of the wrong generation from reaching a recognition call,
+/// where `ocrs` indexes those dimensions directly.
+fn load_model(set: &ModelSet, kind: ModelKind) -> Result<Model, ToError> {
+    let file = match kind {
+        ModelKind::Detection => set.detection(),
+        ModelKind::Recognition => set.recognition(),
+    };
+
+    let model = Model::load(file.bytes.clone()).map_err(|error| {
+        models::model_error(
+            Some(kind),
+            file.fingerprint.file_name.as_deref(),
+            ModelDefect::UnparsableGraph {
+                error: error.to_string(),
+            },
+        )
+    })?;
+
+    models::validate_input_shape(&model, kind)?;
+
+    Ok(model)
 }
 
 /// Adds the report of what preprocessing did, and nothing at all when it did nothing.

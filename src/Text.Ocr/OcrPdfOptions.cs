@@ -66,7 +66,20 @@ public sealed class OcrPdfOptions : OcrOptions
 /// Raised when the native engine refuses an input: a model it cannot load, an image
 /// it cannot decode, or a PDF it cannot render.
 /// </summary>
-public sealed class OcrException : Exception
+/// <remarks>
+/// <para>
+/// A model refusal fills <see cref="Defect"/>, <see cref="Role"/> and — when the
+/// model came from a directory — <see cref="FilePath"/>. Those three are what a
+/// caller acts on; <see cref="Exception.Message"/> says the same thing in a sentence,
+/// with the numbers that decided it.
+/// </para>
+/// <para>
+/// It is a single type rather than a subtype per failure so a caller writes one
+/// catch, and so a library newer than this package cannot hand a host an exception
+/// type it has never seen.
+/// </para>
+/// </remarks>
+public class OcrException : Exception
 {
     /// <summary>Creates the exception.</summary>
     public OcrException()
@@ -91,9 +104,50 @@ public sealed class OcrException : Exception
     internal OcrException(string code, string message)
         : base(message) => Code = code;
 
+    internal OcrException(
+        string code,
+        string message,
+        OcrModelRole role,
+        OcrModelDefect defect,
+        string? filePath)
+        : base(message)
+    {
+        Code = code;
+        Role = role;
+        Defect = defect;
+        FilePath = filePath;
+    }
+
     /// <summary>
     /// The native error code: <c>invalid_argument</c>, <c>model</c>, <c>image</c>,
     /// <c>pdf</c>, <c>ocr</c> or <c>panic</c>.
     /// </summary>
     public string Code { get; } = "unknown";
+
+    /// <summary>
+    /// Which model the refusal concerns, or <see cref="OcrModelRole.Unspecified"/>
+    /// when the failure is not about a model.
+    /// </summary>
+    public OcrModelRole Role { get; } = OcrModelRole.Unspecified;
+
+    /// <summary>
+    /// What is wrong with the model, or <see cref="OcrModelDefect.Unspecified"/> when
+    /// the failure is not a model refusal.
+    /// </summary>
+    public OcrModelDefect Defect { get; } = OcrModelDefect.Unspecified;
+
+    /// <summary>
+    /// The model file the refusal concerns, when it came from a directory;
+    /// <see langword="null"/> when the caller passed bytes or the failure is not about
+    /// a model.
+    /// </summary>
+    public string? FilePath { get; }
+
+    /// <inheritdoc />
+    public override string ToString()
+        => Defect == OcrModelDefect.Unspecified
+            ? base.ToString()
+            : FilePath is null
+                ? $"{base.ToString()} (role: {Role}, defect: {Defect})"
+                : $"{base.ToString()} (role: {Role}, defect: {Defect}, file: {FilePath})";
 }

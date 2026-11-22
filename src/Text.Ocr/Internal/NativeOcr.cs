@@ -62,6 +62,10 @@ internal static class NativeOcr
     {
         var code = "unknown";
         var message = "the native library failed without an error object";
+        var defect = OcrModelDefect.Unspecified;
+        var role = OcrModelRole.Unspecified;
+        var namedDefect = false;
+        string? file = null;
 
         if (error != IntPtr.Zero)
         {
@@ -83,6 +87,30 @@ internal static class NativeOcr
                     {
                         message = messageElement.GetString() ?? message;
                     }
+
+                    if (root.TryGetProperty("defect", out var defectElement)
+                        && defectElement.ValueKind == JsonValueKind.String)
+                    {
+                        namedDefect = true;
+                        defect = ParseDefect(defectElement.GetString());
+                    }
+
+                    if (root.TryGetProperty("role", out var roleElement)
+                        && roleElement.ValueKind == JsonValueKind.String)
+                    {
+                        role = roleElement.GetString() switch
+                        {
+                            "detection" => OcrModelRole.Detection,
+                            "recognition" => OcrModelRole.Recognition,
+                            _ => OcrModelRole.Unspecified,
+                        };
+                    }
+
+                    if (root.TryGetProperty("file", out var fileElement)
+                        && fileElement.ValueKind == JsonValueKind.String)
+                    {
+                        file = fileElement.GetString();
+                    }
                 }
                 finally
                 {
@@ -95,7 +123,80 @@ internal static class NativeOcr
             }
         }
 
-        return new OcrException(code, message);
+        // A model refusal is its own type: the caller can switch on what is wrong
+        // and on which file, without reading the sentence. A defect name this
+        // package does not know still means "a model was refused": it reports
+        // Unspecified rather than degrading to a plain exception.
+        return namedDefect
+            ? new OcrException(code, message, role, defect, file)
+            : new OcrException(code, message);
+    }
+
+    /// <summary>
+    /// The defect name the native library reported, as the enum this package exposes.
+    /// </summary>
+    /// <remarks>
+    /// An unknown name becomes <see cref="OcrModelDefect.Unspecified"/> rather than
+    /// an exception: a library newer than this package still refuses the file, and
+    /// the message still says why.
+    /// </remarks>
+    private static OcrModelDefect ParseDefect(string? name) => name switch
+    {
+        "empty" => OcrModelDefect.Empty,
+        "too_small" => OcrModelDefect.TooSmall,
+        "too_large" => OcrModelDefect.TooLarge,
+        "unrecognized_format" => OcrModelDefect.UnrecognizedFormat,
+        "truncated_header" => OcrModelDefect.TruncatedHeader,
+        "unsupported_version" => OcrModelDefect.UnsupportedVersion,
+        "inconsistent_layout" => OcrModelDefect.InconsistentLayout,
+        "unparsable_graph" => OcrModelDefect.UnparsableGraph,
+        "input_shape" => OcrModelDefect.InputShape,
+        "missing_file" => OcrModelDefect.MissingFile,
+        "missing_directory" => OcrModelDefect.MissingDirectory,
+        "not_a_directory" => OcrModelDefect.NotADirectory,
+        "unreadable_file" => OcrModelDefect.UnreadableFile,
+        _ => OcrModelDefect.Unspecified,
+    };
+
+    /// <summary>
+    /// Takes an out-buffer on success, or throws the typed exception the error
+    /// object carries on failure. The buffer is always freed.
+    /// </summary>
+    internal static byte[] Take(IOcrNative library, int status, NativeBuffer buffer, IntPtr error)
+    {
+        if (status != 0)
+        {
+            if (buffer.Pointer != IntPtr.Zero)
+            {
+                library.BufferFree(buffer);
+            }
+
+            throw ToException(library, error);
+        }
+
+        try
+        {
+            return buffer.ToArray();
+        }
+        finally
+        {
+            library.BufferFree(buffer);
+        }
+    }
+
+    /// <summary>
+    /// Validates and identifies the models of a directory, without loading them.
+    /// </summary>
+    internal static (string Directory, OcrModelIdentity Identity) InspectModelSet(string directory)
+        => InspectModelSet(Library, directory);
+
+    internal static (string Directory, OcrModelIdentity Identity) InspectModelSet(
+        IOcrNative library, string directory)
+    {
+        var utf8 = Encoding.UTF8.GetBytes(directory);
+        var status = library.ModelSetInspect(utf8, out var json, out var error);
+
+        return ResultParser.ParseModelSet(Take(library, status, json, error));
     }
 }
 
@@ -235,6 +336,43 @@ internal sealed unsafe class NativeLibraryOcr : IOcrNative
 
     /// <inheritdoc />
     public void BufferFree(NativeBuffer buffer) => NativeMethods.BufferFree(buffer);
+
+    /// <inheritdoc />
+    public int ModelInspect(byte[] model, int kind, out NativeBuffer json, out IntPtr error)
+    {
+        fixed (byte* bytes = model)
+        {
+            return NativeMethods.ModelInspect(bytes, (nuint)model.Length, kind, out json, out error);
+        }
+    }
+
+    /// <inheritdoc />
+    public int ModelSetInspect(byte[] directory, out NativeBuffer json, out IntPtr error)
+    {
+        fixed (byte* path = directory)
+        {
+            return NativeMethods.ModelSetInspect(path, (nuint)directory.Length, out json, out error);
+        }
+    }
+
+    /// <inheritdoc />
+    public IntPtr EngineCreateFromDirectory(byte[] directory, byte[]? dictionary, out IntPtr error)
+    {
+        fixed (byte* path = directory)
+        fixed (byte* alphabet = dictionary)
+        {
+            return NativeMethods.EngineCreateFromDirectory(
+                path,
+                (nuint)directory.Length,
+                alphabet,
+                (nuint)(dictionary?.Length ?? 0),
+                out error);
+        }
+    }
+
+    /// <inheritdoc />
+    public int EngineModels(IntPtr engine, out NativeBuffer json, out IntPtr error)
+        => NativeMethods.EngineModels(engine, out json, out error);
 }
 
 /// <summary>
@@ -276,6 +414,43 @@ internal sealed class OcrEngineHandle : IDisposable
         }
 
         return new OcrEngineHandle(library, handle);
+    }
+
+    /// <summary>
+    /// Creates a handle from the two models of a directory: the native side reads
+    /// <c>detection.rten</c> and <c>recognition.rten</c> there, validates them and
+    /// loads them, and a refusal crosses as the typed model exception.
+    /// </summary>
+    internal static OcrEngineHandle CreateFromDirectory(string directory)
+        => CreateFromDirectory(NativeOcr.Library, directory);
+
+    internal static OcrEngineHandle CreateFromDirectory(IOcrNative library, string directory)
+    {
+        var handle = library.EngineCreateFromDirectory(
+            System.Text.Encoding.UTF8.GetBytes(directory), null, out var error);
+
+        if (handle == IntPtr.Zero)
+        {
+            throw NativeOcr.ToException(library, error);
+        }
+
+        if (error != IntPtr.Zero)
+        {
+            library.ErrorFree(error);
+        }
+
+        return new OcrEngineHandle(library, handle);
+    }
+
+    /// <summary>
+    /// The identity of the models this handle runs, as the native side recorded it
+    /// when it loaded them.
+    /// </summary>
+    internal OcrModelIdentity Models()
+    {
+        var status = _library.EngineModels(Handle(), out var json, out var error);
+
+        return ResultParser.ParseIdentity(NativeOcr.Take(_library, status, json, error));
     }
 
     internal byte[] Recognize(byte[] image, OcrOptions options)

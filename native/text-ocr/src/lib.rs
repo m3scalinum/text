@@ -7,19 +7,27 @@
 //!
 //! Nothing here downloads a model or reads one from a default path: the bytes the
 //! caller passes to [`to_engine_create`] are the only models this library ever
-//! sees.
+//! sees, and [`to_engine_create_from_directory`] reads exactly `detection.rten`
+//! and `recognition.rten` from the directory the caller names.
+//!
+//! Every model is validated before it is parsed, identified by SHA-256, and the
+//! result of a recognition carries the identity of the weights that produced it.
 
 mod engine;
 mod ffi;
+mod models;
 mod pdf;
 mod preprocess;
+mod sha256;
 
 use std::ffi::{CString, c_char};
+use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use engine::{Engine, Thresholds};
 use ffi::{ToBuffer, ToError, guard_buffer, guard_ptr, read_bytes};
+use models::{ModelFile, ModelKind, ModelSet};
 use preprocess::PreprocessOptions;
 
 /// The opaque engine handle. It owns both models.
@@ -81,6 +89,7 @@ pub extern "C" fn to_build_info() -> *const c_char {
             "rten": "0.28",
             "hayro": "0.9",
             "preprocess": "quarter-turn, deskew and median denoise",
+            "models": "validated: rten v2 header or onnx signature, sha256 identity",
         })
         .to_string();
         CString::new(json).expect("build info has no interior NUL")
@@ -179,6 +188,155 @@ pub unsafe extern "C" fn to_engine_create(
             Ok(engine_handle(engine))
         })
     }
+}
+
+/// Inspects model bytes without building an engine.
+///
+/// On success `out_json` holds
+/// `{"valid":true,"role":"…","format":"rten"|"onnx","length":N,"sha256":"…"}`; on
+/// refusal the return value is the error code (always `model`) and the error names
+/// the defect in a field. Nothing is loaded, so a caller can preflight a file
+/// before paying for the weights.
+///
+/// `kind` is 0 for the detection model and 1 for the recognition model.
+///
+/// # Safety
+/// `model` is valid for `length`; `out_json` and `out_error` are null or
+/// caller-owned slots.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn to_model_inspect(
+    model: *const u8,
+    length: usize,
+    kind: i32,
+    out_json: *mut ToBuffer,
+    out_error: *mut *mut ToError,
+) -> i32 {
+    unsafe {
+        guard_buffer(out_error, out_json, || {
+            let kind = ModelKind::from_code(kind).ok_or_else(|| {
+                ToError::invalid_argument(format!(
+                    "model kind must be 0 (detection) or 1 (recognition), got {kind}"
+                ))
+            })?;
+
+            let bytes = read_bytes(model, length, "model")?;
+            let file = ModelFile::inspect(bytes, kind)
+                .map_err(|defect| models::model_error(Some(kind), None, defect))?;
+
+            let mut value = file.fingerprint.to_json();
+            value["valid"] = serde_json::json!(true);
+
+            Ok(value.to_string().into_bytes())
+        })
+    }
+}
+
+/// Validates and identifies the two models of a directory, without loading them.
+///
+/// `directory` is UTF-8 bytes, not NUL-terminated. The directory must hold
+/// `detection.rten` and `recognition.rten`; a missing one is a `model` error whose
+/// `file` field names the file that was expected. No path is defaulted and
+/// nothing is downloaded.
+///
+/// # Safety
+/// `directory` is valid for `length`; `out_json` and `out_error` are null or
+/// caller-owned slots.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn to_model_set_inspect(
+    directory: *const u8,
+    length: usize,
+    out_json: *mut ToBuffer,
+    out_error: *mut *mut ToError,
+) -> i32 {
+    unsafe {
+        guard_buffer(out_error, out_json, || {
+            let directory = read_path(directory, length, "model directory")?;
+            let set = ModelSet::from_directory(&directory)?;
+            Ok(set.to_json().to_string().into_bytes())
+        })
+    }
+}
+
+/// Builds an engine from the two models of a directory.
+///
+/// The counterpart of [`to_engine_create`] for a caller that keeps its weights on
+/// disk: the directory must hold `detection.rten` and `recognition.rten`, nothing
+/// else is looked at, and the same validation and identity apply.
+///
+/// # Safety
+/// `directory` and `dictionary` are valid for their lengths, or null with a length
+/// of 0.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn to_engine_create_from_directory(
+    directory: *const u8,
+    length: usize,
+    dictionary: *const u8,
+    dictionary_len: usize,
+    out_error: *mut *mut ToError,
+) -> *mut ToEngine {
+    unsafe {
+        guard_ptr(out_error, || {
+            let directory = read_path(directory, length, "model directory")?;
+            let dictionary_bytes = read_bytes(dictionary, dictionary_len, "character dictionary")?;
+
+            let dictionary = if dictionary_bytes.is_empty() {
+                None
+            } else {
+                Some(std::str::from_utf8(&dictionary_bytes).map_err(|_| {
+                    ToError::invalid_argument("character dictionary is not valid UTF-8")
+                })?)
+            };
+
+            let engine = Engine::from_directory(&directory, dictionary)?;
+            Ok(engine_handle(engine))
+        })
+    }
+}
+
+/// The identity of the models an engine runs.
+///
+/// `{"detection":{"role","format","length","sha256"},"recognition":{…},"set":"…"}`,
+/// where `set` is `SHA-256(detection_digest || recognition_digest)`. The same
+/// object is embedded in every result document, so a report can name the weights
+/// that produced a reading without asking the engine.
+///
+/// # Safety
+/// `engine` is null or a valid handle; `out_json` and `out_error` are null or
+/// caller-owned slots.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn to_engine_models(
+    engine: *const ToEngine,
+    out_json: *mut ToBuffer,
+    out_error: *mut *mut ToError,
+) -> i32 {
+    unsafe {
+        guard_buffer(out_error, out_json, || {
+            if engine.is_null() {
+                return Err(ToError::invalid_argument("engine must not be null"));
+            }
+
+            Ok((*engine).engine.models().to_json().to_string().into_bytes())
+        })
+    }
+}
+
+/// Reads a UTF-8 path the caller owns. This ABI does not accept NUL-terminated
+/// strings and does not accept a path that is not valid UTF-8: a Windows path that
+/// is not is a path this API refuses by name rather than mangles.
+///
+/// # Safety
+/// `pointer` is valid for `length` bytes, or null with a length of 0.
+unsafe fn read_path(pointer: *const u8, length: usize, what: &str) -> Result<PathBuf, ToError> {
+    let bytes = unsafe { read_bytes(pointer, length, what)? };
+
+    if bytes.is_empty() {
+        return Err(ToError::invalid_argument(format!("{what} is empty")));
+    }
+
+    let text = std::str::from_utf8(&bytes)
+        .map_err(|_| ToError::invalid_argument(format!("{what} is not valid UTF-8")))?;
+
+    Ok(PathBuf::from(text))
 }
 
 /// # Safety
@@ -450,6 +608,7 @@ pub unsafe extern "C" fn to_string_free(pointer: *const c_char) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ffi::{TO_ERR_INVALID_ARGUMENT, TO_ERR_MODEL, TO_OK};
 
     #[test]
     fn abi_version_is_two() {
@@ -459,5 +618,135 @@ mod tests {
     #[test]
     fn live_count_is_zero_with_no_engine() {
         assert_eq!(to_engine_live_count(), 0);
+    }
+
+    /// A file whose header is a well-formed RTEN v2 header for a 1 KB graph.
+    fn rten_bytes(total: usize) -> Vec<u8> {
+        let mut bytes = vec![0u8; total];
+        let model_offset = 32u64;
+        bytes[..4].copy_from_slice(b"RTEN");
+        bytes[4..8].copy_from_slice(&2u32.to_le_bytes());
+        bytes[8..16].copy_from_slice(&model_offset.to_le_bytes());
+        bytes[16..24].copy_from_slice(&1024u64.to_le_bytes());
+        bytes[24..32].copy_from_slice(&(model_offset + 1024).to_le_bytes());
+        bytes
+    }
+
+    #[test]
+    fn model_inspect_reports_the_digest_and_the_role_without_loading() {
+        let bytes = rten_bytes(4096);
+        let mut json = ToBuffer::empty();
+        let mut error: *mut ToError = std::ptr::null_mut();
+
+        let status =
+            unsafe { to_model_inspect(bytes.as_ptr(), bytes.len(), 0, &mut json, &mut error) };
+
+        assert_eq!(status, TO_OK);
+        assert!(error.is_null());
+
+        let document: serde_json::Value =
+            serde_json::from_slice(unsafe { std::slice::from_raw_parts(json.ptr, json.len) })
+                .expect("the document is JSON");
+
+        assert_eq!(document["valid"], true);
+        assert_eq!(document["role"], "detection");
+        assert_eq!(document["format"], "rten");
+        assert_eq!(document["length"], 4096);
+        assert_eq!(document["sha256"].as_str().expect("a string").len(), 64);
+        assert_eq!(to_engine_live_count(), 0);
+
+        unsafe { json.free() };
+    }
+
+    #[test]
+    fn model_inspect_refuses_a_kind_it_does_not_know() {
+        let bytes = rten_bytes(4096);
+        let mut json = ToBuffer::empty();
+        let mut error: *mut ToError = std::ptr::null_mut();
+
+        let status =
+            unsafe { to_model_inspect(bytes.as_ptr(), bytes.len(), 7, &mut json, &mut error) };
+
+        assert_eq!(status, TO_ERR_INVALID_ARGUMENT);
+        assert!(!error.is_null());
+
+        let message = unsafe { (*error).json.clone() };
+        assert!(message.contains("model kind must be 0"), "{message}");
+
+        unsafe {
+            to_error_free(error);
+            json.free();
+        }
+    }
+
+    #[test]
+    fn model_inspect_refuses_a_file_that_is_not_a_model() {
+        let junk = b"this is a text file, not a model";
+        let mut json = ToBuffer::empty();
+        let mut error: *mut ToError = std::ptr::null_mut();
+
+        let status =
+            unsafe { to_model_inspect(junk.as_ptr(), junk.len(), 1, &mut json, &mut error) };
+
+        assert_eq!(status, TO_ERR_MODEL);
+        assert!(!error.is_null());
+
+        let document = unsafe { (*error).json.clone() };
+        assert!(
+            document.contains("\"defect\":\"unrecognized_format\""),
+            "{document}"
+        );
+        assert!(document.contains("\"role\":\"recognition\""), "{document}");
+
+        unsafe {
+            to_error_free(error);
+            json.free();
+        }
+    }
+
+    #[test]
+    fn watching_the_models_of_a_null_engine_is_an_argument_error_not_a_crash() {
+        let mut json = ToBuffer::empty();
+        let mut error: *mut ToError = std::ptr::null_mut();
+
+        let status = unsafe { to_engine_models(std::ptr::null(), &mut json, &mut error) };
+
+        assert_eq!(status, TO_ERR_INVALID_ARGUMENT);
+        assert!(!error.is_null());
+
+        unsafe {
+            to_error_free(error);
+            json.free();
+        }
+    }
+
+    #[test]
+    fn a_missing_model_directory_is_refused_without_creating_a_handle() {
+        let directory = std::env::temp_dir().join("sharp-text-ocr-abi-no-such-directory");
+        let path = directory.display().to_string();
+        let mut error: *mut ToError = std::ptr::null_mut();
+        let before = to_engine_live_count();
+
+        let engine = unsafe {
+            to_engine_create_from_directory(
+                path.as_ptr(),
+                path.len(),
+                std::ptr::null(),
+                0,
+                &mut error,
+            )
+        };
+
+        assert!(engine.is_null());
+        assert!(!error.is_null());
+        assert_eq!(to_engine_live_count(), before);
+
+        let document = unsafe { (*error).json.clone() };
+        assert!(
+            document.contains("\"defect\":\"missing_directory\""),
+            "{document}"
+        );
+
+        unsafe { to_error_free(error) };
     }
 }

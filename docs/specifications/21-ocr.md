@@ -547,3 +547,191 @@ wrong angle.
 - **That a turned, skewed, noisy *scan* now reads better** needs the models, and this
   repository ships none: it is the one claim in this section no test here has watched. What
   is proved is the geometry, which is where the correction happens.
+
+## 14. Model management: validation, identity and discovery
+
+§3 says the models are the caller's. Until this section it meant only that: `FromModels` took two
+byte arrays and handed them to `rten` unexamined. A file that was swapped, truncated by a download
+that stopped halfway, or exported by another generation of the training pipeline either failed
+somewhere inside the loader with a message about FlatBuffers, or — worse — loaded and produced a
+reading that looked like every other reading, with nothing in the result saying which weights had
+produced it. Nothing distinguished "this went wrong" from "this went wrong quietly".
+
+Three questions are answered here, in this order: **is this file a model of the role it is meant
+for**, **which model is it, reproducibly**, and **where does a caller's set of two live**.
+
+### 14.1 What is validated, and in which order
+
+Each layer refuses with a named defect, so an error says *what* is wrong rather than that something
+is. The names are the `defect` field of the native error document and `OcrException.Defect` on the
+managed side.
+
+| Layer | Check | `defect` |
+| --- | --- | --- |
+| Container | The file holds no byte | `empty` |
+| Container | `RTEN` magic present but the file stops inside the 32-byte v2 header | `truncated_header` |
+| Container | Magic is neither `RTEN` nor an ONNX signature; the message shows the first bytes | `unrecognized_format` |
+| Container | `RTEN` version is not 2 | `unsupported_version` |
+| Container | The declared graph/tensor sections do not fit in the file as it is | `inconsistent_layout` |
+| Container | Smaller than 4096 bytes, larger than 1 GiB | `too_small` / `too_large` |
+| Graph | `rten` cannot parse the container it accepted | `unparsable_graph` |
+| Graph | The input is not the shape the role needs | `input_shape` |
+
+The two size bounds are screens, not measurements. 4096 bytes is far below the smallest published
+weights and far above the text file, JSON document or empty download that usually arrives by
+mistake; 1 GiB is fifty times the published weights and small enough that a caller who named the
+wrong file gets an error rather than an out-of-memory kill. The floor is applied *after* the
+container checks, so a truncated `RTEN` file is reported as truncated rather than as small.
+
+The layout check is the one that catches a half download: the v2 header declares
+`[magic:u8x4][version:u32][model_offset:u64][model_len:u64][tensor_offset:u64]`, all little-endian,
+and those declared ranges are compared against the file's own length. A file that says its graph
+runs from 32 to 12 MB but stops at 100 bytes is refused here, with both numbers in the message.
+
+The shape check runs after the parse and before the engine is built, because `ocrs` dereferences
+those dimensions at recognition time: the recognition path indexes the third dimension and the
+detection path destructures four fixed ones. A recognition model of the wrong rank therefore does
+not fail on load — it panics on the first page read. The check is what turns that into an
+`OcrException` naming the role, the shape found and the shape expected. Detection needs a rank-4
+NCHW input with one channel and fixed height and width; recognition needs rank 4, one channel, and a
+non-zero fixed height if it fixes one.
+
+The managed side keeps one exception type. `OcrException.Code` is `model`, and `Defect`, `Role` and
+— when the file came from a directory — `FilePath` carry the rest. A `defect` value from a newer
+library that this package does not know reads as `OcrModelDefect.Unspecified`; the file is still
+refused and the message still says why.
+
+One note on the format itself. `rten` only reads `.rten` files when the `rten` feature of `ocrs` is
+enabled, and this crate now enables it (`ocrs`'s default features cover ONNX only). Without that
+feature the `.rten` files §2 and §3 name would have been refused at load, so the validation here
+would have blessed a file the loader could not open. Enabling it brings `rten-model-file` and
+`flatbuffers` in transitively, through `ocrs`, not as direct dependencies of this crate.
+
+### 14.2 What is not validated — read this before trusting the seal
+
+| Not checked | What that means |
+| --- | --- |
+| **That the weights behave** | A well-formed container with a plausible graph and adversarial weights passes every check and can recognise wrongly. Validation proves a file is a model of the right *shape*, never that it is the *right* model. A hostile model that is well formed remains hostile. |
+| **Who made it** | The SHA-256 of §14.3 is a fingerprint, not a signature. Two files with the same digest are the same bytes; nothing here says who wrote them. Provenance is the caller's policy. |
+| **Graph semantics** | Operators, attributes, constant values and everywhere-but-the-input shapes are the loader's business. A model made of operators this build does not register is refused by `rten` as `unparsable_graph`, which is a load-time refusal, not a semantic audit. |
+| **ONNX, beyond a sniff** | An ONNX model has no magic; it is a protocol-buffer message. `0x08` followed by a small version byte is what tells it from a text file or a PNG. The parse is the authoritative check, and a corrupt ONNX file that survives the sniff fails as `unparsable_graph`. |
+| **`RTEN` v1** | The v1 format has no header, so it is indistinguishable from any other FlatBuffers message, and it is refused as `unrecognized_format`. `rten-convert` emits v2 by default; re-export if you hold a v1 file. |
+| **A path that changes under you** | `OcrModelSet.LoadFromDirectory` hashes the files it reads; `OcrEngine.FromDirectory` reads them again. If something can write that directory between the two, pin the bytes instead: inspect, then `FromModels` with the same arrays. |
+| **A panic inside an operator** | `catch_unwind` at every entry point turns it into `TO_ERR_PANIC` rather than an unwind into C, but it is a containment, not a prevention, and it is not specific to models. |
+| **Non-UTF-8 paths** | The ABI takes UTF-8 bytes, not NUL-terminated strings and not a platform string type. A Windows path that is not valid UTF-8 is refused by name; it is never mangled. |
+
+There is no download, no environment variable, no default directory and no fallback model: the
+directory named is the directory read, and the only file names looked for are `detection.rten` and
+`recognition.rten`.
+
+### 14.3 Identity
+
+Each model gets the SHA-256 of its bytes, as sixty-four lowercase hexadecimal characters, computed
+from the same bytes the engine loaded. The pair gets
+
+```
+set = SHA-256(detection_digest || recognition_digest)
+```
+
+— the two 32-byte digests concatenated in that order. It is a pure function of the two files: two
+hosts that load the same weights report the same string, swapping detection and recognition changes
+it, and replacing either file changes it. The algorithm is implemented in
+`native/text-ocr/src/sha256.rs` rather than pulled in as a crate, and is pinned to the published
+FIPS 180-4 test vectors, so an error there fails `cargo test` instead of producing a
+plausible-looking identity.
+
+The identity surfaces in four places, all reading the same native computation:
+
+- `OcrEngine.Models` — the identity of a loaded engine, read once and kept.
+- `OcrRecognition.Models` and `OcrPageOutcome.Models` — on every result, so a report can say which
+  weights produced the page. The native result document carries it as a `models` object:
+  `{"detection":{…},"recognition":{…},"set":"…"}`.
+- `OcrModelSet.Identity` — the preflight, without loading.
+- `to_engine_models` — the ABI entry point the first three use.
+
+An absent `models` object reads as no identity rather than as an error: a native library older than
+this feature can only have loaded the bytes it was given, so there is nothing to invent.
+
+### 14.4 Directory discovery
+
+A caller who keeps its weights on disk names the directory and gets validation, identity and load in
+one step:
+
+```csharp
+using var engine = OcrEngine.FromDirectory("/opt/ocr-models");
+Console.WriteLine(engine.Models);   // models <set>: detection <digest>, recognition <digest>
+```
+
+or, when it wants to look before it loads forty megabytes:
+
+```csharp
+var set = OcrModelSet.LoadFromDirectory("/opt/ocr-models");
+if (set.Identity.Sha256 != expected) throw new InvalidOperationException("unexpected weights");
+```
+
+`OcrModelSet` reads and hashes the two files and nothing else: no parse, no weights kept. A missing
+file is an `OcrException` with `Defect == OcrModelDefect.MissingFile` and `FilePath` set to the path
+that was looked for, so the message can name a file the caller did not type. A directory that does
+not exist, or a path that is a file, has its own defect (`missing_directory`, `not_a_directory`).
+
+`FromDirectory` takes the default Latin alphabet. A recognition model trained on another alphabet
+needs the dictionary, which only `FromModels` carries, so that caller reads the two files and passes
+their bytes — the validation is identical either way.
+
+### 14.5 What the caller still has to check
+
+The library validates shape, not trust. A host that cares which weights it ran should:
+
+1. **Pin the identity.** Keep the expected pair digest in configuration and compare it against
+   `OcrModelSet.Identity.Sha256` at start-up — before an engine exists, not after the first page.
+2. **Treat a model file as code.** It is read into a process that runs it. Load only from a path the
+   application controls, never from a directory an untrusted party can write.
+3. **Re-check after an update.** A new digest is not an error; it is a change that a report will
+   record, and that a policy may or may not accept.
+4. **Act on the defect, not the prose.** `OcrException.Defect` is stable; the message is for a log.
+5. **Record it.** `result.Models` on every result is what makes a later investigation answerable:
+   this text was read with these weights.
+
+What none of that fixes is the first row of §14.2: a well-formed model with hostile weights is still
+hostile. Validation says the file is a model; only provenance says whose.
+
+### 14.6 The ABI: four additive exports, revision unchanged
+
+```c
+int32_t to_model_inspect(const uint8_t *model, size_t length, int32_t kind,
+                         ToBuffer *out_json, ToError **out_error);
+int32_t to_model_set_inspect(const uint8_t *directory, size_t length,
+                             ToBuffer *out_json, ToError **out_error);
+ToEngine *to_engine_create_from_directory(const uint8_t *directory, size_t length,
+                                          const uint8_t *dictionary, size_t dictionary_len,
+                                          ToError **out_error);
+int32_t to_engine_models(const ToEngine *engine, ToBuffer *out_json, ToError **out_error);
+```
+
+`kind` is `0` for detection and `1` for recognition; anything else is `invalid_argument`. Paths are
+UTF-8 bytes and a length, like every other string on this ABI. `to_abi_version` stays **2**: nothing
+that was there moved, so a host written against revision 2 runs unchanged, and a host that wants
+model management calls a symbol it can check for. `FromModels` keeps its signature and its
+behaviour — it now validates before it loads — so no caller changes.
+
+### 14.7 What is proved, and where
+
+- **The container rules** are proved in Rust, in `native/text-ocr/src/models.rs`: an empty file, a
+  file that stops inside the header, a file cut at 100 bytes whose header still declares a 1 KB
+  graph, a text file with no magic, an `RTEN` v3 header, a zero-length graph, an ONNX file accepted
+  by its signature, and a directory missing a file (whose message names it). `cargo test --lib` runs
+  them.
+- **The digests** are pinned to the FIPS 180-4 vectors — empty input, `abc`, the quick brown fox,
+  56 and 64 zero bytes — and the pair digest is proved order-sensitive, in `src/sha256.rs`.
+- **The identity** is proved stable for the same bytes and different for a changed one, and the pair
+  digest different when either model changes, in `models.rs`.
+- **The managed mapping** — every defect name to `OcrModelDefect`, the role and file fields, an
+  unknown defect still refusing as a model error, an `ocr` error staying a plain `OcrException`, the
+  identity in a recognised page, in a refused page and on every page of a PDF, and the engine
+  reporting the identity the native side recorded — is proved against a double in
+  `tests/Text.Ocr.Tests`, and the directory path end to end against the real library in
+  `NativeModelTests`: a missing file, junk bytes with their hex in the message, a truncated
+  download, and a directory whose headers are well formed but whose graph is zeros — accepted by the
+  preflight, refused by the loader as `unparsable_graph`, with no panic.
+- **That a real model still loads and reads** needs the weights; those tests skip, and say so, on
+  every machine that holds none.

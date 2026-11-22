@@ -15,7 +15,7 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
 # Text detection and line recognition. MIT OR Apache-2.0.
-ocrs = "0.14"
+ocrs = { version = "0.14", features = ["rten"] }
 # Inference runtime the models run on. MIT OR Apache-2.0.
 rten = "0.28"
 # The tensors that runtime hands back (the detection mask). MIT OR Apache-2.0.

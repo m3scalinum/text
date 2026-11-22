@@ -149,10 +149,11 @@ public sealed class OcrRefusal
 /// </remarks>
 public abstract class OcrRecognition
 {
-    private protected OcrRecognition(int width, int height)
+    private protected OcrRecognition(int width, int height, OcrModelIdentity? models)
     {
         Width = width;
         Height = height;
+        Models = models;
     }
 
     /// <summary>The image width, in pixels.</summary>
@@ -160,6 +161,16 @@ public abstract class OcrRecognition
 
     /// <summary>The image height, in pixels.</summary>
     public int Height { get; }
+
+    /// <summary>
+    /// The identity of the weights this reading was produced with, or
+    /// <see langword="null"/> when the native library predates model identity.
+    /// </summary>
+    /// <remarks>
+    /// This is what lets a report say which models produced a page: the two model
+    /// digests and one digest over the pair, as the engine loaded them.
+    /// </remarks>
+    public OcrModelIdentity? Models { get; }
 
     /// <summary>Whether this is a reading or a refusal.</summary>
     public abstract OcrOutcome Outcome { get; }
@@ -176,8 +187,9 @@ public sealed class OcrResult : OcrRecognition
         double meanConfidence,
         int width,
         int height,
-        OcrPreprocessReport? preprocess = null)
-        : base(width, height)
+        OcrPreprocessReport? preprocess = null,
+        OcrModelIdentity? models = null)
+        : base(width, height, models)
     {
         Text = text;
         Lines = lines;
@@ -222,8 +234,13 @@ public sealed class OcrResult : OcrRecognition
 /// </summary>
 public sealed class OcrUnreadable : OcrRecognition
 {
-    internal OcrUnreadable(int width, int height, double meanConfidence, OcrRefusal refusal)
-        : base(width, height)
+    internal OcrUnreadable(
+        int width,
+        int height,
+        double meanConfidence,
+        OcrRefusal refusal,
+        OcrModelIdentity? models = null)
+        : base(width, height, models)
     {
         MeanConfidence = meanConfidence;
         Refusal = refusal;
@@ -321,12 +338,18 @@ public sealed class OcrLine
 /// </summary>
 public abstract class OcrPageOutcome
 {
-    private protected OcrPageOutcome(int pageIndex, int width, int height, int dpi)
+    private protected OcrPageOutcome(
+        int pageIndex,
+        int width,
+        int height,
+        int dpi,
+        OcrModelIdentity? models)
     {
         PageIndex = pageIndex;
         Width = width;
         Height = height;
         Dpi = dpi;
+        Models = models;
     }
 
     /// <summary>The zero-based page index in the document.</summary>
@@ -340,6 +363,12 @@ public abstract class OcrPageOutcome
 
     /// <summary>The resolution the page was rasterised at.</summary>
     public int Dpi { get; }
+
+    /// <summary>
+    /// The identity of the weights this page was produced with, or
+    /// <see langword="null"/> when the native library predates model identity.
+    /// </summary>
+    public OcrModelIdentity? Models { get; }
 
     /// <summary>Whether this is a reading or a refusal.</summary>
     public abstract OcrOutcome Outcome { get; }
@@ -358,8 +387,9 @@ public sealed class OcrPageResult : OcrPageOutcome
         int width,
         int height,
         int dpi,
-        OcrPreprocessReport? preprocess = null)
-        : base(pageIndex, width, height, dpi)
+        OcrPreprocessReport? preprocess = null,
+        OcrModelIdentity? models = null)
+        : base(pageIndex, width, height, dpi, models)
     {
         Text = text;
         Lines = lines;
@@ -405,8 +435,14 @@ public sealed class OcrPageResult : OcrPageOutcome
 public sealed class OcrPageUnreadable : OcrPageOutcome
 {
     internal OcrPageUnreadable(
-        int pageIndex, int width, int height, int dpi, double meanConfidence, OcrRefusal refusal)
-        : base(pageIndex, width, height, dpi)
+        int pageIndex,
+        int width,
+        int height,
+        int dpi,
+        double meanConfidence,
+        OcrRefusal refusal,
+        OcrModelIdentity? models = null)
+        : base(pageIndex, width, height, dpi, models)
     {
         MeanConfidence = meanConfidence;
         Refusal = refusal;
