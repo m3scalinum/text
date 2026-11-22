@@ -58,6 +58,7 @@ file names, to find what you want.
 | 22 | [22-docx.md](22-docx.md) | `M3scalinum.Text.Docx`: reading a Word document into the document model |
 | 28 | [28-xlsx.md](28-xlsx.md) | `M3scalinum.Text.Xlsx`: reading an Excel workbook into typed sheets, over `calamine` |
 | 29 | [29-threat-model.md](29-threat-model.md) | Every received document is hostile: the parsing surfaces, their limits, the test for each, and what is not bounded |
+| 39 | [39-fuzzing.md](39-fuzzing.md) | libFuzzer over the four parsers: the targets, the corpus, the weekly cadence, the artefact a crash hands back, and what it does not cover |
 
 ## The protocol server
 
