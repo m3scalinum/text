@@ -93,14 +93,14 @@ public abstract class TransportSuiteTests
     {
         await using var client = await ConnectAsync();
 
-        var response = await client.SendAsync("""{"jsonrpc":"2.0","id":"abc","method":"resources/list"}""");
+        var response = await client.SendAsync("""{"jsonrpc":"2.0","id":"abc","method":"prompts/list"}""");
 
         Assert.NotNull(response);
 
         var error = response!.Value.GetProperty("error");
 
         Assert.Equal(-32601, error.GetProperty("code").GetInt32());
-        Assert.Contains("resources/list", error.GetProperty("message").GetString(), System.StringComparison.Ordinal);
+        Assert.Contains("prompts/list", error.GetProperty("message").GetString(), System.StringComparison.Ordinal);
         Assert.Equal("abc", response.Value.GetProperty("id").GetString());
     }
 
