@@ -41,6 +41,28 @@ public static class PdfSigner
         ReadOnlySpan<byte> pdf,
         X509Certificate2 certificate,
         PdfSignatureOptions? options = null)
+        => SignWithReport(pdf, certificate, options).Content;
+
+    /// <summary>
+    /// Signs <paramref name="pdf"/> and returns the bytes together with what the revocation seam
+    /// contributed to the store.
+    /// </summary>
+    /// <param name="pdf">The document to sign.</param>
+    /// <param name="certificate">The signing certificate, with its private key.</param>
+    /// <param name="options">What the signature declares. Optional.</param>
+    /// <returns>The signed bytes, the level this call was configured to reach, the evidence it
+    /// embedded, and the revocation that was missing.</returns>
+    /// <exception cref="PdfSignatureException">
+    /// The data is not a PDF this writer can update, the certificate has no private key, the
+    /// appearance cannot be drawn, or the timestamp authority failed.
+    /// </exception>
+    /// <exception cref="PdfRevocationException">
+    /// PAdES-B-LT was asked for and a certificate of the chain has neither an OCSP answer nor a CRL.
+    /// </exception>
+    public static PdfSignatureResult SignWithReport(
+        ReadOnlySpan<byte> pdf,
+        X509Certificate2 certificate,
+        PdfSignatureOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(certificate);
         options ??= new PdfSignatureOptions();
@@ -58,6 +80,10 @@ public static class PdfSigner
         var appearance = options.Appearance;
         appearance?.Validate();
         ValidateTimestamp(options);
+        ValidateLevel(options);
+
+        var material = ResolveDss(options, certificate);
+        var dss = material?.Options;
 
         var text = Encoding.Latin1.GetString(pdf);
         var document = PdfDocument.Parse(text);
@@ -90,7 +116,6 @@ public static class PdfSigner
         var catalog = document.Catalog;
         catalog = WithSignatureField(document, catalog, fieldNumber, append);
 
-        var dss = options.Dss;
         var dssCertificates = new List<int>();
         var dssOcsp = new List<int>();
         var dssCrls = new List<int>();
@@ -126,8 +151,220 @@ public static class PdfSigner
             WriteDssStreams(append, dss, dssCertificates, dssOcsp, dssCrls);
         }
 
-        return Finish(append, document, next, signatureOffset, certificate, options);
+        var signed = Finish(append, document, next, signatureOffset, certificate, options);
+
+        return new PdfSignatureResult(
+            signed,
+            Level(options),
+            material?.Revocation ?? [],
+            material?.Missing ?? []);
     }
+
+    /// <summary>The level this call is configured to reach.</summary>
+    private static PdfSignatureLevel Level(PdfSignatureOptions options)
+        => options.Level ?? (options.RevocationSource is not null ? PdfSignatureLevel.BaselineLT
+            : options.TimestampAuthority is null ? PdfSignatureLevel.BaselineB
+            : PdfSignatureLevel.BaselineT);
+
+    /// <summary>Refuses a requested level the writer cannot produce, and a request that means nothing.</summary>
+    private static void ValidateLevel(PdfSignatureOptions options)
+    {
+        if (options.Level is PdfSignatureLevel.None)
+        {
+            throw new PdfSignatureException("a signature level of None asks for nothing; leave Level unset");
+        }
+
+        if (options.Level is PdfSignatureLevel.BaselineLTA)
+        {
+            throw new PdfSignatureException(
+                "PAdES-B-LTA needs a document timestamp over the finished file: sign at BaselineLT and archive the result with PdfArchiveTimestamp.Refresh");
+        }
+    }
+
+    /// <summary>
+    /// Builds the store the signature will carry: the chain the caller supplied, the evidence it
+    /// supplied, and the answers the revocation source returned for the certificates nothing covers.
+    /// </summary>
+    /// <remarks>
+    /// This is the single path a store is written through, whether the evidence came from
+    /// <see cref="PdfSignatureOptions.Dss"/> or from <see cref="PdfSignatureOptions.RevocationSource"/>,
+    /// so a level is judged and a store is written by the same rules. The source's answers are read
+    /// far enough to say they name the certificate — the writer does not authenticate them; the
+    /// verifier does, and a response that does not verify is not evidence there.
+    /// </remarks>
+    private static PdfDssPlan? ResolveDss(PdfSignatureOptions options, X509Certificate2 signer)
+    {
+        var supplied = options.Dss;
+        var source = options.RevocationSource;
+
+        if (supplied is null && source is null)
+        {
+            return null;
+        }
+
+        var certificates = new List<X509Certificate2>();
+
+        if (source is not null)
+        {
+            // A source-driven store must carry the signing certificate itself: it is the one the
+            // evidence is about, and a caller that listed only the issuers would lose it.
+            AddCertificate(certificates, signer);
+        }
+
+        foreach (var certificate in supplied?.Certificates ?? [])
+        {
+            AddCertificate(certificates, certificate);
+        }
+
+        // The caller's own bytes are embedded as they are: they are what it chose to hand over.
+        var ocsp = supplied?.OcspResponses.Select(entry => entry.ToArray()).ToList() ?? [];
+        var crls = supplied?.Crls.Select(entry => entry.ToArray()).ToList() ?? [];
+
+        var revocation = new List<PdfRevocationUse>();
+        var missing = new List<PdfCertificateReference>();
+
+        foreach (var subject in certificates)
+        {
+            var issuer = IssuerOf(certificates, subject);
+            if (issuer is null)
+            {
+                // An anchor is its own authority: there is no one to ask about it.
+                continue;
+            }
+
+            var covered = new List<PdfRevocationUse>(2);
+
+            if (FindOcsp(ocsp, subject, issuer) is { } ocspAnswer)
+            {
+                covered.Add(Use(subject, issuer, PdfRevocationKind.Ocsp, ocspAnswer.ProducedAt));
+            }
+
+            if (FindCrl(crls, subject, issuer) is { } crlAnswer)
+            {
+                covered.Add(Use(subject, issuer, PdfRevocationKind.Crl, crlAnswer.ThisUpdate));
+            }
+
+            if (covered.Count == 0 && source is not null)
+            {
+                var answer = source.GetRevocation(subject, issuer);
+
+                if (answer.OcspResponse is { } ocspBytes
+                    && PdfOcspResponse.Parse(ocspBytes.Span) is { } parsed
+                    && parsed.Answers(subject, issuer))
+                {
+                    ocsp.Add(ocspBytes.ToArray());
+                    covered.Add(Use(subject, issuer, PdfRevocationKind.Ocsp, parsed.ProducedAt));
+                }
+
+                if (answer.Crl is { } crlBytes
+                    && PdfCrl.Parse(crlBytes.Span) is { } parsedCrl
+                    && parsedCrl.IssuedBy(issuer))
+                {
+                    crls.Add(crlBytes.ToArray());
+                    covered.Add(Use(subject, issuer, PdfRevocationKind.Crl, parsedCrl.ThisUpdate));
+                }
+            }
+
+            if (covered.Count == 0)
+            {
+                missing.Add(new PdfCertificateReference(subject.Subject, subject.Issuer, Serial(subject)));
+                continue;
+            }
+
+            revocation.AddRange(covered);
+        }
+
+        if (missing.Count > 0 && Level(options) == PdfSignatureLevel.BaselineLT)
+        {
+            var first = missing[0];
+            throw new PdfRevocationException(
+                first.Subject,
+                first.Issuer,
+                first.SerialNumber,
+                $"no revocation data covers \"{first.Subject}\" (issuer \"{first.Issuer}\", serial {first.SerialNumber}): a PAdES-B-LT signature needs an OCSP answer or a CRL for every certificate of its chain, and this library never fetches one. Answer for it from the supplied IRevocationSource, or ask for PdfSignatureLevel.BaselineT to sign without its evidence.");
+        }
+
+        return new PdfDssPlan(
+            new PdfDssOptions
+            {
+                Certificates = certificates,
+                OcspResponses = ocsp.Select(entry => (ReadOnlyMemory<byte>)entry).ToList(),
+                Crls = crls.Select(entry => (ReadOnlyMemory<byte>)entry).ToList(),
+            },
+            revocation,
+            missing);
+    }
+
+    /// <summary>The store resolved from the options, and what it does and does not cover.</summary>
+    private sealed record PdfDssPlan(
+        PdfDssOptions Options,
+        IReadOnlyList<PdfRevocationUse> Revocation,
+        IReadOnlyList<PdfCertificateReference> Missing);
+
+    private static void AddCertificate(List<X509Certificate2> certificates, X509Certificate2 certificate)
+    {
+        foreach (var existing in certificates)
+        {
+            if (existing.RawData.AsSpan().SequenceEqual(certificate.RawData))
+            {
+                return;
+            }
+        }
+
+        certificates.Add(certificate);
+    }
+
+    /// <summary>The certificate in the chain that issued <paramref name="subject"/>, or null for an anchor.</summary>
+    private static X509Certificate2? IssuerOf(List<X509Certificate2> certificates, X509Certificate2 subject)
+    {
+        foreach (var candidate in certificates)
+        {
+            if (!candidate.RawData.AsSpan().SequenceEqual(subject.RawData)
+                && candidate.SubjectName.RawData.AsSpan().SequenceEqual(subject.IssuerName.RawData))
+            {
+                return candidate;
+            }
+        }
+
+        return null;
+    }
+
+    private static PdfOcspResponse? FindOcsp(List<byte[]> responses, X509Certificate2 subject, X509Certificate2 issuer)
+    {
+        foreach (var der in responses)
+        {
+            if (PdfOcspResponse.Parse(der) is { } parsed && parsed.Answers(subject, issuer))
+            {
+                return parsed;
+            }
+        }
+
+        return null;
+    }
+
+    private static PdfCrl? FindCrl(List<byte[]> lists, X509Certificate2 subject, X509Certificate2 issuer)
+    {
+        foreach (var der in lists)
+        {
+            if (PdfCrl.Parse(der) is { } parsed && parsed.IssuedBy(issuer))
+            {
+                return parsed;
+            }
+        }
+
+        return null;
+    }
+
+    private static PdfRevocationUse Use(
+        X509Certificate2 subject,
+        X509Certificate2 issuer,
+        PdfRevocationKind kind,
+        DateTimeOffset issuedAt)
+        => new(subject.Subject, issuer.Subject, Serial(subject), kind, issuedAt);
+
+    /// <summary>The serial number as hexadecimal, in the DER byte order, as reports name it.</summary>
+    private static string Serial(X509Certificate2 certificate)
+        => Convert.ToHexString(certificate.SerialNumberBytes.Span);
 
     /// <summary>
     /// Computes the byte range on the built file, signs it, and fills the placeholder in.
