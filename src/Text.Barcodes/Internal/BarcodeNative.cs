@@ -74,6 +74,60 @@ internal sealed class BarcodeNative
     public static byte[] Png(BarcodeHandle barcode, int scale)
         => ReadBytes(barcode, scale, "read the PNG", NativeMethods.BarcodePng);
 
+    /// <summary>The style scalars the styled entry points take, already packed for the ABI.</summary>
+    /// <param name="Foreground">The module colour as <c>0xRRGGBB</c>, or a negative value for black.</param>
+    /// <param name="Background">The background as <c>0xRRGGBB</c>, or a negative value for white.</param>
+    /// <param name="LogoFraction">The share the reserved centre covers, or zero for none.</param>
+    /// <param name="LogoFill">The fill as <c>0xRRGGBB</c>, or a negative value for the background.</param>
+    public readonly record struct StyleArguments(
+        int Foreground, int Background, double LogoFraction, int LogoFill)
+    {
+        /// <summary>Reads the options into the four scalars, taking the defaults where none is set.</summary>
+        /// <param name="foreground">The module colour, or null.</param>
+        /// <param name="background">The background colour, or null.</param>
+        /// <param name="logo">The reserved centre, or null.</param>
+        /// <returns>The four scalars.</returns>
+        public static StyleArguments From(
+            BarcodeColor? foreground, BarcodeColor? background, BarcodeLogo? logo)
+            => new(
+                foreground?.ToPacked() ?? -1,
+                background?.ToPacked() ?? -1,
+                logo?.Fraction ?? 0d,
+                logo?.Fill?.ToPacked() ?? -1);
+    }
+
+    /// <summary>The styled SVG rendering of a symbol.</summary>
+    public static string SvgStyled(BarcodeHandle barcode, StyleArguments style)
+        => ReadStyledString(barcode, "read the styled SVG", style, NativeMethods.BarcodeSvgStyled);
+
+    /// <summary>The styled raster rendering of a symbol.</summary>
+    public static byte[] PngStyled(BarcodeHandle barcode, int scale, StyleArguments style)
+    {
+        var added = false;
+        try
+        {
+            barcode.DangerousAddRef(ref added);
+            var status = NativeMethods.BarcodePngStyled(
+                barcode.DangerousGetHandle(),
+                (uint)scale,
+                style.Foreground,
+                style.Background,
+                style.LogoFraction,
+                style.LogoFill,
+                out var png,
+                out var error);
+            NativeCallException.Throw(status, error, "read the styled PNG");
+            return NativeCallException.ReadAndFree(png);
+        }
+        finally
+        {
+            if (added)
+            {
+                barcode.DangerousRelease();
+            }
+        }
+    }
+
     /// <summary>Encodes for paper and returns the raster with the geometry the native side computed.</summary>
     /// <param name="symbology">The ABI name of the symbology.</param>
     /// <param name="payload">The text to encode.</param>
@@ -84,6 +138,7 @@ internal sealed class BarcodeNative
     /// <param name="widthMillimetres">The whole-symbol width, or zero when the module size sizes it.</param>
     /// <param name="moduleMillimetres">The X-dimension, or zero when the width sizes it.</param>
     /// <param name="widthModules">The reserved width in modules, or zero to leave it unchecked.</param>
+    /// <param name="style">The colours and the reserved centre, or null for the plain rendering.</param>
     /// <returns>The PNG and the geometry JSON.</returns>
     public static (byte[] Png, string Geometry) Print(
         string symbology,
@@ -94,21 +149,50 @@ internal sealed class BarcodeNative
         int dpi,
         double widthMillimetres,
         double moduleMillimetres,
-        int widthModules)
+        int widthModules,
+        BarcodeNative.StyleArguments? style = null)
     {
-        var status = NativeMethods.BarcodePrint(
-            symbology,
-            payload,
-            quietZone,
-            barHeight,
-            errorCorrection,
-            dpi,
-            widthMillimetres,
-            moduleMillimetres,
-            (uint)widthModules,
-            out var png,
-            out var geometry,
-            out var error);
+        int status;
+        NativeBuffer png;
+        NativeBuffer geometry;
+        IntPtr error;
+
+        if (style is { } arguments)
+        {
+            status = NativeMethods.BarcodePrintStyled(
+                symbology,
+                payload,
+                quietZone,
+                barHeight,
+                errorCorrection,
+                dpi,
+                widthMillimetres,
+                moduleMillimetres,
+                (uint)widthModules,
+                arguments.Foreground,
+                arguments.Background,
+                arguments.LogoFraction,
+                arguments.LogoFill,
+                out png,
+                out geometry,
+                out error);
+        }
+        else
+        {
+            status = NativeMethods.BarcodePrint(
+                symbology,
+                payload,
+                quietZone,
+                barHeight,
+                errorCorrection,
+                dpi,
+                widthMillimetres,
+                moduleMillimetres,
+                (uint)widthModules,
+                out png,
+                out geometry,
+                out error);
+        }
 
         NativeCallException.Throw(status, error, $"print '{symbology}'");
 
@@ -319,6 +403,43 @@ internal sealed class BarcodeNative
 
     private delegate int ScaledBufferReader(
         IntPtr handle, uint scale, out NativeBuffer buffer, out IntPtr error);
+
+    private delegate int StyledBufferReader(
+        IntPtr handle,
+        int foreground,
+        int background,
+        double logoFraction,
+        int logoFill,
+        out NativeBuffer buffer,
+        out IntPtr error);
+
+    /// <summary>Holds the handle for one styled read, as <see cref="ReadString"/> does.</summary>
+    private static string ReadStyledString(
+        SafeHandle handle, string operation, StyleArguments style, StyledBufferReader read)
+    {
+        var added = false;
+        try
+        {
+            handle.DangerousAddRef(ref added);
+            var status = read(
+                handle.DangerousGetHandle(),
+                style.Foreground,
+                style.Background,
+                style.LogoFraction,
+                style.LogoFill,
+                out var buffer,
+                out var error);
+            NativeCallException.Throw(status, error, operation);
+            return NativeCallException.ReadAndFreeString(buffer);
+        }
+        finally
+        {
+            if (added)
+            {
+                handle.DangerousRelease();
+            }
+        }
+    }
 
     /// <summary>
     /// Holds the handle for the duration of one table read, so a finalizer cannot free the native

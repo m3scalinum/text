@@ -10,6 +10,7 @@ pub mod encode;
 pub mod ffi;
 pub mod gs1;
 pub mod print;
+pub mod style;
 pub mod symbology;
 
 /// The `rxing` version this build was compiled against. Reported across the ABI and used in the
@@ -38,6 +39,9 @@ static LIVE_PAGES: AtomicUsize = AtomicUsize::new(0);
 /// One encoded symbol, held open until the caller frees it.
 pub struct BtBarcode {
     inner: encode::Encoded,
+    /// The error correction level the symbol was written with, as rxing spells it. Kept because a
+    /// styled render reads the logo ceiling from it, and the module matrix does not carry it.
+    error_correction: Option<String>,
 }
 
 /// One decode attempt, held open until the caller frees it.
@@ -69,9 +73,12 @@ impl Drop for BtDecodePage {
 }
 
 /// The only way a barcode handle is created: counting it here is what keeps the count exact.
-fn barcode_handle(inner: encode::Encoded) -> Box<BtBarcode> {
+fn barcode_handle(inner: encode::Encoded, error_correction: Option<String>) -> Box<BtBarcode> {
     LIVE_BARCODES.fetch_add(1, Ordering::Relaxed);
-    Box::new(BtBarcode { inner })
+    Box::new(BtBarcode {
+        inner,
+        error_correction,
+    })
 }
 
 /// The only way a decode handle is created. See [`barcode_handle`].
@@ -387,12 +394,13 @@ pub unsafe extern "C" fn bt_barcode_encode(
             let options = encode::EncodeOptions {
                 quiet_zone: (quiet_zone >= 0).then_some(quiet_zone as u32),
                 bar_height: (bar_height > 0).then_some(bar_height as u32),
-                error_correction,
+                error_correction: error_correction.clone(),
             };
 
-            Ok(barcode_handle(encode::encode(
-                symbology, payload, &options,
-            )?))
+            Ok(barcode_handle(
+                encode::encode(symbology, payload, &options)?,
+                style::level_name(error_correction.as_deref()).map(str::to_string),
+            ))
         })
     }
 }
@@ -432,6 +440,91 @@ pub unsafe extern "C" fn bt_barcode_png(
             let barcode = barcode_ref(barcode)?;
             let png = encode::to_png(&barcode.inner, scale)?;
             set_buffer(out_png, png)?;
+            Ok(())
+        })
+    }
+}
+
+/// Reads the four style scalars the styled entry points take, as a [`style::Style`].
+///
+/// # Safety
+/// `barcode` must be a live handle.
+unsafe fn styled<'a>(
+    barcode: *const BtBarcode,
+    foreground: i32,
+    background: i32,
+    logo_fraction: f64,
+    logo_fill: i32,
+) -> Result<(&'a BtBarcode, style::Style), BtError> {
+    let barcode = unsafe { barcode_ref(barcode) }?;
+    let style = style::from_abi(foreground, background, logo_fraction, logo_fill)?;
+    Ok((barcode, style))
+}
+
+/// Writes the styled PNG rendering of `barcode` into `out_png`.
+///
+/// `foreground` and `background` are `0xRRGGBB`; a negative value takes the default, black and white.
+/// `logo_fraction` is the share of the symbol's area a reserved centre covers, zero for none, and
+/// `logo_fill` the `0xRRGGBB` it is filled with, negative for the background colour.
+///
+/// The module must be darker than the background and the pair must clear the WCAG floor, or the call
+/// is `BT_ERR_INVALID_ARGUMENT` with the measured ratio in the message. A logo is drawn on a QR Code
+/// only, inside the level's capacity and clear of the timing patterns, and the raster is read back
+/// with this build's own decoder before it is returned: a style that does not read back is refused
+/// rather than written.
+///
+/// # Safety
+/// `barcode` must be a live handle and `out_png` a valid pointer to a slot.
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn bt_barcode_png_styled(
+    barcode: *const BtBarcode,
+    scale: u32,
+    foreground: i32,
+    background: i32,
+    logo_fraction: f64,
+    logo_fill: i32,
+    out_png: *mut BtBuffer,
+    out_error: *mut *mut BtError,
+) -> i32 {
+    unsafe {
+        guard_status(out_error, || {
+            let (barcode, style) =
+                styled(barcode, foreground, background, logo_fraction, logo_fill)?;
+            let png = style::png(
+                &barcode.inner,
+                scale,
+                &style,
+                barcode.error_correction.as_deref(),
+            )?;
+            set_buffer(out_png, png)?;
+            Ok(())
+        })
+    }
+}
+
+/// Writes the styled SVG rendering of `barcode` into `out_svg`, under the same rules as
+/// [`bt_barcode_png_styled`].
+///
+/// # Safety
+/// `barcode` must be a live handle and `out_svg` a valid pointer to a slot.
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn bt_barcode_svg_styled(
+    barcode: *const BtBarcode,
+    foreground: i32,
+    background: i32,
+    logo_fraction: f64,
+    logo_fill: i32,
+    out_svg: *mut BtBuffer,
+    out_error: *mut *mut BtError,
+) -> i32 {
+    unsafe {
+        guard_status(out_error, || {
+            let (barcode, style) =
+                styled(barcode, foreground, background, logo_fraction, logo_fill)?;
+            let svg = style::svg(&barcode.inner, &style, barcode.error_correction.as_deref())?;
+            set_buffer(out_svg, svg.into_bytes())?;
             Ok(())
         })
     }
@@ -492,6 +585,71 @@ pub unsafe extern "C" fn bt_barcode_print(
                 quiet_zone: (quiet_zone >= 0).then_some(quiet_zone as u32),
                 bar_height: (bar_height > 0).then_some(bar_height as u32),
                 error_correction,
+                style: style::Style::default(),
+            };
+
+            let output = print::render(symbology, payload, &request)?;
+            set_buffer(out_json, output.geometry.json().into_bytes())?;
+            set_buffer(out_png, output.png)
+        })
+    }
+}
+
+/// Renders `payload` as a printable, styled symbol and returns the PNG and its geometry.
+///
+/// The target arguments are those of `bt_barcode_print`; the last four are those of
+/// `bt_barcode_png_styled`. The geometry is measured on the symbol the style paints, so the numbers a
+/// layout uses and the raster it prints are the same symbol.
+///
+/// # Safety
+/// Every pointer argument follows the contract in `docs/specifications/20-barcodes.md` §4.
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn bt_barcode_print_styled(
+    symbology_name: *const c_char,
+    payload: *const c_char,
+    quiet_zone: i32,
+    bar_height: i32,
+    error_correction: *const c_char,
+    dpi: f64,
+    width_mm: f64,
+    module_mm: f64,
+    reserved_modules: u32,
+    foreground: i32,
+    background: i32,
+    logo_fraction: f64,
+    logo_fill: i32,
+    out_png: *mut BtBuffer,
+    out_json: *mut BtBuffer,
+    out_error: *mut *mut BtError,
+) -> i32 {
+    unsafe {
+        guard_status(out_error, || {
+            if out_png.is_null() || out_json.is_null() {
+                return Err(BtError::invalid_argument(
+                    "the PNG and geometry slots must not be null",
+                ));
+            }
+
+            let symbology = symbology::Symbology::parse(read_str(symbology_name, "symbology")?)?;
+            let payload = read_str(payload, "payload")?;
+
+            let error_correction = if error_correction.is_null() {
+                None
+            } else {
+                let value = read_str(error_correction, "error correction")?;
+                (!value.is_empty()).then(|| value.to_string())
+            };
+
+            let request = print::PrintRequest {
+                dpi,
+                width_mm: (width_mm > 0.0).then_some(width_mm),
+                module_mm: (module_mm > 0.0).then_some(module_mm),
+                reserved_modules: (reserved_modules > 0).then_some(reserved_modules),
+                quiet_zone: (quiet_zone >= 0).then_some(quiet_zone as u32),
+                bar_height: (bar_height > 0).then_some(bar_height as u32),
+                error_correction,
+                style: style::from_abi(foreground, background, logo_fraction, logo_fill)?,
             };
 
             let output = print::render(symbology, payload, &request)?;
@@ -1182,6 +1340,83 @@ mod tests {
         assert_eq!(status, ffi::BT_ERR_INVALID_ARGUMENT);
         assert!(!error.is_null());
         unsafe { bt_error_free(error) };
+    }
+
+    #[test]
+    fn the_styled_entry_points_paint_a_brand_colour_and_read_back() {
+        let name = CString::new("QRCode").unwrap();
+        let payload = CString::new("https://m3scalinum.example/p/0123").unwrap();
+        let level = CString::new("Q").unwrap();
+        let mut error = ptr::null_mut();
+
+        let barcode = unsafe {
+            bt_barcode_encode(
+                name.as_ptr(),
+                payload.as_ptr(),
+                -1,
+                -1,
+                level.as_ptr(),
+                &mut error,
+            )
+        };
+        assert!(!barcode.is_null(), "encode failed");
+
+        let mut png = BtBuffer::empty();
+        let status = unsafe {
+            bt_barcode_png_styled(
+                barcode, 4, 0x1f3a93, 0xfff4e0, 0.10, -1, &mut png, &mut error,
+            )
+        };
+        assert_eq!(status, ffi::BT_OK, "styled png failed");
+        let signature = unsafe { std::slice::from_raw_parts(png.ptr, png.len.min(8)) };
+        assert_eq!(signature, b"\x89PNG\r\n\x1a\n");
+
+        // The raster the styled entry point wrote is a symbol this build reads.
+        let decoded = unsafe { bt_decode_png(png.ptr, png.len, &mut error) };
+        assert!(!decoded.is_null());
+        assert_eq!(unsafe { bt_decode_success(decoded) }, 1);
+        unsafe { bt_decode_free(decoded) };
+        unsafe { png.free() };
+
+        let mut svg = BtBuffer::empty();
+        let status = unsafe {
+            bt_barcode_svg_styled(barcode, 0x1f3a93, 0xfff4e0, 0.10, -1, &mut svg, &mut error)
+        };
+        assert_eq!(status, ffi::BT_OK, "styled svg failed");
+        let markup = unsafe { std::slice::from_raw_parts(svg.ptr, svg.len) };
+        let markup = std::str::from_utf8(markup).expect("utf-8");
+        assert!(markup.contains("fill=\"#1f3a93\""), "{markup}");
+        unsafe { svg.free() };
+
+        unsafe { bt_barcode_free(barcode) };
+    }
+
+    #[test]
+    fn a_pale_module_is_refused_across_the_styled_entry_point() {
+        let name = CString::new("QRCode").unwrap();
+        let payload = CString::new("PALE").unwrap();
+        let mut error = ptr::null_mut();
+
+        let barcode = unsafe {
+            bt_barcode_encode(
+                name.as_ptr(),
+                payload.as_ptr(),
+                -1,
+                -1,
+                ptr::null(),
+                &mut error,
+            )
+        };
+        assert!(!barcode.is_null());
+
+        let mut png = BtBuffer::empty();
+        let status = unsafe {
+            bt_barcode_png_styled(barcode, 4, 0x9e9e9e, -1, 0.0, -1, &mut png, &mut error)
+        };
+        assert_eq!(status, ffi::BT_ERR_INVALID_ARGUMENT);
+        assert!(!error.is_null());
+        unsafe { bt_error_free(error) };
+        unsafe { bt_barcode_free(barcode) };
     }
 
     #[test]
