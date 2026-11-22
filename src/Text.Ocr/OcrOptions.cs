@@ -63,6 +63,54 @@ public class OcrOptions
     public double MaximumRejectedWordRatio { get; init; } = DefaultMaximumRejectedWordRatio;
 
     /// <summary>
+    /// The most pixels an image may hold, width times height, before it is refused. Zero
+    /// means the library's ceiling, <see cref="MaximumImagePixelsCeiling"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The size is read from the format header — PNG's <c>IHDR</c>, JPEG's <c>SOF</c>,
+    /// BMP's information header, GIF's screen descriptor, TIFF's first <c>IFD</c>, WebP's
+    /// <c>VP8</c>/<c>VP8L</c>/<c>VP8X</c> block — so an image that declares more is
+    /// refused before its pixels are allocated. The refusal is an
+    /// <see cref="OcrImageLimitException"/> naming the size observed and the ceiling, not
+    /// an <see cref="OcrUnreadable"/>: the input is refused, the page was never read.
+    /// </para>
+    /// <para>
+    /// This may only <em>lower</em> the ceiling. A value above
+    /// <see cref="MaximumImagePixelsCeiling"/> is refused with
+    /// <see cref="ArgumentOutOfRangeException"/> rather than clamped, because a clamp
+    /// would report a ceiling the caller never wrote. The default of 64 000 000 is an A4
+    /// page at 600 DPI (34.8 megapixels) with room to spare, and is the ceiling
+    /// <c>Text.Barcodes</c> applies to an image it decodes.
+    /// </para>
+    /// </remarks>
+    public long MaximumImagePixels { get; init; }
+
+    /// <summary>
+    /// The largest number of bytes an encoded image may occupy before it is refused. Zero
+    /// means the library's ceiling, <see cref="MaximumImageBytesCeiling"/>.
+    /// </summary>
+    /// <remarks>
+    /// It is checked on the byte count alone, before a single header byte is read, so an
+    /// input that announces two gigabytes is refused without being touched. Like
+    /// <see cref="MaximumImagePixels"/> it may only lower the ceiling, and only applies
+    /// to an image read from bytes: pages of a PDF are rasterised under the rasteriser's
+    /// own ceiling.
+    /// </remarks>
+    public long MaximumImageBytes { get; init; }
+
+    /// <summary>
+    /// The pixel ceiling a caller may not raise: 64 000 000, an A4 page at 600 DPI with
+    /// room to spare.
+    /// </summary>
+    public const long MaximumImagePixelsCeiling = 64_000_000;
+
+    /// <summary>
+    /// The byte ceiling a caller may not raise: 256 MiB of encoded image.
+    /// </summary>
+    public const long MaximumImageBytesCeiling = 256L * 1024 * 1024;
+
+    /// <summary>
     /// Whether a page turned by 90°, 180° or 270° is detected and turned back before it
     /// is read. Off by default.
     /// </summary>
@@ -105,11 +153,40 @@ public class OcrOptions
     /// </summary>
     internal bool RequiresPreprocessing => DetectRotation || Deskew || Denoise;
 
+    /// <summary>
+    /// Whether the caller asked for a ceiling tighter than the library's, which is what
+    /// selects the ABI entry points that take the two numbers. Nothing asked for means the
+    /// call that was already proved is the one used.
+    /// </summary>
+    internal bool RequiresImageLimits => MaximumImagePixels > 0 || MaximumImageBytes > 0;
+
     internal virtual void Validate()
     {
         ValidateThreshold(nameof(MinimumPageConfidence), MinimumPageConfidence);
         ValidateThreshold(nameof(MinimumWordConfidence), MinimumWordConfidence);
         ValidateThreshold(nameof(MaximumRejectedWordRatio), MaximumRejectedWordRatio);
+        ValidateImageCeiling(nameof(MaximumImagePixels), MaximumImagePixels, MaximumImagePixelsCeiling);
+        ValidateImageCeiling(nameof(MaximumImageBytes), MaximumImageBytes, MaximumImageBytesCeiling);
+    }
+
+    /// <summary>
+    /// Refuses a ceiling outside 0..=<paramref name="ceiling"/>: zero means "the library's",
+    /// and a value above the ceiling is a request to lift the bound, which is refused
+    /// rather than clamped.
+    /// </summary>
+    private static void ValidateImageCeiling(string name, long value, long ceiling)
+    {
+        if (value < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                name, value, "The ceiling must be zero (the library's) or positive.");
+        }
+
+        if (value > ceiling)
+        {
+            throw new ArgumentOutOfRangeException(
+                name, value, $"The ceiling may only be lowered: the hard maximum is {ceiling}.");
+        }
     }
 
     private static void ValidateThreshold(string name, double value)

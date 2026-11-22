@@ -143,7 +143,7 @@ the counts in §7 are the runs. "No limit" and "no test" are stated as such, wit
 | XLSX text of one workbook | 64 MiB across all cells (`parse::DEFAULT_MAX_TEXT_BYTES`), spent as the cells are shaped | `XlsxErrorCode.Limit` | `parse.rs` — `a_workbook_over_the_text_budget_is_refused` |
 | XLSX XML depth, XML node count, part count | **no suite limit** — `calamine` parses the parts with `quick-xml`, a pull parser that keeps no recursion on the stack, and the suite never sees the XML | none | **no test** — nothing is bounded here; what the suite can bound is what it shapes (the three rows above, and the used-region cap), and §6 states the rest |
 | OCR: one rendered PDF page | 120 000 000 pixels (`pdf::MAX_PIXELS`), checked on the rendered pixmap | `OcrException` with the `pdf` code, naming the page, the size and the cap | **no test** — reaching the cap allocates a ~480 MB page first; the check itself is a single comparison |
-| OCR: encoded image (PNG, JPEG, BMP, GIF, TIFF, WebP) | **no suite dimension cap** — `image::load_from_memory`, whose default `Limits` allows 512 MiB of allocation per decode and sets no width or height | `OcrException` with the `image` code when the decoder refuses; otherwise the image is decoded | **no test** — the bound belongs to the dependency, and the suite sets none |
+| OCR: encoded image (PNG, JPEG, BMP, GIF, TIFF, WebP) | 64 000 000 pixels, read from the format header before the decoder allocates, and 256 MiB of encoded bytes (`limits::HARD_MAXIMUM_PIXELS`, `HARD_MAXIMUM_BYTES`); both are options and may only be lowered — a value above the hard maximum is refused, never clamped | `OcrImageLimitException` with `Code == "image_limit"` (`TO_ERR_IMAGE_LIMIT`), naming the size observed and the ceiling that refused it. Never an `OcrUnreadable`: the input was refused, no page was read | `native/text-ocr/src/limits.rs` — `a_png_that_announces_forty_thousand_square_is_refused_before_a_pixel_is_allocated` (a counting allocator proves the refusal allocates no pixels), `an_input_of_two_gibibytes_is_refused_on_bytes_without_being_read`, `a_lowered_ceiling_refuses_an_image_that_passed_the_default`; through the ABI, `to_image_admit` in `native/text-ocr/src/lib.rs` — `admitting_a_forty_thousand_square_png_is_a_typed_refusal_through_the_abi`, and in `tests/Text.Ocr.Tests/ImageLimitTests.cs` — `A_png_that_declares_forty_thousand_square_is_refused_as_a_typed_limit` |
 | OCR: pages read from a PDF | caller's `page_count` (0 means to the end), no suite cap | none | **no test** — a page range is a caller decision, not a parser bound |
 | Barcode: encoded payload | 4 096 bytes (`encode::MAX_PAYLOAD_BYTES`) | `BarcodeException` with `Limit` (`BT_ERR_LIMIT`) | `native/text-barcodes/src/encode.rs` — `an_oversized_payload_is_a_limit_error` |
 | Barcode: rasterised symbol | 100 000 000 pixels (`encode::MAX_RASTER_PIXELS`), scale 1–64 | `BarcodeException` with `Limit` | `encode.rs` — `a_scale_that_would_exceed_the_raster_limit_is_rejected` |
@@ -159,17 +159,19 @@ The bounds above are structural. They are not a sandbox, and four costs remain t
   takes. A host that accepts uploads needs its own timeout and process isolation.
 - **Transient memory.** Several limits are ceilings on the result, not on the peak. `calamine`
   builds a sheet's `Range` before `max_cells` is consulted, so a workbook that declares a huge used
-  region allocates that region first and is refused afterwards. The OCR pixel cap is checked on the
-  rendered pixmap, so the pixmap exists before the refusal. A Flate stream in a PDF now stops at
-  `PdfFile.MaxStreamBytes` while it is being decoded, so the bomb's bytes are never allocated; what
-  remains is the 32 MiB a stream may legitimately decode to, per stream, while a page's streams are
-  joined in memory. Budget for the peak, not for the limit.
+  region allocates that region first and is refused afterwards. The OCR *page* pixel cap is checked on
+  the rendered pixmap, so the pixmap exists before the refusal; an OCR *image* is the exception, its
+  ceiling read from the format header, so that refusal precedes the allocation and costs one decoder
+  read buffer. A Flate stream in a PDF now stops at `PdfFile.MaxStreamBytes` while it is being
+  decoded, so the bomb's bytes are never allocated; what remains is the 32 MiB a stream may
+  legitimately decode to, per stream, while a page's streams are joined in memory. Budget for the
+  peak, not for the limit.
 - **Third-party allocations.** `calamine` (XLSX), `roxmltree` (DOCX after the policy's own checks),
-  `image` (OCR and barcode decoding, default `Limits`: 512 MiB of allocation, no dimension cap),
-  `hayro` (OCR rendering) and `rxing` (barcode detection) each allocate before the suite sees the
-  result. The suite's caps are set below those defaults where it has one; where it has none, §5 says
-  so. A dependency upgrade can move these numbers, which is why
-  [dependencies.md](dependencies.md) is a gate.
+  `image` (OCR and barcode decoding, whose 512 MiB default `Limits` and unbounded dimensions the suite
+  now overrides with its own ceilings on both paths), `hayro` (OCR rendering) and `rxing` (barcode
+  detection) each allocate before the suite sees the result. The suite's caps are set below those
+  defaults where it has one; where it has none, §5 says so. A dependency upgrade can move these
+  numbers, which is why [dependencies.md](dependencies.md) is a gate.
 - **No document-level total.** PDF has no input-size cap and no page cap; OCR has no page cap; DOCX
   caps bytes but not, for instance, the total text length it returns. A caller that stores or
   forwards the result must apply its own quota.
@@ -219,5 +221,7 @@ fails. The Flate ceiling removed inflates the bomb into the page and both stream
 byte, depth and node ceilings removed turn their three tests from a refusal into an accepted packet;
 the DOCX run, cell, media, relationship, node and declaration ceilings removed fail their six tests.
 The rows that still say "no test" are the ones with no bound to remove: the whole-file size caps,
-`calamine`'s own XML handling, the OCR and barcode decode limits, and the ones whose fixture does not
-exist yet.
+`calamine`'s own XML handling, and the ones whose fixture does not exist yet. The OCR encoded-image
+row left this list when its ceiling arrived: `limits::admit` refuses on the header, and the tests fail
+as soon as that check is removed — the refusal turns into a decode error, and the allocation probe
+sees the pixel buffer grow with the claim instead of staying flat.

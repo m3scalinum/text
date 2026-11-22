@@ -110,6 +110,35 @@ internal static partial class NativeMethods
     internal static unsafe partial int PdfPageCount(
         byte* pdf, nuint length, out NativeBuffer json, out IntPtr error);
 
+    [LibraryImport(LibraryName, EntryPoint = "to_image_admit")]
+    internal static unsafe partial int ImageAdmit(
+        byte* image, nuint length, ulong maximumPixels, nuint maximumBytes,
+        out NativeBuffer json, out IntPtr error);
+
+    [LibraryImport(LibraryName, EntryPoint = "to_engine_recognize_limited")]
+    internal static unsafe partial int EngineRecognizeLimited(
+        IntPtr engine, byte* image, nuint length,
+        ulong maximumPixels, nuint maximumBytes,
+        double pageConfidence, double wordConfidence, double maxRejectedWordRatio,
+        out NativeBuffer json, out IntPtr error);
+
+    [LibraryImport(LibraryName, EntryPoint = "to_engine_recognize_preprocessed_limited")]
+    internal static unsafe partial int EngineRecognizePreprocessedLimited(
+        IntPtr engine, byte* image, nuint length,
+        ulong maximumPixels, nuint maximumBytes,
+        double pageConfidence, double wordConfidence, double maxRejectedWordRatio,
+        int detectRotation, int deskew, int denoise,
+        out NativeBuffer json, out IntPtr error);
+
+    [LibraryImport(LibraryName, EntryPoint = "to_engine_recognize_language_limited")]
+    internal static unsafe partial int EngineRecognizeLanguageLimited(
+        IntPtr engine, byte* image, nuint length,
+        ulong maximumPixels, nuint maximumBytes,
+        double pageConfidence, double wordConfidence, double maxRejectedWordRatio,
+        byte* language, nuint languageLength,
+        int detectRotation, int deskew, int denoise,
+        out NativeBuffer json, out IntPtr error);
+
     internal static string ReadUtf8(IntPtr pointer)
         => Marshal.PtrToStringUTF8(pointer) ?? string.Empty;
 }

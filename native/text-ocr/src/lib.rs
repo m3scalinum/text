@@ -16,10 +16,14 @@
 mod engine;
 mod ffi;
 mod language;
+mod limits;
 mod models;
 mod pdf;
 mod preprocess;
 mod sha256;
+
+#[cfg(test)]
+mod allocation_probe;
 
 use std::ffi::{CString, c_char};
 use std::path::PathBuf;
@@ -29,6 +33,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use engine::{Engine, EngineSet, LanguageEngines, Thresholds};
 use ffi::{ToBuffer, ToError, guard_buffer, guard_ptr, read_bytes};
 use language::{LanguageCatalogue, PageLanguages, normalize_tag};
+use limits::{ImageBounds, ImageHeader};
 use models::{ModelFile, ModelKind, ModelSet};
 use preprocess::PreprocessOptions;
 
@@ -499,6 +504,7 @@ pub unsafe extern "C" fn to_engine_recognize(
                 max_rejected_ratio: max_rejected_word_ratio,
             },
             PreprocessOptions::default(),
+            ImageBounds::default(),
             out_json,
             out_error,
         )
@@ -539,6 +545,7 @@ pub unsafe extern "C" fn to_engine_recognize_preprocessed(
                 max_rejected_ratio: max_rejected_word_ratio,
             },
             PreprocessOptions::from_flags(detect_rotation, deskew, denoise),
+            ImageBounds::default(),
             out_json,
             out_error,
         )
@@ -549,12 +556,14 @@ pub unsafe extern "C" fn to_engine_recognize_preprocessed(
 ///
 /// # Safety
 /// `engine` is null or a valid handle; `image` is valid for `length`.
+#[allow(clippy::too_many_arguments)]
 unsafe fn recognize_image(
     engine: *mut ToEngine,
     image: *const u8,
     length: usize,
     thresholds: Thresholds,
     preprocess: PreprocessOptions,
+    bounds: ImageBounds,
     out_json: *mut ToBuffer,
     out_error: *mut *mut ToError,
 ) -> i32 {
@@ -568,6 +577,10 @@ unsafe fn recognize_image(
         let handle = &*engine;
 
         guard_buffer(out_error, out_json, || {
+            // The byte ceiling is checked on the length before the bytes are copied: a host
+            // that announces two gigabytes is refused without this side allocating them.
+            crate::limits::check_encoded_bytes(length, bounds)?;
+
             let bytes = read_bytes(image, length, "image")?;
             if bytes.is_empty() {
                 return Err(ToError::invalid_argument("image is empty"));
@@ -575,8 +588,149 @@ unsafe fn recognize_image(
             handle
                 .engine
                 .default_engine()
-                .recognize_image(&bytes, thresholds, preprocess)
+                .recognize_image(&bytes, thresholds, preprocess, bounds)
         })
+    }
+}
+
+/// Reports the size an image declares, and refuses it before it is decoded.
+///
+/// This is the preflight behind every image entry point: the byte ceiling is applied to
+/// `length` alone, then the pixel ceiling to the dimensions the format header states, so
+/// no pixels are allocated. On success `out_json` holds
+/// `{"width":W,"height":H,"pixels":N,"format":"png","maximumPixels":…,"maximumBytes":…}`;
+/// on refusal the return value is `TO_ERR_IMAGE_LIMIT` and the error names the size
+/// observed and the ceiling.
+///
+/// `maximum_pixels` and `maximum_bytes` are ceilings that may only be lowered: zero takes
+/// the library default (64 000 000 pixels and 256 MiB), and a value above the hard maximum
+/// is refused rather than clamped.
+///
+/// # Safety
+/// `image` is valid for `length`; `out_json` and `out_error` are null or caller-owned slots.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn to_image_admit(
+    image: *const u8,
+    length: usize,
+    maximum_pixels: u64,
+    maximum_bytes: usize,
+    out_json: *mut ToBuffer,
+    out_error: *mut *mut ToError,
+) -> i32 {
+    unsafe {
+        guard_buffer(out_error, out_json, || {
+            let bounds = ImageBounds::from_options(maximum_pixels, maximum_bytes)?;
+            // Bounded on the length before the bytes are copied, as in the recognition path.
+            crate::limits::check_encoded_bytes(length, bounds)?;
+
+            let bytes = read_bytes(image, length, "image")?;
+            let header: ImageHeader = limits::admit(&bytes, bounds)?;
+
+            Ok(serde_json::json!({
+                "width": header.width,
+                "height": header.height,
+                "pixels": header.pixels(),
+                "format": header.format_name(),
+                "maximumPixels": bounds.maximum_pixels,
+                "maximumBytes": bounds.maximum_bytes,
+            })
+            .to_string()
+            .into_bytes())
+        })
+    }
+}
+
+/// Recognises an encoded image with explicit decode ceilings.
+///
+/// The counterpart of [`to_engine_recognize`] for a caller that wants to bound what the
+/// decode may cost. `maximum_pixels` and `maximum_bytes` may only be lowered: zero takes
+/// the library default (64 000 000 pixels and 256 MiB), and a value above the hard maximum
+/// is `invalid_argument` rather than a silent clamp. An image past either ceiling is
+/// `TO_ERR_IMAGE_LIMIT`, refused before its pixels are allocated.
+///
+/// # Safety
+/// Same contract as [`to_engine_recognize`].
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn to_engine_recognize_limited(
+    engine: *mut ToEngine,
+    image: *const u8,
+    length: usize,
+    maximum_pixels: u64,
+    maximum_bytes: usize,
+    page_confidence: f64,
+    word_confidence: f64,
+    max_rejected_word_ratio: f64,
+    out_json: *mut ToBuffer,
+    out_error: *mut *mut ToError,
+) -> i32 {
+    unsafe {
+        let bounds = match ImageBounds::from_options(maximum_pixels, maximum_bytes) {
+            Ok(bounds) => bounds,
+            Err(error) => return guard_buffer(out_error, out_json, || Err(error)),
+        };
+
+        recognize_image(
+            engine,
+            image,
+            length,
+            Thresholds {
+                page: page_confidence,
+                word: word_confidence,
+                max_rejected_ratio: max_rejected_word_ratio,
+            },
+            PreprocessOptions::default(),
+            bounds,
+            out_json,
+            out_error,
+        )
+    }
+}
+
+/// Recognises an encoded image after the requested preprocessing, under explicit ceilings.
+///
+/// [`to_engine_recognize_preprocessed`] with the two decode ceilings of
+/// [`to_engine_recognize_limited`].
+///
+/// # Safety
+/// Same contract as [`to_engine_recognize`].
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn to_engine_recognize_preprocessed_limited(
+    engine: *mut ToEngine,
+    image: *const u8,
+    length: usize,
+    maximum_pixels: u64,
+    maximum_bytes: usize,
+    page_confidence: f64,
+    word_confidence: f64,
+    max_rejected_word_ratio: f64,
+    detect_rotation: i32,
+    deskew: i32,
+    denoise: i32,
+    out_json: *mut ToBuffer,
+    out_error: *mut *mut ToError,
+) -> i32 {
+    unsafe {
+        let bounds = match ImageBounds::from_options(maximum_pixels, maximum_bytes) {
+            Ok(bounds) => bounds,
+            Err(error) => return guard_buffer(out_error, out_json, || Err(error)),
+        };
+
+        recognize_image(
+            engine,
+            image,
+            length,
+            Thresholds {
+                page: page_confidence,
+                word: word_confidence,
+                max_rejected_ratio: max_rejected_word_ratio,
+            },
+            PreprocessOptions::from_flags(detect_rotation, deskew, denoise),
+            bounds,
+            out_json,
+            out_error,
+        )
     }
 }
 
@@ -738,6 +892,96 @@ pub unsafe extern "C" fn to_engine_recognize_language(
     out_error: *mut *mut ToError,
 ) -> i32 {
     unsafe {
+        recognize_language_image(
+            engine,
+            image,
+            length,
+            Thresholds {
+                page: page_confidence,
+                word: word_confidence,
+                max_rejected_ratio: max_rejected_word_ratio,
+            },
+            PreprocessOptions::from_flags(detect_rotation, deskew, denoise),
+            ImageBounds::default(),
+            language,
+            language_len,
+            out_json,
+            out_error,
+        )
+    }
+}
+
+/// Recognises an encoded image with the model set of a named language, under explicit
+/// decode ceilings.
+///
+/// [`to_engine_recognize_language`] with the two decode ceilings of
+/// [`to_engine_recognize_limited`]: they may only be lowered, and an image past either is
+/// `TO_ERR_IMAGE_LIMIT` before its pixels are allocated.
+///
+/// # Safety
+/// Same contract as [`to_engine_recognize_language`].
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn to_engine_recognize_language_limited(
+    engine: *mut ToEngine,
+    image: *const u8,
+    length: usize,
+    maximum_pixels: u64,
+    maximum_bytes: usize,
+    page_confidence: f64,
+    word_confidence: f64,
+    max_rejected_word_ratio: f64,
+    language: *const u8,
+    language_len: usize,
+    detect_rotation: i32,
+    deskew: i32,
+    denoise: i32,
+    out_json: *mut ToBuffer,
+    out_error: *mut *mut ToError,
+) -> i32 {
+    unsafe {
+        let bounds = match ImageBounds::from_options(maximum_pixels, maximum_bytes) {
+            Ok(bounds) => bounds,
+            Err(error) => return guard_buffer(out_error, out_json, || Err(error)),
+        };
+
+        recognize_language_image(
+            engine,
+            image,
+            length,
+            Thresholds {
+                page: page_confidence,
+                word: word_confidence,
+                max_rejected_ratio: max_rejected_word_ratio,
+            },
+            PreprocessOptions::from_flags(detect_rotation, deskew, denoise),
+            bounds,
+            language,
+            language_len,
+            out_json,
+            out_error,
+        )
+    }
+}
+
+/// The body of both language image entry points, so the two signatures share one path.
+///
+/// # Safety
+/// `engine` is null or a valid handle; `image` and `language` are valid for their lengths.
+#[allow(clippy::too_many_arguments)]
+unsafe fn recognize_language_image(
+    engine: *mut ToEngine,
+    image: *const u8,
+    length: usize,
+    thresholds: Thresholds,
+    preprocess: PreprocessOptions,
+    bounds: ImageBounds,
+    language: *const u8,
+    language_len: usize,
+    out_json: *mut ToBuffer,
+    out_error: *mut *mut ToError,
+) -> i32 {
+    unsafe {
         if engine.is_null() {
             return guard_buffer(out_error, out_json, || {
                 Err(ToError::invalid_argument("engine must not be null"))
@@ -754,6 +998,9 @@ pub unsafe extern "C" fn to_engine_recognize_language(
                 )
             })?;
 
+            // Same order as the plain entry point: the length is bounded before it is copied.
+            crate::limits::check_encoded_bytes(length, bounds)?;
+
             let bytes = read_bytes(image, length, "image")?;
             if bytes.is_empty() {
                 return Err(ToError::invalid_argument("image is empty"));
@@ -761,16 +1008,7 @@ pub unsafe extern "C" fn to_engine_recognize_language(
 
             let requested = read_language(language, language_len)?;
 
-            languages.recognize_image(
-                &bytes,
-                Thresholds {
-                    page: page_confidence,
-                    word: word_confidence,
-                    max_rejected_ratio: max_rejected_word_ratio,
-                },
-                PreprocessOptions::from_flags(detect_rotation, deskew, denoise),
-                requested.as_deref(),
-            )
+            languages.recognize_image(&bytes, thresholds, preprocess, requested.as_deref(), bounds)
         })
     }
 }
@@ -1135,6 +1373,83 @@ mod tests {
         let status = unsafe { to_pdf_page_count(std::ptr::null(), 0, &mut json, &mut error) };
 
         assert_eq!(status, TO_ERR_INVALID_ARGUMENT);
+
+        unsafe {
+            to_error_free(error);
+            json.free();
+        }
+    }
+
+    #[test]
+    fn admitting_a_forty_thousand_square_png_is_a_typed_refusal_through_the_abi() {
+        let encoded = crate::limits::png_declaring(40_000, 40_000);
+        let mut json = ToBuffer::empty();
+        let mut error: *mut ToError = std::ptr::null_mut();
+
+        let status =
+            unsafe { to_image_admit(encoded.as_ptr(), encoded.len(), 0, 0, &mut json, &mut error) };
+
+        assert_eq!(status, crate::ffi::TO_ERR_IMAGE_LIMIT);
+        assert!(json.ptr.is_null());
+
+        let document = unsafe { (*error).json.clone() };
+        assert!(document.contains("\"code\":\"image_limit\""), "{document}");
+        assert!(document.contains("\"observed\":1600000000"), "{document}");
+        assert!(document.contains("\"maximum\":64000000"), "{document}");
+
+        unsafe {
+            to_error_free(error);
+            json.free();
+        }
+    }
+
+    #[test]
+    fn admitting_a_normal_image_reports_the_size_its_header_states() {
+        let encoded = crate::limits::png_declaring(320, 200);
+        let mut json = ToBuffer::empty();
+        let mut error: *mut ToError = std::ptr::null_mut();
+
+        let status =
+            unsafe { to_image_admit(encoded.as_ptr(), encoded.len(), 0, 0, &mut json, &mut error) };
+
+        assert_eq!(status, TO_OK);
+        assert!(error.is_null());
+
+        let document: serde_json::Value =
+            serde_json::from_slice(unsafe { std::slice::from_raw_parts(json.ptr, json.len) })
+                .expect("the document is JSON");
+
+        assert_eq!(document["width"], 320);
+        assert_eq!(document["height"], 200);
+        assert_eq!(document["pixels"], 64_000);
+        assert_eq!(document["format"], "png");
+        assert_eq!(document["maximumPixels"], 64_000_000u64);
+        assert_eq!(document["maximumBytes"], 268_435_456u64);
+
+        unsafe { json.free() };
+    }
+
+    #[test]
+    fn a_ceiling_above_the_hard_maximum_is_refused_before_the_image_is_looked_at() {
+        let encoded = crate::limits::png_declaring(320, 200);
+        let mut json = ToBuffer::empty();
+        let mut error: *mut ToError = std::ptr::null_mut();
+
+        let status = unsafe {
+            to_image_admit(
+                encoded.as_ptr(),
+                encoded.len(),
+                1_000_000_000,
+                0,
+                &mut json,
+                &mut error,
+            )
+        };
+
+        assert_eq!(status, TO_ERR_INVALID_ARGUMENT);
+
+        let document = unsafe { (*error).json.clone() };
+        assert!(document.contains("may only be lowered"), "{document}");
 
         unsafe {
             to_error_free(error);

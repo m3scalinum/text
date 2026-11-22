@@ -15,6 +15,10 @@ pub const TO_ERR_MODEL: i32 = 4;
 pub const TO_ERR_IMAGE: i32 = 5;
 pub const TO_ERR_PDF: i32 = 6;
 pub const TO_ERR_OCR: i32 = 7;
+/// An input past a hard ceiling: an image whose header declares more pixels, or more
+/// bytes, than a decode is allowed to cost. Not a bad page and not a bad decode — a
+/// refusal of the input, before anything is allocated for it.
+pub const TO_ERR_IMAGE_LIMIT: i32 = 8;
 
 /// A buffer allocated by Rust and freed by `to_buffer_free`.
 #[repr(C)]
@@ -112,6 +116,7 @@ pub fn code_name(code: i32) -> &'static str {
         TO_ERR_IMAGE => "image",
         TO_ERR_PDF => "pdf",
         TO_ERR_OCR => "ocr",
+        TO_ERR_IMAGE_LIMIT => "image_limit",
         _ => "unknown",
     }
 }
