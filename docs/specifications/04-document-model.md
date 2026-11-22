@@ -68,16 +68,16 @@ public one.
 | `BulletList(items)` | `- item` per line | Nesting via `BulletList` inside an item, indented 2 spaces per level |
 | `NumberedList(items)` | `+ item` per line | Same nesting rule |
 | `TermList(terms)` | `/ term: description` | |
-| `Table` | `#table(columns: (…), [..], …)` | Cells are content blocks; the header row is `table.header(…)`; `TypstTableCell` adds `colspan`/`rowspan`, and `HeaderScope` marks a header cell and its scope; see §3 "Merged cells" |
-| `Figure` | `#figure(image(…), alt: "…", caption: [..]) <label>` | Alternative text, caption and label are optional |
+| `Table` | `#table(columns: (…), [..], …)` | Cells are content blocks; the header row is `table.header(…)`; `TypstTableCell` adds `colspan`/`rowspan`, and `HeaderScope` marks a header cell and its scope; a labelled table is a numbered figure — see §3 "Cross references" |
+| `Figure` | `#figure(image(…), alt: "…", caption: [..]) <label>` | Alternative text, caption and label are optional; a labelled figure pins `kind: image` and `supplement: [Figure]` — see §3 "Cross references" |
 | `Image(path, width?, height?, fit?)` | `#image("path", width: …)` | `path` is a virtual asset path; the method lives on `TypstFigure` |
 | `CodeBlock(language, code)` | fenced block with language tag | Public: `TypstDocument.Code(language, code)`. Code is emitted verbatim, never escaped |
 | `InlineCode(code)` | `` `code` `` | Public: `TypstContent.Code(code)`. Backticks inside are handled by using a longer fence |
 | `Math(expression, block)` | `$ expression $` | `block: true` adds surrounding spaces and display mode |
 | `Quote(content, block)` | `#quote(block: true)[…]` | |
 | `Link(url, content?)` | `#link("url")[…]` | Without content, the URL is the text |
-| `Reference(label)` | `@label` | |
-| `Label(name)` | `<name>` | Attached to the preceding element |
+| `Reference(label, supplement?)` | `#ref(<label>)` / `#ref(<label>, supplement: […])` | A reference, not a number: Typst resolves it. See §3 "Cross references" |
+| `Label(name)` | `<name>` | Attaches to the preceding element; a repeated name is indexed. See §3 "Cross references" |
 | `PageBreak()` | `#pagebreak()` | |
 | `LineBreak()` | `\` + newline | |
 | `Divider()` | `#divider()` | Thematic break, styleable by templates |
@@ -88,7 +88,7 @@ public one.
 | `Footnote(content)` | `#footnote[…]` | |
 | `Cite(key, form?)` | `@key` or `#cite(<key>, form: "prose")` | `key` is a bibliography key |
 | `Bibliography(path, style?)` | `#bibliography("refs.bib", style: "ieee")` | `path` is a virtual asset path |
-| `Outline(title?, depth?)` | `#outline(title: […], depth: 2)` | |
+| `Outline(title?, depth?)` | `#outline(title: […], depth: 2)` | The table of contents: entries and page numbers come from the compilation — see §3 "Cross references" |
 | `TermList(terms)` | `/ term: description` | |
 | `Highlight(content)` | `#highlight[…]` | |
 | `Subscript(content)` / `Superscript(content)` | `#sub[…]` / `#super[…]` | |
@@ -115,6 +115,85 @@ is the supported way to use a Typst feature the model does not cover.
 
 The complete mapping between the Typst reference and this node set — including what is
 deliberately left to `Raw` — is in [11-reference-coverage.md](11-reference-coverage.md).
+
+### Cross references and the table of contents
+
+A numbered figure, a numbered table and a numbered section are all things Typst builds while it
+lays the document out: the counter advances in document order, a reference asks the laid-out
+document what number its target got, and a table of contents asks it which page each heading landed
+on. None of that exists before the compilation, so the model emits the markup that makes Typst do
+the work and computes no number of its own.
+
+```csharp
+var doc = TypstDocument.Create()
+    .Metadata(m => m.Title("Q3 2026 report"))
+    .Outline(TypstContent.Empty.Text("Contents"), depth: 2)
+    .Heading(1, "Revenue")
+    .Label(TypstLabelKind.Section)                     // = Revenue … <sec:1>
+    .Paragraph(c => c.Text("See ").Reference("sec:1"))
+    .Table(t => t
+        .Columns(TypstLength.Fr(1), TypstLength.Fr(2))
+        .HeaderRow("Item", "Amount")
+        .Row("Hosting", "1 200")
+        .WithCaption("Revenue by item")
+        .WithLabel("tbl:revenue"))                     // #figure(kind: table, …)[#table(…)] <tbl:revenue>
+    .Figure(f => f
+        .Image("charts/revenue.png")
+        .WithCaption("Revenue by month")
+        .WithLabel("fig:revenue"))                     // #figure(…, kind: image, supplement: [Figure]) <fig:revenue>
+    .Paragraph(c => c
+        .Text("Between ")
+        .Reference("tbl:revenue")
+        .Text(" and ")
+        .Reference("fig:revenue", supplement: "Chart")
+        .Text("."));
+```
+
+| Call | Emitted Typst | What decides the number |
+| --- | --- | --- |
+| `Heading(1, "Revenue").Label(TypstLabelKind.Section)` | `= Revenue` then `<sec:1>` | `counter(heading)`; the label also emits `#set heading(numbering: "1.1")` |
+| `Heading(…).Label("sec:revenue")` | `= Revenue` then `<sec:revenue>` | the same, with the caller's name |
+| `Figure(f => f … .WithLabel("fig:revenue"))` | `#figure(…, kind: image, supplement: [Figure]) <fig:revenue>` | `counter(figure.where(kind: image))` |
+| `Table(t => t … .WithLabel("tbl:revenue"))` | `#figure(kind: table, supplement: [Table], caption: […])[#table(…)] <tbl:revenue>` | `counter(figure.where(kind: table))` |
+| `Reference("fig:revenue")` | `#ref(<fig:revenue>)` | the target's counter, read at that label's location |
+| `Reference("fig:revenue", supplement: "Chart")` | `#ref(<fig:revenue>, supplement: [Chart])` | the same, with the reference's own word before the number |
+| `Outline(TypstContent.Empty.Text("Contents"), depth: 2)` | `#outline(title: [Contents], depth: 2)` | every heading up to level 2, with its final page |
+| `Label(TypstLabelKind.Figure)` and the other kinds | `<fig:1>`, `<tbl:1>`, `<sec:1>`, … | the generated name, counted per kind |
+
+- **The model emits, Typst resolves.** `Reference` writes `#ref(<label>)` and nothing else. A
+  reference may appear before its target — Typst resolves labels after layout, in one pass over the
+  finished document — and the same label may be referenced any number of times. A label no element
+  carries is a compile error (`label \`x\` does not exist in the document`), and so is a reference to
+  a heading that was never numbered (`cannot reference heading without numbering`). The model cannot
+  see either, because a template or a `Raw` call may still add the label.
+- **A label is stable and predictable.** `Label(name)` keeps the name the caller wrote. A name the
+  document already used is emitted as `name-2`, `name-3`, … for the later occurrences, because Typst
+  refuses a document in which one label occurs twice; a reference to the plain name therefore reaches
+  the first occurrence. `Label(kind)` generates `sec:1`, `fig:1`, `tbl:1` for the first label of each
+  kind and counts on per kind, in call order: the same document always produces the same names.
+- **A label lands on the element before it.** The label is emitted as `<name>` on the following
+  line, which Typst attaches to the last labellable element — a heading, a figure, a table or a
+  paragraph. On a figure or a table the label is what makes the element a numbered figure: a
+  labelled figure pins `kind: image` and `supplement: [Figure]`, and a labelled table is emitted as
+  `#figure(kind: table, supplement: [Table])[#table(…)]`, since Typst counts tables only as figures.
+  An unlabelled figure or table emits exactly the markup it emitted before labels were numbered.
+  A label on any other block is legal but useless for a number: Typst refuses `#ref` to text
+  (`cannot reference text`), and the page form that would work is not exposed by the model yet.
+- **A section reference needs numbering, so the first section label turns it on.** Typst numbers a
+  heading only under `#set heading(numbering: …)`; `Label(TypstLabelKind.Section)` — and
+  `Label(name)` after a heading — therefore emits `#set heading(numbering: "1.1")` once. A document
+  that already sets heading numbering keeps its own rule, and a caller who wants another pattern
+  writes `.Set("heading(numbering: \"A.1\")")` before the first label.
+- **The table of contents is Typst's.** `#outline(…)` is resolved at layout time: it lists the
+  headings up to `depth` in document order, with the number the heading counter gave them and the
+  page they landed on. Those pages are the compiled pages, including whatever the contents itself
+  pushed to later pages — a static list built in C# could not know them. The title is content, so it
+  is escaped like any other text, and `depth` is validated to 1–6 because headings are.
+- **The same tree is readable on the host side, after compiling.** `TypstEvaluation.Outline` lists
+  every heading with its level, plain-text title, final page, position and label, and
+  `TypstEvaluation.Labels` lists every labelled element with its page — that is how an application
+  builds its own navigation, PDF bookmarks or a static contents page. The model does not read them
+  back: `ToMarkup()` cannot produce a document that already knows its page numbers.
 
 ### Merged cells
 
@@ -374,7 +453,7 @@ knowledge of the compiler; the dependency points the other way.
 | Not provided | Reason |
 | --- | --- |
 | A node for every Typst function | The model covers the document-shaped 90 %; `Raw` covers the rest |
-| Automatic table of contents | `#outline()` is one `Raw` call; a typed wrapper adds nothing |
+| Numbers, page numbers and resolved references in the model | They exist only after layout; the model emits `#ref` and `#outline`, and `TypstEvaluation` reads the result back (§3) |
 | A theme/styling system | Templates own styling (see [05](05-templates.md)); the model emits structure |
 | Round-trip parsing of Typst | Out of scope by design; the HTML importer only goes HTML → model |
 | HTML-specific nodes | The model targets paged documents; HTML export uses the same source |

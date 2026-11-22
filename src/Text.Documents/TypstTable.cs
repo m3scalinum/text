@@ -159,4 +159,44 @@ public sealed class TypstTable
         _rows.Add(cells);
         return this;
     }
+
+    /// <summary>The label the table carries, null when it has none.</summary>
+    internal string? LabelName { get; private set; }
+
+    /// <summary>The caption the numbered figure around the table carries, null when it has none.</summary>
+    internal TypstContent? Caption { get; private set; }
+
+    /// <summary>
+    /// Numbers the table and makes it referenceable.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Typst counts tables only when they are figures, so a labelled table is emitted as
+    /// <c>#figure(kind: table, supplement: [Table])[#table(…)] &lt;label&gt;</c> and a
+    /// <c>#ref(&lt;label&gt;)</c> to it prints <c>Table 3</c>. An unlabelled table keeps emitting a
+    /// bare <c>#table(…)</c>.
+    /// </para>
+    /// <para>
+    /// The name is emitted as given, except when the document already holds that label: the writer
+    /// then appends <c>-2</c>, <c>-3</c>, … so the document never names one label twice.
+    /// </para>
+    /// </remarks>
+    public TypstTable WithLabel(string label)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(label);
+        LabelName = label;
+        return this;
+    }
+
+    /// <summary>Sets the caption of the numbered figure a labelled table is emitted as.</summary>
+    /// <remarks>
+    /// Ignored while the table has no label, because an unlabelled table is not a figure. The
+    /// caption is plain content: build it with <see cref="TypstContent"/> like any other.
+    /// </remarks>
+    public TypstTable WithCaption(TypstContent caption)
+    {
+        ArgumentNullException.ThrowIfNull(caption);
+        Caption = caption;
+        return this;
+    }
 }
