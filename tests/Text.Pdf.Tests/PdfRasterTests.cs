@@ -1,5 +1,7 @@
 using System;
 using System.IO;
+using System.Text.Json;
+using M3scalinum.Text.Pdf.Internal;
 using Xunit;
 
 namespace M3scalinum.Text.Pdf.Tests;
@@ -160,6 +162,35 @@ public sealed class PdfRasterTests
     }
 
     [Fact]
+    public void PageCount_refuses_bytes_that_are_not_a_pdf()
+    {
+        if (!RasterProbe.IsAvailable)
+        {
+            Assert.Skip(RasterProbe.SkipReason);
+        }
+
+        var exception = Assert.Throws<PdfRasterException>(
+            () => PdfRaster.PageCount("not a pdf at all"u8.ToArray()));
+
+        Assert.Equal(PdfRasterError.NotAPdf, exception.Error);
+    }
+
+    [Fact]
+    public void PageCount_refuses_an_encrypted_document()
+    {
+        if (!RasterProbe.IsAvailable)
+        {
+            Assert.Skip(RasterProbe.SkipReason);
+        }
+
+        var path = Path.Combine(AppContext.BaseDirectory, "fixtures", "encryption", "qpdf-r6-user-password.pdf");
+
+        var exception = Assert.Throws<PdfRasterException>(() => PdfRaster.PageCount(File.ReadAllBytes(path)));
+
+        Assert.Equal(PdfRasterError.Encrypted, exception.Error);
+    }
+
+    [Fact]
     public void Render_refuses_a_page_past_the_last_one()
     {
         if (!RasterProbe.IsAvailable)
@@ -263,6 +294,24 @@ public sealed class PdfRasterTests
                 TestPdf.WithPages(1),
                 1,
                 new PdfRasterOptions { MaximumBytes = PdfRaster.HardMaximumBytes + 1 }));
+    }
+
+    [Fact]
+    public void The_native_library_reports_abi_version_one_and_names_its_renderer()
+    {
+        if (!RasterProbe.IsAvailable)
+        {
+            Assert.Skip(RasterProbe.SkipReason);
+        }
+
+        Assert.Equal(1u, PdfRasterNativeMethods.AbiVersion());
+
+        using var document = JsonDocument.Parse(PdfRasterNative.BuildInfo());
+        var root = document.RootElement;
+
+        Assert.Equal("sharp-text-pdf", root.GetProperty("crate").GetString());
+        Assert.Equal("hayro 0.9", root.GetProperty("renderer").GetString());
+        Assert.Equal("png", root.GetProperty("format").GetString());
     }
 
     [Fact]

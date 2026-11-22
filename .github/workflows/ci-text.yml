@@ -589,8 +589,9 @@ jobs:
       - name: Verify the Pdf package
         # The one package whose native library is packed for all six RIDs, checked against the same
         # list `native-extras` builds: a missing entry fails here rather than as a
-        # DllNotFoundException in a consumer's application.
-        run: python3 tests/verify-package.py artifacts/packages-examples/M3scalinum.Text.Pdf.*.nupkg
+        # DllNotFoundException in a consumer's application. `--native` is what asks for the six,
+        # because the compiler workflow's pack job packs this package without them.
+        run: python3 tests/verify-package.py artifacts/packages-examples/M3scalinum.Text.Pdf.*.nupkg --native
       - uses: actions/upload-artifact@v7
         # The `sbom` job reads the very packages the examples ran against, so the SBOM it checks
         # describes what a consumer installs rather than a second build that might differ.

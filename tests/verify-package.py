@@ -10,7 +10,10 @@ Four failures this catches, three of which shipped once:
   different `M3scalinum.Text.Typst` than the one packed in the same run — the version is derived from the
   referenced project, and nothing else forces the two to agree.
 
-Usage: verify-package.py <package.nupkg>
+Usage: verify-package.py <package.nupkg> [--native]
+
+`--native` additionally requires the six RID libraries of a package whose natives a workflow may not
+have built (`STAGED_NATIVE_PACKAGES`); pass it wherever those libraries exist.
 """
 
 import re
@@ -88,6 +91,14 @@ NATIVE_PACKAGES = {
         "linux-musl-x64": "libsharp_text_xlsx.so",
         "osx": "libsharp_text_xlsx.dylib",
     },
+}
+
+# Packages that do carry a Rust library, but that a workflow with no Rust build for them still packs:
+# ci-sharptypst's `pack` job packs every package to prove it packs and stages only `sharp-typst`, so
+# the six `sharp_text_pdf` libraries are absent there by design. Their RID list is required with
+# `--native`, which every job that does build them passes — ci-text's `examples` job and the
+# release's `pack` job — so a package that ships without one is still red somewhere.
+STAGED_NATIVE_PACKAGES = {
     "lib/net11.0/M3scalinum.Text.Pdf.dll": {
         "win-x64": "sharp_text_pdf.dll",
         "win-arm64": "sharp_text_pdf.dll",
@@ -99,7 +110,7 @@ NATIVE_PACKAGES = {
 }
 
 
-def main(path: str) -> int:
+def main(path: str, require_native: bool = False) -> int:
     problems: list[str] = []
 
     with zipfile.ZipFile(path) as package:
@@ -109,6 +120,9 @@ def main(path: str) -> int:
         is_main_package = "lib/net11.0/M3scalinum.Text.Typst.dll" in names
         is_satellite = bool(SATELLITE_ASSEMBLIES & names)
         native_package = next((assembly for assembly in NATIVE_PACKAGES if assembly in names), None)
+        staged_package = next(
+            (assembly for assembly in STAGED_NATIVE_PACKAGES if assembly in names), None
+        )
 
         if is_main_package:
             for rid, library in RIDS.items():
@@ -129,6 +143,19 @@ def main(path: str) -> int:
             for required in REQUIRED_FILES:
                 if required not in names:
                     problems.append(f"missing file: {required}")
+
+        if staged_package is not None:
+            # The licence files are always required: the csproj packs them unconditionally, so their
+            # absence is a defect in the package itself and not a job's missing Rust build.
+            for required in REQUIRED_FILES:
+                if required not in names:
+                    problems.append(f"missing file: {required}")
+
+            if require_native:
+                for rid, library in STAGED_NATIVE_PACKAGES[staged_package].items():
+                    entry = f"runtimes/{rid}/native/{library}"
+                    if entry not in names:
+                        problems.append(f"missing native asset: {entry}")
 
         nuspec = next((name for name in names if name.endswith(".nuspec")), None)
         if nuspec is None:
@@ -183,6 +210,9 @@ def main(path: str) -> int:
         print(f"{path}: ok ({len(RIDS)} RIDs, {len(REQUIRED_FILES)} licence files)")
     elif native_package is not None:
         print(f"{path}: ok ({len(NATIVE_PACKAGES[native_package])} RIDs, {len(REQUIRED_FILES)} licence files)")
+    elif staged_package is not None:
+        rid_count = len(STAGED_NATIVE_PACKAGES[staged_package]) if require_native else 0
+        print(f"{path}: ok ({rid_count} RIDs checked, {len(REQUIRED_FILES)} licence files)")
     elif is_satellite:
         print(f"{path}: ok (satellite, core version pinned)")
     else:
@@ -192,8 +222,13 @@ def main(path: str) -> int:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
+    # `--native` asserts that the package carries every RID's native library. It is passed by the jobs
+    # that build them, and omitted by a job that packs a package whose Rust build it does not run.
+    arguments = [argument for argument in sys.argv[1:] if argument != "--native"]
+    require_native = "--native" in sys.argv
+
+    if len(arguments) != 1:
         print(__doc__, file=sys.stderr)
         sys.exit(2)
 
-    sys.exit(main(sys.argv[1]))
+    sys.exit(main(arguments[0], require_native))

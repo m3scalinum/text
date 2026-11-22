@@ -213,9 +213,11 @@ jobs:
           dotnet pack src/Text.Xlsx -c Release --no-restore \
             -o artifacts/packages -p:CoreVersion="$core" "${version_args[@]}"
       - name: Verify the packages
+        # `--native`: this job downloads every crate's six RIDs, so a package that ships without one
+        # of its libraries is caught here rather than by a consumer's DllNotFoundException.
         run: |
           for package in artifacts/packages/*.nupkg; do
-            python3 tests/verify-package.py "$package"
+            python3 tests/verify-package.py "$package" --native
           done
       - name: Generate the SBOMs
         # One CycloneDX SBOM per .nupkg, built from the package itself: the .nuspec names the

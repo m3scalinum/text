@@ -53,6 +53,7 @@ CRATE_BY_LIBRARY = {
     "sharp_text_ocr": ("text-ocr", "sharp-text-ocr"),
     "sharp_text_docx": ("text-docx", "sharp-text-docx"),
     "sharp_text_xlsx": ("text-xlsx", "sharp-text-xlsx"),
+    "sharp_text_pdf": ("text-pdf", "sharp-text-pdf"),
 }
 
 NUGET_PURL = "pkg:nuget/"
