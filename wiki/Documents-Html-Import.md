@@ -1,8 +1,8 @@
 # Importing HTML
 
 `TypstDocument.FromHtml` turns an HTML page or fragment into the document model, so an application
-that already has HTML can typeset it without writing Typst by hand. The import is one-way: HTML in,
-a document model out, then Typst source.
+that already has HTML can typeset it without writing Typst by hand. The model goes back the other
+way with `ToHtml`, so the same document can be served as HTML too.
 
 ```csharp
 using M3scalinum.Text.Documents;
@@ -75,3 +75,33 @@ Escaping is done by the markup writer, as everywhere in the model: text and attr
 
 The full contract — every element, every deliberate loss — is section 12 of
 [04 — Document model](https://github.com/m3scalinum/text/blob/main/docs/specifications/04-document-model.md).
+
+## Writing HTML
+
+`ToHtml()` writes the model as a semantic HTML5 body fragment. It needs no compiler: it walks the
+model, not a laid-out page, so the tags are the model's own structure — `h1`–`h6`, `p`, `ul`/`ol`,
+`table` with `th` and `td`, `pre`/`code`, `blockquote`, `a`, `img`, `strong`/`em`.
+
+```csharp
+var result = document.ToHtml();
+
+string html = result.Html;
+
+foreach (var lost in result.Unrepresentable)
+{
+    // "raw: 2", "place: 1", …
+}
+```
+
+Raw markup, placement, a bibliography or an outline have no HTML equivalent. They are listed with
+their name and count instead of being approximated; `result.UnrepresentableCount` says whether the
+export lost anything at all. Text and attribute values are escaped, and the output uses `\n` line
+endings so it is byte-for-byte stable.
+
+An image carries the asset path the importer resolved, or a `data:` URL if the model was given one —
+export never fetches. A paragraph of body content written as `p` reads back the same, so
+`TypstDocument.FromHtml(html).ToHtml()` is a fixed point for headings, paragraphs, emphasis, code,
+lists, tables, links and quotes.
+
+The full contract — the mapping tables, the escaping rules, the exact loss list and what round-trips
+— is [27 — HTML export](https://github.com/m3scalinum/text/blob/main/docs/specifications/27-html-export.md).
