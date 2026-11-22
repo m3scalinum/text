@@ -10,7 +10,8 @@ on the compiler: it takes bytes and returns bytes, so it signs a document from a
 signature timestamp (PAdES-B-T); a document security store carrying the chain and caller-supplied
 revocation data (PAdES-B-LT); a visible signature appearance, text or image; a document timestamp,
 archiving the document at PAdES-B-LTA and refreshing that archive; and a verifier that says what it
-can prove about what it read.
+can prove about what it read — including, for the revocation evidence the store embeds, who signed it
+(§14).
 
 **Out of scope, for now.** Redaction, OCR, merging, extracting pages, form filling other than the
 signature field, and fetching revocation data. Each is a separate piece of work, and none of them is
@@ -243,10 +244,14 @@ never at the claimed signing time, which is whatever the file says.
 
 - Level `BaselineLT` says the store carries the evidence and that the evidence holds together. It
   says nothing about whether the caller trusts the root — that is `ChainStatus`.
-- An OCSP answer signed by a delegated responder is not recognized: its certificate would have to be
-  embedded and authorized by the issuer, and this reader does not follow that path.
+- The evidence is authenticated, not just parsed: an OCSP answer counts only when its signature
+  verifies with the issuer's key or with a responder certificate the issuer issued and marked
+  `id-kp-OCSPSigning`, and a CRL counts only when the authority it names made its signature. §14 says
+  exactly what is checked, what is reported per response, and what a valid answer still does not
+  prove.
 - CRLs are read as they are: no delta CRLs, no indirect CRLs, no reason codes. RSA PKCS#1 v1.5 and
-  ECDSA signatures are checked; other algorithms are not.
+  ECDSA signatures are checked; other algorithms are not — a response using one is reported as
+  carrying no signature this reader can check, never as valid.
 - The reader finds objects by scanning for `N 0 obj` headers rather than by following the
   cross-reference table, so a PDF that keeps its objects in object streams (compressed xref) is not
   read. Every PDF this package writes, and every PDF M3scalinum.Text.Typst produces, uses plain
@@ -365,11 +370,12 @@ is refused as well: it asks for nothing.
 
 **What the writer checks, and what it does not.** The writer parses each answer far enough to be sure
 it is the right structure and that it names the certificate — the serial and issuer hash for OCSP,
-the issuer name for a CRL. It does **not** authenticate the response: a delegated responder, whose
-answer is signed by a certificate the issuer authorised, is something the writer will happily embed,
-and the reader will not treat as evidence. The signature's proof of B-LT rests on the verifier, not
+the issuer name for a CRL. It does **not** authenticate the response, and it does not refuse one it
+cannot authenticate: a delegated responder, whose answer is signed by a certificate the issuer
+authorised, is embedded as it was received. The signature's proof of B-LT rests on the verifier, not
 on the writer's opinion, so a response whose signature does not verify yields a document that reads
-back as B-T.
+back as B-T. The reader now authenticates that signature in full — §14 — including the delegated
+responders the writer lets through.
 
 **Reading the store back.** `PdfSignatureVerifier.ReadRevocation(pdf)` returns one
 `PdfRevocationCoverage` per certificate the store embeds, saying whether an OCSP answer covers it and
@@ -380,10 +386,11 @@ answer was signed by the issuer and names the certificate; it does not mean the 
 trusted, nor that the responder is one the caller accepts.
 
 **What remains the caller's job.** Fetching — with authentication, retries, timeouts and a cache that
-respects `nextUpdate`; deciding whether a delegated responder is acceptable; keeping the answers
-fresh for as long as the document must be provable; and re-archiving with
-`PdfArchiveTimestamp.Refresh` when the revocation data or the digests age out. None of that is
-visible from the PDF, and none of it can be proven by the PDF.
+respects `nextUpdate`; deciding whether the responder's *own* certificate is one its policy accepts
+beyond the authorisation the issuer gave it, and whether an answer older than the moment it cares
+about is still good; keeping the answers fresh for as long as the document must be provable; and
+re-archiving with `PdfArchiveTimestamp.Refresh` when the revocation data or the digests age out. None
+of that is visible from the PDF, and none of it can be proven by the PDF.
 
 ## 12. eIDAS: the seal and the qualified timestamp
 
@@ -586,3 +593,76 @@ policy. A `MissingCertificates` entry explains why a chain did not build, and ad
 to the store because this report named it is the caller's decision, not the report's. The report is
 not signed, so a caller who has to show it to somebody else signs its bytes with `PdfSigner` the
 same way a batch manifest is signed; see `33-archive-integrity.md`.
+
+## 14. The signature on embedded revocation evidence
+
+A store's evidence is a signed statement, and until this section it was only read. The writer parses
+an answer far enough to know it is the right structure and that it names a certificate (§11); nothing
+checked that the certificate's issuer wrote it. A response anybody could compose names whatever
+serial it likes, so a document security store could carry revocation data nobody had authenticated
+and still read back as PAdES-B-LT. The verifier now asks the question the store's level rests on, per
+response, without opening a socket.
+
+**What is checked.** Two structure shapes, each against the authority the answer is supposed to come
+from:
+
+| Response | Accepted when |
+| --- | --- |
+| OCSP `BasicOCSPResponse` | the signature verifies over `tbsResponseData` with the key of the certificate's issuer, or with a responder certificate that (a) chains to that issuer, (b) carries `id-kp-OCSPSigning` (1.3.6.1.5.5.7.3.9) in its extended key usage, and (c) was valid when the answer was produced (`producedAt`) |
+| CRL `CertificateList` | the list's `issuer` name is the authority's subject, and the signature verifies over `tbsCertList` with that authority's key |
+
+The issuer is tried first, so an answer the issuer signed itself needs no delegation. When that key
+does not verify, every responder certificate the answer embeds (`BasicOCSPResponse.certs`) is tried,
+then every certificate the store embeds — an answer whose responder certificate travelled in the
+store rather than in the response is checked the same way. The chain that decides whether a delegated
+responder was authorised is built with downloads disabled and the issuer as its only anchor: a
+responder certificate that needs a fetch to reach the issuer is a responder this reader will not
+accept. Signatures are RSA PKCS#1 v1.5 (SHA-1, SHA-256, SHA-384, SHA-512) and ECDSA (SHA-256, SHA-384,
+SHA-512).
+
+**What is reported.** `PdfSignatureVerifier.ReadRevocationSignatures(pdf)` returns one
+`PdfRevocationSignatureReading` per embedded response — answers first, then lists, in the order the
+store declares them — and each entry says:
+
+| `Status` | Meaning |
+| --- | --- |
+| `Valid` | the signature verified and its signer was authorised, as above |
+| `NoSignature` | the response carries no signature this reader can check: an empty signature value, or an algorithm outside the set above |
+| `Invalid` | a signature is present and verifies with no key the file carries — the bytes were changed after signing, or the signature was made by a key the document does not embed. A reader cannot tell those apart, and neither is evidence |
+| `UnexpectedSigner` | the signature verifies, but its signer is not the authority the response is about: a delegated responder without `id-kp-OCSPSigning`, a responder issued by somebody else, a CRL naming an authority no embedded certificate of the store is, or an answer that names no certificate at all |
+
+Alongside the status the entry names the certificate the response answers for — subject, issuer and
+serial number, resolved against the certificates the store embeds — and the certificate whose key
+verified the signature. `Error` is one sentence naming the rule that failed, so a caller can say "the
+OCSP answer embedded for CN=… was not signed by its issuer" without re-parsing the store. A response
+that names several certificates is reported once, against its first single response: one signature
+covers them all.
+
+`ReadRevocation` and the level proof use the same judgement: `OcspCovers` and the `BaselineLT` count
+now accept a delegated answer the issuer authorised and refuse one it did not, exactly as
+`ReadRevocationSignatures` reports. `PdfCrl.SignatureVerifies` and
+`PdfOcspResponse.SignatureVerifies` remain the narrow key checks the store's own code uses.
+
+**What it does not prove.** Four things, and none of them should be read into a `Valid` status:
+
+- **That the revocation was asked about in time.** An answer signed by the issuer proves the issuer
+  said it; it proves nothing about when, or that anybody asked. An answer produced a year ago and
+  embedded yesterday is a year-old statement about a certificate, and `ProducedAt` is where the caller
+  reads that.
+- **That the responder is one the caller's policy accepts.** The issuer's authorisation is checked;
+  whether the caller trusts that responder for its own reasons — pinning, an allow-list, a timestamp
+  bound — is not something the file can answer. `SignerSubject` is what a policy compares.
+- **That the answer's content is true.** A `good` answer signed by the issuer is evidence the issuer
+  said `good`; whether the certificate is actually unrevoked is the issuer's business, and a
+  compromised issuer key signs anything.
+- **Freshness of the CRL beyond its own fields.** `thisUpdate` and `nextUpdate` are read and exposed;
+  whether a list is too old to rely on is the caller's policy, exactly as it is for OCSP.
+
+The chain of the *signing certificate* is a separate question again: `PdfSignatureVerifier.Verify`
+judges it against `PdfTrustStore`, and a `Valid` revocation reading says nothing about it.
+
+**Decision — authenticate in the reader, not in the writer.** Refusing bad evidence when a document is
+written would be a policy the caller never chose, and it would not help the documents already
+written. The writer keeps embedding what the caller hands it, and the reader tells the truth about it
+afterwards; a response that does not authenticate simply does not count towards the level, which is
+what a B-LT document with unverifiable evidence should be.
