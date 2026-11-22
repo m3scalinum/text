@@ -44,6 +44,15 @@ Not yet published. Embeds Typst 0.15.1.
   instead of `/TD`. The language an accessible document also needs was already there, through
   `Metadata.Language`. `pdf.header-cell` requires Typst's `a11y-extras` feature, which the compiler
   enables, and PDF 1.5.
+- Merged cells in the table builder: `TypstTableCell.Colspan` and `Rowspan` place a cell across a
+  grid the way Typst does, the column count is measured rather than left empty, and a row entirely
+  absorbed by a vertical merge is skipped instead of emitting invalid markup. A table imported from a
+  `.docx` with `w:gridSpan` and `w:vMerge` rebuilds cell for cell.
+- `TypstFormatting`: dates, numbers and currencies formatted per language from a table of patterns —
+  `1234.56` as `1 234,56` in French and `1,234.56` in English, `2026-03-01` as `01/03/2026` or
+  `03/01/2026` — with no call to `CultureInfo.GetCultureInfo`, which throws under
+  `InvariantGlobalization`. The group separator is U+00A0, the only non-breaking space Typst's layout
+  treats as a space, so a formatted amount survives the round trip through the markup.
 - In-process compilation of Typst source through a C ABI over the Rust `typst` crate. No process
   spawn, no binary on `PATH`, no temporary files.
 - Export to PDF, SVG (single page or merged), PNG (single page or merged), HTML, Markdown, plain
@@ -162,6 +171,12 @@ Not yet published. Embeds Typst 0.15.1.
 
 ### Changed
 
+- The C ABI revision is negotiated over a range instead of matched exactly: the native library
+  reports a current revision and a minimum, the managed side accepts `[minimum, current]`, and a
+  revision older than the current one is accepted with a single warning per process naming both
+  revisions, the accepted range and the loaded path. Below the minimum or above the current one the
+  load fails with `AbiMismatch`, carrying the same four facts — never a bare `DllNotFoundException`.
+  Revision 1 was the unversioned handshake; revision 2 added the range.
 - The libraries target `net8.0`, `net9.0`, `net10.0` and `net11.0`, with one assembly per runtime in
   the package. `M3scalinum.Text.Typst.DependencyInjection` references the 8.0 line of the
   `Microsoft.Extensions.*` packages below `net11.0`, where the shared framework provides them.
