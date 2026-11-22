@@ -168,11 +168,31 @@ public sealed partial class TypstDocument
     }
 
     /// <summary>Appends a figure.</summary>
-    public TypstDocument Figure(Action<TypstFigure> configure)
+    /// <param name="configure">Configures the figure: image, alt text, caption, label.</param>
+    /// <param name="scope">
+    /// What the figure number counts from. <see cref="TypstNumberingScope.Document"/> (the default)
+    /// is one sequence for the whole document; <see cref="TypstNumberingScope.Section"/> prints
+    /// <c>section.figure</c> and restarts the figure count at each level-1 heading.
+    /// </param>
+    /// <remarks>
+    /// A section-scoped figure turns heading numbering on, unless the document already numbers its
+    /// headings, because the section prefix is Typst's <c>counter(heading)</c>. A figure that
+    /// precedes the first section keeps a plain number.
+    /// </remarks>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="scope"/> is not a known scope.</exception>
+    public TypstDocument Figure(
+        Action<TypstFigure> configure,
+        TypstNumberingScope scope = TypstNumberingScope.Document)
     {
         ArgumentNullException.ThrowIfNull(configure);
         var figure = new TypstFigure();
         configure(figure);
+
+        if (TypstFootnoteNumbering.IsSectionScoped(scope, nameof(scope)))
+        {
+            TypstFigureNumbering.EnableSection(_preamble);
+        }
+
         _body.Add(new FigureNode(figure));
         return this;
     }
@@ -387,9 +407,31 @@ public sealed partial class TypstDocument
     }
 
     /// <summary>Appends a footnote.</summary>
-    public TypstDocument Footnote(TypstContent content)
+    /// <param name="content">The note's text.</param>
+    /// <param name="scope">
+    /// What the note number counts from. <see cref="TypstNumberingScope.Document"/> (the default) is
+    /// one sequence for the whole document; <see cref="TypstNumberingScope.Section"/> restarts it at
+    /// each level-1 heading.
+    /// </param>
+    /// <remarks>
+    /// Typst numbers the note itself; a section scope only adds the rule that resets
+    /// <c>counter(footnote)</c> at each level-1 heading. A document without headings numbers its
+    /// notes 1, 2, 3 whichever scope it asks for. Mixing scopes in one document is not meaningful:
+    /// the reset applies to the counter, so every note after a heading restarts, whatever scope its
+    /// own call asked for.
+    /// </remarks>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="scope"/> is not a known scope.</exception>
+    public TypstDocument Footnote(
+        TypstContent content,
+        TypstNumberingScope scope = TypstNumberingScope.Document)
     {
         ArgumentNullException.ThrowIfNull(content);
+
+        if (TypstFootnoteNumbering.IsSectionScoped(scope, nameof(scope)))
+        {
+            TypstFootnoteNumbering.EnableSection(_preamble);
+        }
+
         _body.Add(new ContentNode(new TypstContent().Footnote(content)));
         return this;
     }

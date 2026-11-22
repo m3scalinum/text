@@ -31,6 +31,7 @@ file names, to find what you want.
 | 12 | [12-dependency-injection.md](12-dependency-injection.md) | The `M3scalinum.Text.Typst.DependencyInjection` package: services, lifetimes, options, validation |
 | 32 | [32-localized-formatting.md](32-localized-formatting.md) | `TypstFormatting`: dates, numbers and amounts per language, with no culture lookup |
 | 34 | [34-document-style.md](34-document-style.md) | `TypstDocumentStyle`: page, body, headings, language, header and footer declared once, applied to any document |
+| 37 | [37-footnotes-and-numbering.md](37-footnotes-and-numbering.md) | `TypstNumberingScope`: footnotes and figures numbered per document or per section, and the rules each writes |
 
 ## The PDF family
 
