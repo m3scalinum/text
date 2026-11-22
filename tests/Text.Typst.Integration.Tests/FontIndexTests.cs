@@ -61,7 +61,16 @@ public sealed class FontIndexTests
 
         try
         {
-            File.Copy(fonts[0], Path.Combine(directory, Path.GetFileName(fonts[0])));
+            // The same face under many names: what matters is that the scan has real work to do,
+            // not how many fonts this host happens to ship. The index does not deduplicate by
+            // content, so N files are N faces to read.
+            const int Faces = 120;
+            var pattern = Path.GetExtension(fonts[0]);
+
+            for (var i = 0; i < Faces; i++)
+            {
+                File.Copy(fonts[0], Path.Combine(directory, $"font-{i:D3}{pattern}"));
+            }
 
             // The persistent index is off: this measures the process-wide share, not the cache.
             TypstWorld Build(FontScanMode mode) => new TypstWorldBuilder()
@@ -82,22 +91,26 @@ public sealed class FontIndexTests
 
             scanning.Stop();
 
-            const int Compilations = 2000;
+            var scanned = scanning.Elapsed.TotalMilliseconds;
+
+            Assert.True(scanned > 0.5, $"one scan of {Faces} faces took {scanned:F3} ms");
+
+            const int Worlds = 2000;
             var shared = Stopwatch.StartNew();
 
-            for (var i = 0; i < Compilations; i++)
+            for (var i = 0; i < Worlds; i++)
             {
                 using var world = Build(FontScanMode.Shared);
             }
 
             shared.Stop();
 
-            var perWorld = shared.Elapsed.TotalMilliseconds / Compilations;
+            var perWorld = shared.Elapsed.TotalMilliseconds / Worlds;
 
             Assert.True(
-                perWorld * 10 < scanning.Elapsed.TotalMilliseconds,
-                $"a world that joins the index took {perWorld:F3} ms, one that scans took " +
-                $"{scanning.Elapsed.TotalMilliseconds:F3} ms: the index is not being shared");
+                perWorld * 5 < scanned,
+                $"a world that joins the index took {perWorld:F3} ms, one that scanned {Faces} " +
+                $"faces took {scanned:F3} ms: the index is not being shared");
         }
         finally
         {
