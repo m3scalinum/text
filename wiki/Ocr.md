@@ -12,7 +12,15 @@ byte[] recognition = File.ReadAllBytes("/opt/models/text-recognition.rten");
 
 using OcrEngine engine = OcrEngine.FromModels(detection, recognition);
 
-OcrResult result = engine.Recognize(File.ReadAllBytes("scan.png"));
+OcrRecognition outcome = engine.Recognize(File.ReadAllBytes("scan.png"));
+
+// A page below the confidence threshold is refused rather than returned as approximate text.
+if (outcome is not OcrResult result)
+{
+    OcrRefusal refusal = ((OcrUnreadable)outcome).Refusal;
+    Console.WriteLine($"refused ({refusal.Reason}): {refusal.Message}");
+    return;
+}
 
 Console.WriteLine(result.Text);
 Console.WriteLine($"{result.Lines.Count} lines, mean confidence {result.MeanConfidence:F3}");
