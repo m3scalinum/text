@@ -5,25 +5,27 @@
 `M3scalinum.Text.Pdf` can now read the text of a document it was handed. `PdfText` is the entry
 point:
 
-- `PdfText.Extract(ReadOnlySpan<byte> pdf)` returns a `PdfTextResult`: one `PdfPageText` per page,
-  in page order, plus the document's page count.
-- `PdfText.ExtractPage(ReadOnlySpan<byte> pdf, int page)` returns that one page, `page` being
-  zero-based like the compiler's page export.
+- `PdfText.Extract(ReadOnlySpan<byte> pdf, string? password = null)` returns a `PdfTextResult`: one
+  `PdfPageText` per page, in page order, plus the document's page count.
+- `PdfText.ExtractPage(ReadOnlySpan<byte> pdf, int page, string? password = null)` returns that one
+  page, `page` being zero-based like the compiler's page export.
 
 Bytes in, bytes out, as everywhere in this package: no compiler dependency, no file system, no font
 engine, no network. The caller compiles a document or receives one, passes the bytes, and gets the
 characters back.
 
-**In scope.** Walking each page's content streams; decoding the filters the reader already supports
-(`FlateDecode`, `ASCIIHexDecode`); interpreting the text-showing operators and the text state they
-depend on; mapping glyph codes to characters through the font's `/ToUnicode` CMap; walking a Form
-XObject with its own resources; reporting, per page, what could not be mapped faithfully.
+**In scope.** Walking each page's content streams; decrypting an encrypted document when the caller
+supplies its password, through `PdfEncryption.Open`, then walking the decrypted bytes; decoding the
+filters the reader already supports (`FlateDecode`, `ASCIIHexDecode`); interpreting the
+text-showing operators and the text state they depend on; mapping glyph codes to characters through
+the font's `/ToUnicode` CMap; walking a Form XObject with its own resources; reporting, per page,
+what could not be mapped faithfully.
 
 **Out of scope, deliberately.**
 
 | Not done | Why |
 | --- | --- |
-| Decryption | An encrypted document is refused with a typed error; another branch owns decryption. |
+| Reading an encrypted document with no password, or one whose handler is RC4 or public-key | There is no key to read with; the document is refused with a typed error. |
 | Layout reconstruction, column detection | The reader has the glyph positions and uses them only for word gaps and line breaks. Inferring a reading order from them is a research problem with no single right answer. |
 | OCR | A scanned page holds an image, not glyphs. There is nothing to extract and the page comes back empty. |
 | Table, list or heading recognition | The characters are recovered; the structure that produced them is not on the page. |
@@ -53,6 +55,9 @@ foreach (PdfPageText page in result.Pages)
 }
 
 PdfPageText second = PdfText.ExtractPage(pdf, 1);
+
+// An encrypted document is decrypted first, with the password the caller supplies.
+PdfTextResult protectedDocument = PdfText.Extract(pdf, "correct horse");
 ```
 
 `PdfTextResult` carries `Pages` and `PageCount`, and `Text`, which concatenates the pages in order
@@ -168,24 +173,34 @@ of storing characters nobody can vouch for.
 
 ## 6. Refusals
 
-An encrypted document is refused, not half-read: its streams are encrypted, so decoding them as if
-they were plain text would produce garbage. The error is typed and names the reason the file gives.
+An encrypted document with no password is refused, not half-read: its streams are ciphertext, so
+decoding them as if they were plain text would produce garbage. The error is typed and names the
+reason the file gives.
+
+When the caller supplies a password, the document is decrypted first through `PdfEncryption.Open`
+and the decrypted bytes are read like any other document. A password that matches neither the user
+nor the owner password is its own typed error, `PdfTextError.WrongPassword`; it is not a corrupt
+document and not an unhandled `PdfEncryptionException`. A security handler this package does not
+implement — RC4, or public-key encryption — is refused as `Encrypted`, because no password could
+open it.
 
 ```csharp
 try
 {
-    PdfTextResult result = PdfText.Extract(pdf);
+    PdfTextResult result = PdfText.Extract(pdf, "correct horse");
 }
-catch (PdfTextException exception) when (exception.Error == PdfTextError.Encrypted)
+catch (PdfTextException exception) when (exception.Error == PdfTextError.WrongPassword)
 {
-    // The message names the security handler the trailer declares.
+    // The password matches neither the user password nor the owner password.
 }
 ```
 
 | Situation | Result |
 | --- | --- |
 | Bytes are not a PDF | `PdfTextException` with `PdfTextError.NotAPdf` |
-| Document is encrypted | `PdfTextException` with `PdfTextError.Encrypted`, message naming the handler and its revision |
+| Document is encrypted and no password is supplied | `PdfTextException` with `PdfTextError.Encrypted`, message naming the handler |
+| Password supplied for a supported handler but it does not open the document | `PdfTextException` with `PdfTextError.WrongPassword` |
+| Document is encrypted with a handler this package does not decrypt (RC4, public-key) | `PdfTextException` with `PdfTextError.Encrypted`, whatever the password |
 | Catalog unreadable | `PdfTextException` with `PdfTextError.Unreadable` |
 | Page index outside the document | `ArgumentOutOfRangeException` |
 | A font has no CMap | Not an exception: text plus `FallbackFonts` |
@@ -212,7 +227,12 @@ each states something the other cannot.
 - **No `/ToUnicode`** — a simple font whose `/Differences` renames code 65, and a Type0 font with no
   CMap at all: the documented fallbacks are asserted together with the flag and the font name.
 - **A Form XObject** — a page whose text continues in a form with its own `/Resources`.
-- **An encrypted document** — the refusal is asserted with the typed error and the handler named.
+- **An encrypted document** — the refusal without a password is asserted with the typed error and
+  the handler named; an AES-256 document written by `PdfEncryption.Encrypt` and the AES-128 fixture
+  built from the specification both read their text back with the right password, through
+  `Extract` and `ExtractPage`; a wrong password is `PdfTextError.WrongPassword`; an RC4 handler is
+  still `Encrypted`; an empty password opens a document encrypted with one while no password does
+  not; and an unencrypted document reads the same whether a password is passed or not.
 - **A page with no content** — the empty string, and no fallback or skipped stream invented for it.
 
 The older `PdfTextProbe` in the test project remains the conformance and page-operation tests' way of

@@ -2,8 +2,8 @@
 
 ## 1. Scope
 
-`M3scalinum.Text.Pdf` gains `PdfEncryption`, the only entry point of the package that reads a
-protected document or produces one:
+`M3scalinum.Text.Pdf` gains `PdfEncryption`, the entry point of the package that opens a protected
+document or produces one (`PdfText` also decrypts, on its way to reading text):
 
 ```csharp
 PdfDecryptionResult opened = PdfEncryption.Open(encrypted, "correct horse");
@@ -144,8 +144,9 @@ section of `14-pdf-signature.md` says the same from the other side.
 
 ## 6. The rest of the package
 
-Nothing else in `M3scalinum.Text.Pdf` reads an encrypted document. Each operation refuses one with
-a message that names `PdfEncryption.Open`:
+Every other operation in `M3scalinum.Text.Pdf` refuses an encrypted document rather than half-read
+it, with a message that names `PdfEncryption.Open`. The one exception is `PdfText`, which can be
+handed the password directly and decrypts before reading.
 
 | Operation | Refusal |
 | --- | --- |
@@ -153,6 +154,8 @@ a message that names `PdfEncryption.Open`:
 | `PdfForm.Fill`, `Flatten` | `PdfOperationException` |
 | `PdfSigner.Sign`, `PdfDocumentTimestamp.Add`, `PdfSignatureVerifier.Verify` | `PdfSignatureException` |
 | `PdfConformance.Check` | not an exception: a report whose only finding is `PDF.ENCRYPTED`, because the checker never throws on a document |
+| `PdfText.Extract`, `PdfText.ExtractPage` with a password | no refusal: the document is decrypted first and its text read from the plaintext |
+| `PdfText.Extract`, `PdfText.ExtractPage` without a password | `PdfTextException`; a wrong password is `PdfTextError.WrongPassword` |
 | `PdfEncryption.Open` on an unencrypted document | no refusal: the bytes come back unchanged |
 
 The point of the refusal is that a half-rewritten encrypted file is worse than no file: the output
