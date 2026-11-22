@@ -646,3 +646,51 @@ jobs:
           path: artifacts/sbom/*.cdx.json
           if-no-files-found: error
 
+  coverage-table:
+    name: coverage table
+    # The four jobs above each measure their own packages and fail below 90 %. This job publishes
+    # the picture those gates add up to, which no artifact shows on its own: one table, one row per
+    # shipped package, in the run summary and as an artifact.
+    #
+    # It does not re-apply the floor. A package below 90 % has already turned its own job red, and
+    # `needs` means this job does not even start in that case — a second gate here would only ever
+    # be redundant, and would make the table look like the authority on coverage when the jobs are.
+    # What it does fail on is a package with *no report*: a job that stopped uploading, a package
+    # dropped from a `--require` list, a project added to src/ that no job measures. That failure
+    # mode leaves the gates green and the package invisible, which is exactly what the table is for.
+    #
+    # The `text` job is not in `needs`: it re-runs the Pdf and Mcp suites without collecting, so it
+    # produces no report of its own.
+    needs: [suite, templates, mcp, extras]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        # The four `coverage-*` artifacts, flattened into one directory: the table finds a package
+        # by the reports that contain it, not by a file name a job had to keep in sync.
+        with:
+          pattern: coverage-*
+          merge-multiple: true
+          path: artifacts/coverage
+      - name: Prove the aggregation
+        # Fabricated reports in a temp directory, including the missing-package case: the table is
+        # exercised on every run rather than trusted because it worked the night it was written.
+        run: python3 tests/coverage-table.py --selftest
+      - name: Render the table
+        run: >
+          python3 tests/coverage-table.py artifacts/coverage --floor 90
+          --markdown artifacts/coverage-table.md --json artifacts/coverage-table.json
+      - name: Publish the summary
+        # `always()`: when a report is missing the step above writes the table anyway and exits
+        # non-zero, so the summary shows which package is absent instead of the job just going red.
+        if: always()
+        run: cat artifacts/coverage-table.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: coverage-table
+          path: |
+            artifacts/coverage-table.md
+            artifacts/coverage-table.json
+          if-no-files-found: error
+
