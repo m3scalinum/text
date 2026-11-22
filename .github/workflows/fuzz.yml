@@ -1,0 +1,156 @@
+name: fuzz (parsers)
+
+# Bytes a stranger chose, run through the parsers that accept them, looking for the crash nobody has
+# written a test for. The targets and their policy are `docs/specifications/39-fuzzing.md`.
+#
+# Why not on every pull request. A target is built under `-Zsanitizer=address` on a nightly, and
+# `cargo fuzz` needs a `nightly` toolchain, a C-compatible linker and the four parser crates
+# compiled with coverage instrumentation before the first input runs. That is ten to fifteen minutes
+# of build for ninety seconds of fuzzing per target, and the added coverage over the required
+# `cargo test` job of `ci-text.yml` on one small change is close to nothing: a mutation fuzzer finds
+# a bug in hours, not in a minute. So the cadence is the one that pays — a weekly run, and a manual
+# run when a parser changes enough to deserve one. A pull request that touches a parser can ask for
+# it with `gh workflow run "fuzz (parsers)" --ref <branch>`.
+#
+# A crash is a red job. `continue-on-error` is deliberately absent from the fuzz step: libFuzzer
+# exits non-zero the moment an input panics, aborts or trips the sanitizer, and the point of the run
+# is that a green badge means "no crash in this window", not "the step was allowed to fail". The
+# artefact below is the reproduction: `cargo fuzz run <target> artifacts/<target>/<file>` replays it.
+
+on:
+  schedule:
+    # Monday, 03:17 UTC: after the weekend's merges, before the week's first review round.
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: 'Seconds of fuzzing per target (60–900)'
+        required: false
+        default: '90'
+      target:
+        description: 'One target to run (empty runs the whole matrix)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Pinned together: cargo-fuzz chooses the sanitizer flags and the libFuzzer runtime, and a new
+  # release can change the flags the pinned nightly has to understand.
+  CARGO_FUZZ_VERSION: 0.13.2
+  CARGO_TERM_COLOR: always
+  # The whole matrix, in the order a crash is most likely to be useful: the container, the XML
+  # policy, the spreadsheet, the renderer, the barcode decoder.
+  ALL_TARGETS: 'docx docx-xml xlsx pdf barcodes'
+
+jobs:
+  fuzz:
+    name: fuzz (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      # One parser's crash must not hide another's: every target runs to its own verdict.
+      fail-fast: false
+      matrix:
+        target: [docx, docx-xml, xlsx, pdf, barcodes]
+    steps:
+      - uses: actions/checkout@v7
+
+      # libFuzzer is instrumented Rust: it needs a nightly, and the ASan runtime the stable
+      # toolchain does not ship.
+      - uses: dtolnay/rust-toolchain@nightly
+
+      # Built from source, pinned. `install-action` does not publish a prebuilt `cargo-fuzz`, and a
+      # `cargo install` that runs once per job is a minute and a half without the cache below.
+      - name: Install cargo-fuzz
+        run: |
+          set -euo pipefail
+          if command -v cargo-fuzz >/dev/null 2>&1; then
+            cargo fuzz --version
+          else
+            cargo +nightly install cargo-fuzz --locked --version "$CARGO_FUZZ_VERSION"
+          fi
+
+      # The registry and the instrumented build. The committed root `Cargo.lock` pins the harness,
+      # and the four native manifests are hashed because the fuzz crate depends on them by path; a
+      # cache keyed on the lock alone would serve a binary built from older parser sources.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin/cargo-fuzz
+            target
+          key: fuzz-${{ runner.os }}-${{ matrix.target }}-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'fuzz/Cargo.toml', 'native/*/Cargo.toml', 'native/*/src/**') }}
+          restore-keys: |
+            fuzz-${{ runner.os }}-${{ matrix.target }}-
+
+      # The seed corpus. DOCX, PDF and PNG seeds are the repository's own fixtures, committed under
+      # `fuzz/corpus/`; a `.xlsx` is not one of them — the XLSX tests build their package in memory
+      # rather than committing a binary — so one minimal workbook is written here, deterministically,
+      # from XML the script spells out. Nothing else is synthesised.
+      - name: Seed the corpus
+        run: |
+          set -euo pipefail
+          python3 fuzz/scripts/seed-xlsx.py fuzz/corpus/xlsx
+          ls -l fuzz/corpus/"${{ matrix.target }}" | head -20
+
+      - name: Fuzz ${{ matrix.target }}
+        env:
+          # Empty on the schedule, where the whole matrix runs; a dispatch may name one target and
+          # the other legs then exit immediately rather than build for nothing.
+          ONLY: ${{ github.event.inputs.target }}
+          SECONDS_PER_TARGET: ${{ github.event.inputs.seconds || '90' }}
+        run: |
+          set -euo pipefail
+          if [ -n "$ONLY" ] && [ "$ONLY" != "${{ matrix.target }}" ]; then
+            echo "skipping ${{ matrix.target }}: this dispatch asked for $ONLY"
+            exit 0
+          fi
+          case "$SECONDS_PER_TARGET" in
+            ''|*[!0-9]*) echo "seconds must be an integer, got '$SECONDS_PER_TARGET'" >&2; exit 2 ;;
+          esac
+          if [ "$SECONDS_PER_TARGET" -lt 60 ] || [ "$SECONDS_PER_TARGET" -gt 900 ]; then
+            echo "seconds must be between 60 and 900, got $SECONDS_PER_TARGET" >&2
+            exit 2
+          fi
+          # `-max_total_time` bounds the run, `-timeout` bounds one input: a parser that takes ten
+          # seconds on a 4 KiB document is a denial of service even when it returns. `-rss_limit_mb`
+          # is the memory ceiling a decompression bomb meets before it meets the runner.
+          cargo +nightly fuzz run "${{ matrix.target }}" "fuzz/corpus/${{ matrix.target }}" -- \
+            -max_total_time="$SECONDS_PER_TARGET" \
+            -timeout=25 \
+            -rss_limit_mb=4096 \
+            -print_final_stats=1
+
+      # The reproduction, and the reason a red run is actionable: libFuzzer writes the exact input to
+      # `artifacts/<target>/crash-<sha1>` (or `timeout-…`, `oom-…`). Uploaded even on success,
+      # because the same artefact path is where a replayed crash lands, and `if-no-files-found`
+      # keeps a clean run from failing on an empty directory.
+      - name: Keep the crashing input
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-artifacts-${{ matrix.target }}
+          path: fuzz/artifacts/${{ matrix.target }}
+          if-no-files-found: ignore
+          retention-days: 30
+
+      # A run that produced artefacts is a run that found something, whatever the step's status: name
+      # them in the log so the URL of the failing check is enough to know which file to replay.
+      - name: Report what the run left behind
+        if: always()
+        run: |
+          set -euo pipefail
+          directory="fuzz/artifacts/${{ matrix.target }}"
+          if [ -d "$directory" ]; then
+            echo "artefacts under $directory:"
+            ls -l "$directory" || true
+          else
+            echo "no artefact: the target completed its window without a crash"
+          fi

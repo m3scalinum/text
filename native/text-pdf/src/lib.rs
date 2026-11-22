@@ -10,6 +10,27 @@ mod raster;
 
 pub use ffi::{TpBuffer, TpError};
 
+/// The function the fuzzing target in `fuzz/` drives, and nothing else.
+///
+/// Rendering is the deepest path a hostile PDF can take in this crate: `hayro` parses the object
+/// graph, the content streams, the fonts and then makes pixels. The ceilings are lowered from the
+/// documented defaults — 72 DPI, four megapixels, 32 MiB of PNG — so one fuzz iteration stays
+/// short; the bounds themselves are the ones the crate already enforces, not new ones.
+#[doc(hidden)]
+pub mod fuzz_api {
+    use crate::raster::{self, Options};
+
+    /// Renders page 1 of `bytes` under a small ceiling, discarding the PNG.
+    pub fn render(bytes: &[u8]) {
+        let options = Options {
+            dpi: 72,
+            max_pixels: 4_000_000,
+            max_bytes: 32 * 1024 * 1024,
+        };
+        let _ = raster::render_page(bytes, 1, &options);
+    }
+}
+
 use std::ffi::c_char;
 use std::sync::OnceLock;
 

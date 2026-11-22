@@ -27,4 +27,7 @@ Thumbs.db
 ## Local only
 # Working notes on why the project exists; not part of the published specification set.
 docs/specifications/idea.md
+
+## Fuzzing (the virtual workspace at the repository root holds only fuzz/)
+/target/
 __pycache__/
