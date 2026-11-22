@@ -223,7 +223,8 @@ substitute for veraPDF. In particular this checker does **not** establish:
   (§6) adds the table header, heading level, role mapping and `/Tabs` rules; the rest of the list
   rule and the content-stream reading order remain unexamined.
 - **Alternate descriptions on anything but figures**: links (`/Link` and its `/Alt`), annotations,
-  form fields and their tooltips, `/ActualText` for ligatures and hyphenation.
+  and form fields and their tooltips. `/ActualText` is no longer on this list: §5.1 measures what the
+  compiler writes for a ligature and for a hyphenation break, and it is not `/ActualText`.
 - **Document-level accessibility**: `/Suspects`, `/OpenAction`, the order of the outline, and the
   natural language of spans that differ from `/Lang`. `CheckAccessibility` reads
   `/ViewerPreferences /DisplayDocTitle` and `/Tabs`; nothing else on this line is read.
@@ -239,6 +240,38 @@ The claim in this document is narrow and testable: a document that passes has th
 tagged, embedded, identified PDF needs, and one that fails names the declaration that is wrong.
 Conformance to ISO 14289-1 or ISO 19005 is only ever established by running veraPDF (or another
 ISO 32000-based validator) on the produced file.
+
+### 5.1 Measured: `/ActualText`, ligatures and hyphenation
+
+This line used to read "not examined". It was examined: one page compiled through
+`M3scalinum.Text.Typst` with `#set text(lang: "fr", hyphenate: true)`, `#set par(justify: true)` and a
+5 cm measure, carrying a ligature (`fi` in `fin`, `fi` in `finance`), `œuvre` and a long word that has
+to break. The produced file was read through its decompressed streams, not guessed from the source.
+
+| Question | Answer, from the bytes |
+| --- | --- |
+| Does the file carry `/ActualText`? | **No.** The token occurs zero times in the file and in every decompressed stream. Typst 0.15.1 writes none, for a ligature or for a break. |
+| Is there a span to hang it on? | Yes. The page's text sits in `/Span <</MCID n>> … EMC` marked-content sequences. The place exists; the entry does not. |
+| How is the ligature recovered? | By the font's `/ToUnicode` CMap. The `fi` glyph has one code and the CMap maps it to two code points: `<0004> <00660069>`, that is U+0066 U+0069. `œuvre`'s `œ` is one code mapped to `<0153>`. |
+| How is the break carried? | As a soft hyphen. The hyphenated glyph is code `<0015>`, mapped to `<00AD>` (U+00AD SOFT HYPHEN), and the next fragment starts a new line. |
+| What does `ExtractTextPages` return? | `Le fi et l’œuvre, une finance, puis anticonstitutionnellement anticonstitutionnellement anti­` then a newline and `constitutionnellement.` — the ligature comes back as the two characters `f` and `i`, the break as U+00AD, and the join is the line break. |
+
+So the mapping a reader needs is present and correct without `/ActualText`: a consumer that follows
+`/ToUnicode` reads `fi`, not a replacement glyph, and reads a break as a soft hyphen it can join or
+drop. What `/ActualText` would add is the declaration PDF/UA asks for on a ligature — that the two
+characters are one glyph's worth of text, and what the un-hyphenated word is. **Typst 0.15.1 offers no
+way to write it**: the model can reach five `pdf.*` functions (`attach`, `artifact`, `data-cell`,
+`header-cell`, `table-summary`), none of which emits an `/ActualText`, and `#set page`, `#set text` and
+`#show` have no parameter for one. The honest statement is therefore the measured one, not a promise:
+the ligature and the break survive extraction through `/ToUnicode`, and the `/ActualText` declaration
+itself is absent from every file this suite produces.
+
+`tests/Text.Typst.Integration.Tests/ActualTextIntegrationTests.cs` holds the three measurements:
+`The_ligature_is_recovered_through_the_to_unicode_map_and_not_through_actual_text`,
+`A_hyphenation_break_is_a_soft_hyphen_in_the_page_text` and
+`No_page_of_the_document_carries_an_actual_text_entry`. They read the exported bytes and the
+decompressed CMap, so a Typst upgrade that starts writing `/ActualText` fails the third one instead of
+leaving this section quietly wrong.
 
 ## 6. The accessibility checklist, per package
 
