@@ -42,11 +42,12 @@ internal sealed class PdfTextReader
     /// <summary>Reads page <paramref name="page"/> (zero-based) of <paramref name="pdf"/>.</summary>
     /// <param name="pdf">The document, as its whole file.</param>
     /// <param name="page">Zero-based page index.</param>
+    /// <param name="password">The password that opens an encrypted document, or <see langword="null"/>.</param>
     /// <exception cref="PdfTextException">The bytes are not a PDF, the document is encrypted, or its catalog cannot be read.</exception>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="page"/> names a page the document does not have.</exception>
-    public static PdfPageText ReadPage(ReadOnlySpan<byte> pdf, int page)
+    public static PdfPageText ReadPage(ReadOnlySpan<byte> pdf, int page, string? password = null)
     {
-        var reader = Open(pdf.ToArray());
+        var reader = Open(pdf.ToArray(), password);
         var pages = reader._file.Pages();
 
         if (page < 0 || page >= pages.Count)
@@ -60,7 +61,7 @@ internal sealed class PdfTextReader
         return reader.ReadPage(pages[page], page + 1);
     }
 
-    private static PdfTextReader Open(byte[] pdf)
+    private static PdfTextReader Open(byte[] pdf, string? password)
     {
         if (!PdfFile.TryOpen(pdf, out var file) || file is null)
         {
@@ -71,7 +72,7 @@ internal sealed class PdfTextReader
 
         if (file.IsEncrypted)
         {
-            throw new PdfTextException(PdfTextError.Encrypted, EncryptedReason(file));
+            file = Decrypt(pdf, file, password);
         }
 
         if (file.Catalog is null)
@@ -84,6 +85,76 @@ internal sealed class PdfTextReader
         return new PdfTextReader(file);
     }
 
+    /// <summary>
+    /// Opens an encrypted document with <paramref name="password"/> and returns the decrypted file,
+    /// so the walk below reads plaintext and never needs to know the document was protected.
+    /// </summary>
+    /// <param name="pdf">The encrypted document.</param>
+    /// <param name="file">The encrypted file, already parsed, whose handler names the reason for a refusal.</param>
+    /// <param name="password">The password supplied by the caller, or <see langword="null"/> when none was.</param>
+    private static PdfFile Decrypt(byte[] pdf, PdfFile file, string? password)
+    {
+        if (password is null)
+        {
+            throw new PdfTextException(
+                PdfTextError.Encrypted,
+                $"{EncryptedReason(file)}; pass its password to read its text");
+        }
+
+        if (!SupportsDecryption(file))
+        {
+            throw new PdfTextException(
+                PdfTextError.Encrypted,
+                $"{EncryptedReason(file)}; this library does not decrypt that security handler, so its text cannot be read");
+        }
+
+        byte[] decrypted;
+
+        try
+        {
+            decrypted = PdfEncryption.Open(pdf, password).Pdf;
+        }
+        catch (PdfEncryptionException)
+        {
+            throw new PdfTextException(
+                PdfTextError.WrongPassword,
+                "the password does not open the document, so its text cannot be read");
+        }
+
+        // The bytes PdfEncryption.Open returned are a rebuilt document, so they parse like any other;
+        // a failure here would mean the decryption produced something that is not a PDF at all.
+        if (!PdfFile.TryOpen(decrypted, out var opened) || opened is null)
+        {
+            throw new PdfTextException(
+                PdfTextError.Unreadable,
+                "the document decrypted, but the bytes it produced are not a readable PDF");
+        }
+
+        return opened;
+    }
+
+    /// <summary>
+    /// Whether <paramref name="file"/> declares a security handler <see cref="PdfEncryption.Open"/>
+    /// implements, so that a failure to open it is the password's fault rather than the cipher's.
+    /// </summary>
+    /// <param name="file">The encrypted document.</param>
+    private static bool SupportsDecryption(PdfFile file)
+    {
+        var encrypt = file.ResolveDictionary(file.Trailer["Encrypt"]);
+
+        if (encrypt is null)
+        {
+            return false;
+        }
+
+        var filter = (file.Resolve(encrypt["Filter"]) as PdfName)?.Value;
+        var version = (file.Resolve(encrypt["V"]) as PdfNumber)?.Value;
+        var revision = (file.Resolve(encrypt["R"]) as PdfNumber)?.Value;
+
+        return string.Equals(filter, "Standard", StringComparison.Ordinal)
+            && ((version == 5 && revision == 6) || (version == 4 && revision == 4));
+    }
+
     private static string EncryptedReason(PdfFile file)
     {
         var encrypt = file.ResolveDictionary(file.Trailer["Encrypt"]);
@@ -92,7 +163,7 @@ internal sealed class PdfTextReader
         var version = encrypt is null ? null : file.Resolve(encrypt["V"]) as PdfNumber;
 
         var detail = version is null ? handler : $"{handler}, revision {version.Value}";
-        return $"the document is encrypted ({detail}); decryption is not implemented, so its text cannot be read";
+        return $"the document is encrypted ({detail})";
     }
 
     private PdfTextResult Run()
@@ -110,7 +181,9 @@ internal sealed class PdfTextReader
 
     /// <summary>Reads the text of every page.</summary>
     /// <param name="pdf">The document.</param>
-    public static PdfTextResult Extract(ReadOnlySpan<byte> pdf) => Open(pdf.ToArray()).Run();
+    /// <param name="password">The password that opens an encrypted document, or <see langword="null"/>.</param>
+    public static PdfTextResult Extract(ReadOnlySpan<byte> pdf, string? password = null)
+        => Open(pdf.ToArray(), password).Run();
 
     private PdfPageText ReadPage(PdfPage page, int number)
     {

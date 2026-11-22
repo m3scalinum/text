@@ -27,6 +27,9 @@ public sealed class PdfTextTests
     private static string Stream(string content)
         => $"<</Length {content.Length}>>\nstream\n{content}\nendstream";
 
+    /// <summary>The password the tests encrypt with and open with.</summary>
+    private const string Password = "correct horse";
+
     [Fact]
     public void Every_page_of_a_compiler_document_is_read_and_its_marker_stays_on_its_page()
     {
@@ -250,6 +253,101 @@ public sealed class PdfTextTests
         Assert.Contains("/Standard", exception.Message, StringComparison.Ordinal);
 
         Assert.Throws<PdfTextException>(() => PdfText.ExtractPage(pdf, 0));
+    }
+
+    [Fact]
+    public void An_AES_256_document_is_decrypted_with_its_password_then_read()
+    {
+        var encrypted = PdfEncryption.Encrypt(TestPdf.OnePage(), Password, PdfPermissions.All);
+
+        var result = PdfText.Extract(encrypted, Password);
+
+        Assert.Equal(1, result.PageCount);
+        Assert.Contains("Page 1", result.Pages[0].Text, StringComparison.Ordinal);
+
+        var page = PdfText.ExtractPage(encrypted, 0, Password);
+        Assert.Equal(result.Pages[0].Text, page.Text, StringComparer.Ordinal);
+    }
+
+    [Fact]
+    public void An_AES_128_document_is_decrypted_with_its_user_password_then_read()
+    {
+        // A second implementation built from the specification, not this library's writer.
+        var encrypted = TestEncryption.Aes128();
+
+        var result = PdfText.Extract(encrypted, TestEncryption.UserPassword);
+
+        Assert.Contains(TestEncryption.ContentText, result.Pages[0].Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void An_encrypted_document_without_a_password_is_still_refused()
+    {
+        var encrypted = PdfEncryption.Encrypt(TestPdf.OnePage(), Password, PdfPermissions.All);
+
+        var exception = Assert.Throws<PdfTextException>(() => PdfText.Extract(encrypted));
+
+        Assert.Equal(PdfTextError.Encrypted, exception.Error);
+        Assert.Contains("encrypted", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("not implemented", exception.Message, StringComparison.OrdinalIgnoreCase);
+
+        Assert.Throws<PdfTextException>(() => PdfText.ExtractPage(encrypted, 0));
+    }
+
+    [Fact]
+    public void A_wrong_password_is_a_typed_error_and_not_an_uncontrolled_exception()
+    {
+        var encrypted = PdfEncryption.Encrypt(TestPdf.OnePage(), Password, PdfPermissions.All);
+
+        var exception = Assert.Throws<PdfTextException>(() => PdfText.Extract(encrypted, "wrong horse"));
+
+        Assert.Equal(PdfTextError.WrongPassword, exception.Error);
+        Assert.Contains("password", exception.Message, StringComparison.OrdinalIgnoreCase);
+
+        var page = Assert.Throws<PdfTextException>(() => PdfText.ExtractPage(encrypted, 0, "wrong horse"));
+        Assert.Equal(PdfTextError.WrongPassword, page.Error);
+    }
+
+    [Fact]
+    public void An_encrypted_document_with_an_unsupported_handler_is_refused_even_with_a_password()
+    {
+        // V2/R3 is RC4, which this package refuses by design: the password cannot be the reason.
+        var pdf = PdfTestDocument.Document(
+        [
+            "<</Type/Catalog/Pages 2 0 R>>",
+            "<</Type/Pages/Count 0/Kids[]>>",
+            "<</Filter/Standard/V 2/R 3/Length 128/P -4/O<00000000000000000000000000000000>"
+                + "/U<00000000000000000000000000000000>>>",
+        ],
+        " /Encrypt 3 0 R");
+
+        var exception = Assert.Throws<PdfTextException>(() => PdfText.Extract(pdf, Password));
+
+        Assert.Equal(PdfTextError.Encrypted, exception.Error);
+        Assert.Contains("/Standard", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void An_empty_password_is_a_password_while_no_password_is_a_refusal()
+    {
+        var encrypted = PdfEncryption.Encrypt(TestPdf.OnePage(), string.Empty, PdfPermissions.All);
+
+        Assert.Throws<PdfTextException>(() => PdfText.Extract(encrypted));
+
+        var opened = PdfText.Extract(encrypted, string.Empty);
+        Assert.Contains("Page 1", opened.Pages[0].Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void An_unencrypted_document_reads_the_same_whatever_password_is_passed()
+    {
+        var pdf = TestPdf.OnePage();
+
+        var without = PdfText.Extract(pdf);
+        var with = PdfText.Extract(pdf, Password);
+
+        Assert.Equal(without.Pages[0].Text, with.Pages[0].Text, StringComparer.Ordinal);
+        Assert.Equal(without.PageCount, with.PageCount);
     }
 
     [Fact]
