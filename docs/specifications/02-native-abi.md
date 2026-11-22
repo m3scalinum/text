@@ -50,15 +50,17 @@ typedef struct TnBuffer {
 ### 3.1 Version handshake
 
 ```c
-uint32_t    tn_abi_version(void);        /* 1 for this specification */
-const char* tn_abi_version_string(void); /* "1.0.0" */
+uint32_t    tn_abi_version(void);        /* 2 — the revision this library implements */
+uint32_t    tn_abi_version_min(void);    /* 1 — the oldest revision it still serves */
+const char* tn_abi_version_string(void); /* "2.0.0" */
 const char* tn_typst_version(void);      /* "0.15.1" — the compiler the library was built with */
 const char* tn_build_info(void);         /* JSON: { "target": "x86_64-pc-windows-msvc", "profile": "release", "commit": "…" } */
 ```
 
-`M3scalinum.Text.Typst.Native` MUST call `tn_abi_version` once at load. If it is less than the version the
-managed assembly was compiled against, loading fails with `TypstNativeException`
-(`TN_ERR_ABI_MISMATCH`). A greater version is accepted if all symbols used are present.
+`M3scalinum.Text.Typst.Native` calls `tn_abi_version` once at load and accepts the library when the
+revision falls inside the range it was built for. The range, the deprecation window and the two
+refusals are specified in §11. `tn_abi_version_min` exists for introspection and conformance only:
+the managed layer must not call it, because a revision 1 library does not export it.
 
 ### 3.2 Errors
 
@@ -475,6 +477,86 @@ The ABI is tested from both sides:
   double-free avoidance, `NULL` arguments, a deliberately panicking input (a corrupted font) and
   a 0-byte source.
 - Managed tests (`tests/Text.Typst.Integration.Tests`) assert:
-  `tn_abi_version` matches the constant compiled into the managed layer; every status code is
-  reachable; `TnBuffer` of size 0 is handled; a panic becomes a `TypstNativeException` and leaves
-  the process alive; 10 000 create/compile/export/free cycles leave the handle count flat.
+  `tn_abi_version` matches the revision compiled into the managed layer and `tn_abi_version_min`
+  is at most that revision; every status code is reachable; `TnBuffer` of size 0 is handled; a
+  panic becomes a `TypstNativeException` and leaves the process alive; 10 000
+  create/compile/export/free cycles leave the handle count flat.
+
+## 11. Version negotiation
+
+The handshake is a range, not a point. `tn_abi_version` reports the revision a library
+implements and `tn_abi_version_min` the oldest revision it still serves. The managed layer carries
+the same pair — `AbiContract.Current` and `AbiContract.Minimum` — and a library loads when the
+revision it reports falls inside `[Minimum, Current]`.
+
+The range spans two ABI revisions: the current one and the one before it. A revision is therefore
+served for two revisions and dropped on the third — revision 1 is accepted by a managed layer at
+revision 2 and refused by a managed layer at revision 3. A release that adds a revision bumps
+`Current`, leaves every existing symbol in place, and never renumbers one.
+
+The managed values and the crate's `TN_ABI_VERSION` / `TN_ABI_MIN_VERSION` are the same two
+numbers; a test on each side reads the other side's source and fails when they drift, so an
+installed pair is never deprecated or refused for a reason nobody chose.
+
+### 11.1 Verdicts
+
+| Native revision | Verdict | What happens |
+| --- | --- | --- |
+| `Current` | accepted | nothing is reported |
+| `Minimum`…`Current - 1` | accepted, deprecated | one warning, then the library is used |
+| below `Minimum` | refused | `TN_ERR_ABI_MISMATCH`, library not used |
+| above `Current` | refused | `TN_ERR_ABI_MISMATCH`, library not used |
+
+A newer library than the managed package is refused because the direction of a mismatch is what
+the message has to explain: a revision the layer does not know may have removed or changed a
+symbol it calls, and the failure would land on the first call that crosses it rather than on the
+load.
+
+There is no switch for this check. No environment variable, no configuration key, no
+`AppContext` flag disables it: a host that could turn the check off would turn it off, and the
+mismatch would then surface as an `EntryPointNotFoundException` on whichever symbol changed first,
+or as a crash inside Rust. The check runs on every load.
+
+### 11.2 The refusal
+
+Refusing throws before the first symbol is used, with the status `TN_ERR_ABI_MISMATCH`, which the
+managed layer surfaces as a `TypstNativeException` carrying `TypstErrorCode.AbiMismatch`. The
+message names, in one sentence each:
+
+- the revision the library reported, and the revision the managed layer is at;
+- the accepted range, written `Minimum..Current`;
+- the file that was loaded, so the reader knows which copy is in play — a stale `sharp_typst` next
+  to the application rather than the package's `runtimes/<rid>/native` asset is the usual cause;
+- the direction: the library is older than this build, or newer than it;
+- the action: replace the stale asset, or update the managed and the native package together.
+
+Nothing in the message refers to a document or a source file the reader has to find first.
+
+### 11.3 The deprecation window
+
+A library inside the range but below `Current` is used, and one warning is written through the
+`System.Diagnostics.TraceSource` named `M3scalinum.Text.Typst.Native`, at
+`TraceEventType.Warning`. A trace source rather than the console: it is silent until the host
+attaches a listener, and it is how a host routes the notice into its own logs.
+
+The warning names the revision found, the revision expected, the accepted range and the loaded
+file, and says what is missing from the library and when it will stop working:
+
+- symbols added to the ABI after the library's revision are absent from it, so a feature that
+  needs one fails at its call, not at load;
+- the library is refused outright starting with the next revision of the managed layer.
+
+### 11.4 What a consumer does with the warning
+
+Read it as a deadline, not as noise:
+
+1. Ship the native asset from the same release as the managed package. When both come from the
+   same package version the warning disappears, because the revisions match.
+2. If the application directory holds its own copy of the library, delete it. The resolver probes
+   `runtimes/<rid>/native` first and the application directory last, so a file there is a
+   deliberate override, and an old one keeps being used after the package is updated.
+3. Do not silence the trace source to make the warning go away. The next release of the managed
+   package refuses that library at load, and the failure then arrives in production instead of in
+   a log.
+4. If a pinned native package is the constraint, upgrade it: the two packages are released
+   together and both carry the same ABI revision.
