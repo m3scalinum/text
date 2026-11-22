@@ -12,6 +12,13 @@ internal sealed class FigureNode(TypstFigure figure) : TypstNode
             writer.NewLine();
             writer.WriteVerbatim(figure.ImageMarkup);
 
+            if (figure.AltText is { } alt)
+            {
+                writer.WriteVerbatim(",");
+                writer.NewLine();
+                writer.WriteVerbatim("alt: " + LinkNode.Quote(alt));
+            }
+
             if (figure.Caption is not null)
             {
                 writer.WriteVerbatim(",");

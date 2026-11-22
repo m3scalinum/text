@@ -33,6 +33,19 @@ public sealed class TypstTableCell
     /// </summary>
     public TypstAlignment? Align { get; init; }
 
+    /// <summary>
+    /// Makes the cell a header cell and states what it labels, emitted as
+    /// <c>pdf.header-cell(scope: …)</c>. Null keeps the cell a data cell, except in a header row,
+    /// where Typst marks it a column header on its own.
+    /// </summary>
+    /// <remarks>
+    /// A body row needs this to declare a header column (<see cref="TypstHeaderScope.Row"/>), and a
+    /// header row needs it to declare a corner cell (<see cref="TypstHeaderScope.Both"/>). Typst
+    /// requires the <c>a11y-extras</c> feature for the function; this suite's compiler enables
+    /// every feature, and Typst gates it on PDF 1.5 and later.
+    /// </remarks>
+    public TypstHeaderScope? HeaderScope { get; init; }
+
     /// <summary>How many columns the cell covers.</summary>
     public int Colspan { get; }
 

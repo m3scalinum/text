@@ -10,6 +10,10 @@ public sealed class TypstFigure
     private TypstLength? _width;
     private TypstLength? _height;
     private string? _fit;
+    private string? _alt;
+
+    /// <summary>The alternative description, null when the figure has none.</summary>
+    internal string? AltText => _alt;
 
     internal string ImageMarkup
     {
@@ -63,6 +67,26 @@ public sealed class TypstFigure
         _width = width;
         _height = height;
         _fit = fit;
+        return this;
+    }
+
+    /// <summary>Sets the alternative description a screen reader reads instead of the image.</summary>
+    /// <remarks>
+    /// <para>
+    /// Emitted as the <c>alt</c> argument of the <c>#figure(…)</c> call. Typst turns that into a
+    /// <c>/Figure</c> structure element carrying <c>/Alt</c>, which is what
+    /// <c>PdfConformance.CheckAccessibility</c> reads as <c>PDFUA.FIGURE_ALT_MISSING</c>; the text
+    /// is also read by assistive technology in the other export targets.
+    /// </para>
+    /// <para>
+    /// The description is prose, not markup: it is quoted and escaped, never parsed. A figure that
+    /// is purely decorative should not carry one, but the model has no decorative marker yet.
+    /// </para>
+    /// </remarks>
+    public TypstFigure Alt(string description)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        _alt = description;
         return this;
     }
 

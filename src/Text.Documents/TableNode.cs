@@ -48,36 +48,88 @@ internal sealed class TableNode(TypstTable table) : TypstNode
                 writer.WriteVerbatim(", ");
             }
 
-            var cell = cells[index];
+            WriteCell(writer, cells[index]);
+        }
+    }
 
-            if (cell.Colspan > 1 || cell.Rowspan > 1 || cell.Align is not null)
+    private static void WriteCell(TypstMarkupWriter writer, TypstTableCell cell)
+    {
+        var call = CellCall(cell);
+
+        if (cell.HeaderScope is { } scope)
+        {
+            var quoted = LinkNode.Quote(ScopeName(scope));
+
+            if (call is null)
             {
-                var arguments = new List<string>();
+                // A plain cell: the content is the function's trailing block.
+                writer.WriteVerbatim("pdf.header-cell(scope: " + quoted + ")");
 
-                if (cell.Colspan > 1)
+                using (writer.ContentBlock())
                 {
-                    arguments.Add("colspan: " + cell.Colspan.ToString(CultureInfo.InvariantCulture));
+                    cell.Content.Write(writer);
                 }
 
-                if (cell.Rowspan > 1)
-                {
-                    arguments.Add("rowspan: " + cell.Rowspan.ToString(CultureInfo.InvariantCulture));
-                }
-
-                if (cell.Align is not null)
-                {
-                    arguments.Add("align: " + AlignmentName(cell.Align.Value));
-                }
-
-                writer.WriteVerbatim("table.cell(" + string.Join(", ", arguments) + ")");
+                return;
             }
+
+            // A spanned or aligned cell: table.cell takes the content, and is the one positional
+            // argument pdf.header-cell accepts.
+            writer.WriteVerbatim("pdf.header-cell(" + call);
 
             using (writer.ContentBlock())
             {
                 cell.Content.Write(writer);
             }
+
+            writer.WriteVerbatim(", scope: " + quoted + ")");
+            return;
+        }
+
+        if (call is not null)
+        {
+            writer.WriteVerbatim(call);
+        }
+
+        using (writer.ContentBlock())
+        {
+            cell.Content.Write(writer);
         }
     }
+
+    private static string? CellCall(TypstTableCell cell)
+    {
+        if (cell.Colspan == 1 && cell.Rowspan == 1 && cell.Align is null)
+        {
+            return null;
+        }
+
+        var arguments = new List<string>();
+
+        if (cell.Colspan > 1)
+        {
+            arguments.Add("colspan: " + cell.Colspan.ToString(CultureInfo.InvariantCulture));
+        }
+
+        if (cell.Rowspan > 1)
+        {
+            arguments.Add("rowspan: " + cell.Rowspan.ToString(CultureInfo.InvariantCulture));
+        }
+
+        if (cell.Align is not null)
+        {
+            arguments.Add("align: " + AlignmentName(cell.Align.Value));
+        }
+
+        return "table.cell(" + string.Join(", ", arguments) + ")";
+    }
+
+    private static string ScopeName(TypstHeaderScope scope) => scope switch
+    {
+        TypstHeaderScope.Row => "row",
+        TypstHeaderScope.Both => "both",
+        _ => "column",
+    };
 
     private static string AlignmentName(TypstAlignment alignment) => alignment switch
     {
