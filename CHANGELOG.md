@@ -76,3 +76,7 @@ Not yet published on nuget.org.
   returning approximate text.
 - `linux-musl-x64` for every native package — the default Alpine container loads them — and a
   CycloneDX SBOM plus a build attestation on every release.
+- A document style applied once, numbered cross references and a table of contents whose page numbers
+  come from the layout; a PDF page rendered to PNG for preview and OCR; the GS1 family of barcodes in
+  both directions; OCR preprocessing for rotated, skewed and noisy scans; and the European trust list
+  read so a qualified signature can be told from a merely valid one.
