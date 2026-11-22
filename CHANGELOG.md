@@ -61,3 +61,12 @@ Not yet published on nuget.org.
   automatically checkable line, and the lines that only a screen reader run can settle named as such.
 - One XML entry point for the DOCX reader that refuses DTDs, external entities, entity expansion
   bombs, and parts past a size or a depth bound.
+- Accessible documents built from the model: alternative text on figures, table header cells with
+  their scope, and the document language — the three lines the accessibility checklist could only
+  report as violations before.
+- Bookmarks and file attachments read from a PDF and written back onto one as an incremental update,
+  leaving an existing signature valid.
+- A written threat model for every parser the suite exposes, with a surface → limit → test table that
+  names the lines no test covers; `cargo deny` over licences and advisories on each crate; a check
+  that every declared `rust-version` matches its dependency graph; and one example per package built
+  from its `.nupkg` in CI.

@@ -150,6 +150,16 @@ Not yet published.
   checklist this implements, names the rules that belong to the document author rather than to the
   file (contrast, type size), and lists what a screen reader run must still confirm by hand — none
   has been run, and the specification says so.
+- `M3scalinum.Text.Pdf` and `PdfOutline`: the bookmarks of a document read back as a hierarchy —
+  title, target page, children, open or closed, bold or italic — with `/Dest` resolved through a
+  direct array, a named destination tree, the older `/Dests` dictionary and a `/GoTo` action, and a
+  plan written onto an existing file as an incremental update, so a signature already in it stays
+  valid. A document without bookmarks reads as an empty collection rather than throwing.
+- `M3scalinum.Text.Pdf` and `PdfAttachments`: the files a PDF carries, read through
+  `/Names /EmbeddedFiles` and `/AF` — name, MIME type, `/AFRelationship`, size, SHA-256 and the
+  bytes, with a Flate-compressed stream inflated — extracted byte for byte, and added or removed as
+  an incremental update. `Add` and `Remove` need the classic `trailer` that `PdfDocument.Parse`
+  reads, so a file with a cross-reference stream is refused with the reason rather than rewritten.
 
 ### Security
 
