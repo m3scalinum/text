@@ -40,6 +40,7 @@ file names, to find what you want.
 | 18 | [18-pdf-text.md](18-pdf-text.md) | `PdfText`: what a received document draws, what is lost, the per-page fallbacks |
 | 19 | [19-pdf-encryption.md](19-pdf-encryption.md) | `PdfEncryption`: AES-encrypted documents, and what encryption does to a signature |
 | 26 | [26-pdfa-conversion.md](26-pdfa-conversion.md) | `PdfAConverter`: turning an existing PDF into PDF/A, and refusing when it cannot |
+| 31 | [31-pdf-attachments.md](31-pdf-attachments.md) | `PdfAttachments`: listing, extracting, adding and removing embedded files, and what that implies for PDF/A-4f |
 
 ## Other formats and engines
 
