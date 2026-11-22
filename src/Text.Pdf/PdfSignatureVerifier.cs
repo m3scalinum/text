@@ -128,8 +128,13 @@ public static class PdfSignatureVerifier
     /// <remarks>
     /// The trust list is data the caller read and chose; nothing is downloaded, and a certificate the
     /// list does not know leaves the signature's own verdict untouched. Read the list with
-    /// <see cref="PdfLotl.Read(ReadOnlySpan{byte}, string)"/>; the caller keeps it cached, decides when to
-    /// refresh it, and checks <see cref="PdfTrustedList.IsExpiredAt"/>.
+    /// <see cref="PdfLotl.Read(ReadOnlySpan{byte}, string, PdfTrustStore)"/> and its own signature is
+    /// checked against the anchors passed there: every coverage entry then reports through
+    /// <see cref="PdfSignatureTrustCoverage.Basis"/> whether that check held and whether the list was
+    /// current, and a list whose signature did not hold qualifies nothing. A list read without anchors
+    /// carries no verdict, and the coverage says the qualification is the list's claim. The caller
+    /// keeps the list cached, decides when to refresh it, and checks
+    /// <see cref="PdfTrustedList.IsExpiredAt"/>.
     /// </remarks>
     public static PdfTrustListVerification Verify(
         ReadOnlySpan<byte> pdf,
