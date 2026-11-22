@@ -23,6 +23,23 @@ pub struct RenderedPage {
     pub pixels: Vec<u8>,
 }
 
+/// The number of pages a PDF holds, without rasterising any of them.
+///
+/// It exists so a caller can plan per-page work — which language reads which page —
+/// before paying for a render. An empty document is refused here as it is in
+/// [`render_pages`]: a plan for zero pages is not a plan.
+pub fn page_count(pdf_bytes: &[u8]) -> Result<u32, ToError> {
+    let pdf = Pdf::new(pdf_bytes.to_vec())
+        .map_err(|e| ToError::new(TO_ERR_PDF, format!("read pdf: {e:?}")))?;
+    let total = pdf.pages().len() as u32;
+
+    if total == 0 {
+        return Err(ToError::new(TO_ERR_PDF, "the document has no pages"));
+    }
+
+    Ok(total)
+}
+
 /// Rasterise `page_count` pages from `first_page` at `dpi`. `page_count == 0`
 /// means "to the end".
 pub fn render_pages(

@@ -10,8 +10,10 @@ use ocrs::{ImageSource, OcrEngine, OcrEngineParams, OcrError, TextItem};
 use rten::Model;
 use rten_tensor::prelude::*;
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 
 use crate::ffi::{TO_ERR_IMAGE, TO_ERR_MODEL, TO_ERR_OCR, ToError};
+use crate::language::{LanguageCatalogue, PageLanguages, PageRoute};
 use crate::models::{self, ModelDefect, ModelIdentity, ModelKind, ModelSet};
 use crate::pdf;
 use crate::preprocess::{self, PreprocessOptions, Preprocessed};
@@ -394,11 +396,7 @@ impl Engine {
         preprocess: PreprocessOptions,
     ) -> Result<Vec<u8>, ToError> {
         let thresholds = thresholds.validate()?;
-
-        let decoded = image::load_from_memory(encoded)
-            .map_err(|e| ToError::new(TO_ERR_IMAGE, format!("decode image: {e}")))?;
-        let rgb = decoded.into_rgb8();
-        let prepared = preprocess::preprocess(rgb.as_raw(), rgb.width(), rgb.height(), preprocess);
+        let prepared = prepare_image(encoded, preprocess)?;
 
         let page = self.recognize_pixels(
             &prepared.pixels,
@@ -417,6 +415,7 @@ impl Engine {
     }
 
     /// Render every requested page of a PDF at `dpi` and recognise each one.
+    #[allow(clippy::too_many_arguments)]
     pub fn recognize_pdf(
         &self,
         pdf_bytes: &[u8],
@@ -458,7 +457,7 @@ impl Engine {
             .into_bytes())
     }
 
-    fn recognize_pixels(
+    pub(crate) fn recognize_pixels(
         &self,
         pixels: &[u8],
         width: u32,
@@ -504,6 +503,241 @@ impl Engine {
 
         Ok(Page::assess(readings, thresholds))
     }
+}
+
+/// One loaded engine per language, plus the default one.
+///
+/// A document that mixes languages cannot be read well by one pair of weights, and
+/// the language of a page is a fact only the caller holds: nothing here infers it
+/// from the text. [`LanguageCatalogue`] maps a requested tag to a set, the set is
+/// loaded once, and each page is read by the engine of the tag the catalogue chose.
+///
+/// Building one costs one copy of the weights per language. Two languages is two
+/// engines; a caller who names ten has asked for ten.
+pub struct LanguageEngines {
+    catalogue: LanguageCatalogue,
+    engines: BTreeMap<String, Engine>,
+}
+
+impl std::fmt::Debug for LanguageEngines {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LanguageEngines")
+            .field("catalogue", &self.catalogue.to_json())
+            .finish_non_exhaustive()
+    }
+}
+
+impl LanguageEngines {
+    /// Loads one engine per set of the catalogue, all sharing `dictionary`.
+    pub fn build(catalogue: LanguageCatalogue, dictionary: Option<&str>) -> Result<Self, ToError> {
+        let mut engines = BTreeMap::new();
+
+        for tag in catalogue.tags() {
+            let set = catalogue
+                .set(tag)
+                .expect("a tag the catalogue lists has a set");
+            engines.insert(tag.to_string(), Engine::from_model_set(set, dictionary)?);
+        }
+
+        Ok(Self { catalogue, engines })
+    }
+
+    /// The engine that reads a page asking for nothing.
+    pub fn default_engine(&self) -> &Engine {
+        self.engine(self.catalogue.default_tag())
+            .expect("the default tag has an engine")
+    }
+
+    /// The engine for a normalised tag, when the catalogue holds one.
+    pub fn engine(&self, tag: &str) -> Option<&Engine> {
+        self.engines.get(tag)
+    }
+
+    /// Decides, page by page, which set reads it and what the result will report.
+    ///
+    /// The decision is [`crate::language::route_pages`], which works from the
+    /// catalogue alone and is proved without a model. On top of it this pins each
+    /// page's identity to the identity of the engine that will actually run it, so
+    /// the report cannot name a set the loop did not use.
+    pub fn routes(
+        &self,
+        indices: &[u32],
+        first_page: u32,
+        languages: &PageLanguages,
+    ) -> Result<Vec<PageRoute>, ToError> {
+        let mut routes =
+            crate::language::route_pages(&self.catalogue, indices, first_page, languages)?;
+
+        for route in &mut routes {
+            let engine = self.engine(&route.selection.used).ok_or_else(|| {
+                ToError::invalid_argument(format!(
+                    "no engine is loaded for language '{}'",
+                    route.selection.used
+                ))
+            })?;
+
+            route.identity = engine.models().clone();
+        }
+
+        Ok(routes)
+    }
+
+    /// Recognises one image with the set of `language`, reporting the choice.
+    ///
+    /// A language with no set is read with the default set and the result says so;
+    /// it is never an error and never silent.
+    pub fn recognize_image(
+        &self,
+        encoded: &[u8],
+        thresholds: Thresholds,
+        preprocess: PreprocessOptions,
+        language: Option<&str>,
+    ) -> Result<Vec<u8>, ToError> {
+        let thresholds = thresholds.validate()?;
+        let selection = self.catalogue.select(language);
+
+        let engine = self.engine(&selection.used).ok_or_else(|| {
+            ToError::invalid_argument(format!(
+                "no engine is loaded for language '{}'",
+                selection.used
+            ))
+        })?;
+
+        let prepared = prepare_image(encoded, preprocess)?;
+        let page = engine.recognize_pixels(
+            &prepared.pixels,
+            prepared.width,
+            prepared.height,
+            thresholds,
+        )?;
+
+        let mut value = page.to_json();
+        value["width"] = json!(prepared.width);
+        value["height"] = json!(prepared.height);
+        value["language"] = selection.to_json();
+        value["models"] = engine.models().to_json();
+        add_preprocess_report(&mut value, &prepared);
+
+        Ok(value.to_string().into_bytes())
+    }
+
+    /// Renders every requested page and reads each with the set its entry names.
+    ///
+    /// Each page carries its own `language` verdict and its own `models` identity,
+    /// because two pages of one document can have been read by two pairs of weights.
+    /// The root names the default and the tags available, so a consumer can tell a
+    /// one-language document from a mistyped tag.
+    #[allow(clippy::too_many_arguments)]
+    pub fn recognize_pdf(
+        &self,
+        pdf_bytes: &[u8],
+        dpi: u32,
+        first_page: u32,
+        page_count: u32,
+        thresholds: Thresholds,
+        preprocess: PreprocessOptions,
+        languages: &PageLanguages,
+    ) -> Result<Vec<u8>, ToError> {
+        let thresholds = thresholds.validate()?;
+        let rendered = pdf::render_pages(pdf_bytes, dpi, first_page, page_count)?;
+        let indices = rendered.iter().map(|page| page.index).collect::<Vec<_>>();
+        let routes = self.routes(&indices, first_page, languages)?;
+
+        let mut pages = Vec::with_capacity(rendered.len());
+
+        for (rendered, route) in rendered.iter().zip(&routes) {
+            debug_assert_eq!(
+                route.page_index, rendered.index,
+                "a route is aligned with the page it describes"
+            );
+
+            let prepared = preprocess::preprocess(
+                &rendered.pixels,
+                rendered.width,
+                rendered.height,
+                preprocess,
+            );
+
+            let engine = self.engine(&route.selection.used).ok_or_else(|| {
+                ToError::invalid_argument(format!(
+                    "no engine is loaded for language '{}'",
+                    route.selection.used
+                ))
+            })?;
+
+            let page = engine.recognize_pixels(
+                &prepared.pixels,
+                prepared.width,
+                prepared.height,
+                thresholds,
+            )?;
+
+            let mut value = page.to_json();
+            value["pageIndex"] = json!(rendered.index);
+            value["width"] = json!(prepared.width);
+            value["height"] = json!(prepared.height);
+            value["dpi"] = json!(rendered.dpi);
+            value["language"] = route.selection.to_json();
+            value["models"] = route.identity.to_json();
+            add_preprocess_report(&mut value, &prepared);
+            pages.push(value);
+        }
+
+        Ok(json!({
+            "pages": pages,
+            "languages": self.catalogue.to_json(),
+        })
+        .to_string()
+        .into_bytes())
+    }
+}
+
+/// The engine a handle owns: one set, or one per language.
+///
+/// The single-set variant is the shape revision 1 and 2 exported, and the entry
+/// points of those revisions read through it unchanged. On a handle built from a
+/// catalogue they read with the default set, which is what those entry points could
+/// mean: they name no language, so the default is the honest answer.
+pub enum EngineSet {
+    /// One detection/recognition pair, as before languages existed.
+    ///
+    /// Boxed because an engine is much larger than a catalogue: without it every
+    /// handle would carry the size of its largest variant.
+    Single(Box<Engine>),
+    /// One pair per language, chosen per page.
+    Languages(LanguageEngines),
+}
+
+impl EngineSet {
+    /// The engine that reads a call naming no language.
+    pub fn default_engine(&self) -> &Engine {
+        match self {
+            Self::Single(engine) => engine,
+            Self::Languages(engines) => engines.default_engine(),
+        }
+    }
+
+    /// The language engines, when the handle was built from a catalogue.
+    pub fn languages(&self) -> Option<&LanguageEngines> {
+        match self {
+            Self::Single(_) => None,
+            Self::Languages(engines) => Some(engines),
+        }
+    }
+}
+
+/// Decodes an encoded image and applies the requested preprocessing.
+fn prepare_image(encoded: &[u8], preprocess: PreprocessOptions) -> Result<Preprocessed, ToError> {
+    let decoded = image::load_from_memory(encoded)
+        .map_err(|e| ToError::new(TO_ERR_IMAGE, format!("decode image: {e}")))?;
+    let rgb = decoded.into_rgb8();
+
+    Ok(preprocess::preprocess(
+        rgb.as_raw(),
+        rgb.width(),
+        rgb.height(),
+        preprocess,
+    ))
 }
 
 /// Parses one model of the set, and refuses a graph `ocrs` could not run.

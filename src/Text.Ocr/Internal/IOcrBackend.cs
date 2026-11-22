@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace M3scalinum.Text.Ocr.Internal;
@@ -16,6 +17,26 @@ internal interface IOcrBackend
     OcrRecognition Recognize(byte[] image, OcrOptions options);
 
     IReadOnlyList<OcrPageOutcome> RecognizePdf(byte[] pdf, OcrPdfOptions options);
+
+    /// <summary>Recognises an image with the model set of a named language.</summary>
+    /// <remarks>
+    /// The default refuses. A double written before language selection existed keeps
+    /// compiling and fails loudly rather than reading with a set the caller did not
+    /// choose.
+    /// </remarks>
+    OcrRecognition RecognizeLanguage(byte[] image, OcrOptions options, string language)
+        => throw new NotSupportedException("this backend cannot read in a named language");
+
+    /// <summary>
+    /// Renders and recognises a PDF, asking <paramref name="languageForPage"/> which
+    /// set reads each page.
+    /// </summary>
+    /// <remarks>Same default as <see cref="RecognizeLanguage"/>.</remarks>
+    IReadOnlyList<OcrPageOutcome> RecognizePdfLanguages(
+        byte[] pdf,
+        OcrPdfOptions options,
+        Func<int, string?> languageForPage)
+        => throw new NotSupportedException("this backend cannot choose a language per page");
 }
 
 /// <summary>

@@ -254,3 +254,62 @@ public sealed class OcrModelSet
         Directory,
         Identity);
 }
+
+/// <summary>
+/// One model set, named by the language it reads.
+/// </summary>
+/// <remarks>
+/// <para>
+/// A document that mixes languages needs one pair of weights per language, and a
+/// language is a tag the caller supplies — this library never guesses one from the
+/// text. This type pairs a tag with the <see cref="OcrModelSet"/> that reads it, so
+/// <see cref="OcrEngine.FromLanguages"/> can be handed a list of them.
+/// </para>
+/// <para>
+/// The tag is compared trimmed and case-insensitively: <c>fr</c>, <c>FR</c> and
+/// <c> fr </c> name the same set. It is a free-form string rather than an enum,
+/// because the tags a host uses are its own; this package only needs them to match
+/// the ones the caller passes per page.
+/// </para>
+/// </remarks>
+public sealed class OcrLanguageModelSet
+{
+    /// <summary>Creates the pairing.</summary>
+    /// <param name="language">The tag the set reads, such as <c>fr</c> or <c>en</c>.</param>
+    /// <param name="models">The validated model set.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <exception cref="ArgumentException"><paramref name="language"/> is empty.</exception>
+    public OcrLanguageModelSet(string language, OcrModelSet models)
+    {
+        ArgumentNullException.ThrowIfNull(language);
+        ArgumentNullException.ThrowIfNull(models);
+
+        if (language.Trim().Length == 0)
+        {
+            throw new ArgumentException("The language is empty.", nameof(language));
+        }
+
+        Language = language.Trim();
+        Models = models;
+    }
+
+    /// <summary>The language this set reads, as the caller named it.</summary>
+    public string Language { get; }
+
+    /// <summary>The validated pair of models.</summary>
+    public OcrModelSet Models { get; }
+
+    /// <summary>
+    /// Validates a directory and pairs its models with a language.
+    /// </summary>
+    /// <param name="language">The tag the set reads.</param>
+    /// <param name="directory">The directory holding <c>detection.rten</c> and <c>recognition.rten</c>.</param>
+    /// <returns>The validated pairing, without having loaded the weights.</returns>
+    /// <exception cref="OcrException">The directory is not a model set; <see cref="OcrException.Defect"/> says why.</exception>
+    /// <exception cref="OcrException">The native library is not available.</exception>
+    public static OcrLanguageModelSet Load(string language, string directory)
+        => new(language, OcrModelSet.LoadFromDirectory(directory));
+
+    /// <inheritdoc />
+    public override string ToString() => $"{Language}: {Models.Identity.Sha256}";
+}

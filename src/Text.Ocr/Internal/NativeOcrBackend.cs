@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace M3scalinum.Text.Ocr.Internal;
@@ -26,6 +27,13 @@ internal sealed class NativeOcrBackend : IOcrBackend, IModelSource
         => new(OcrEngineHandle.CreateFromDirectory(directory));
 
     /// <summary>
+    /// Creates the backend from a language plan: one validated model set per language,
+    /// loaded by the native side from the directories the plan names.
+    /// </summary>
+    internal static NativeOcrBackend CreateLanguages(byte[] plan)
+        => new(OcrEngineHandle.CreateLanguages(plan));
+
+    /// <summary>
     /// The identity of the weights the engine loaded, read once from the handle and
     /// kept: it cannot change for the life of the engine.
     /// </summary>
@@ -46,6 +54,45 @@ internal sealed class NativeOcrBackend : IOcrBackend, IModelSource
         var pageCount = options.LastPage is { } last ? (uint)(last - options.FirstPage + 1) : 0u;
 
         return ResultParser.ParsePages(_handle.RecognizePdf(pdf, options, firstPage, pageCount));
+    }
+
+    public OcrRecognition RecognizeLanguage(byte[] image, OcrOptions options, string language)
+        => ResultParser.ParseImage(_handle.RecognizeLanguage(image, options, language));
+
+    /// <summary>
+    /// Resolves the caller's rule for every page of the range and hands the native side
+    /// an aligned plan.
+    /// </summary>
+    /// <remarks>
+    /// The range is known before the render only when the caller bounded it, so a read
+    /// to the end asks the native side for the page count first, from the page tree and
+    /// without rasterising anything. The rule is evaluated here, once per page, which
+    /// is what keeps it deterministic: a language that depended on the text of the
+    /// previous page would make a reading depend on its own output.
+    /// </remarks>
+    public IReadOnlyList<OcrPageOutcome> RecognizePdfLanguages(
+        byte[] pdf,
+        OcrPdfOptions options,
+        Func<int, string?> languageForPage)
+    {
+        var firstPage = (uint)options.FirstPage;
+
+        var count = options.LastPage is { } last
+            ? last - options.FirstPage + 1
+            : (int)_handle.PageCount(pdf) - options.FirstPage;
+
+        // A first page past the end is the native side's refusal to report, with its
+        // own numbers; an empty plan leaves it to say so.
+        count = Math.Max(count, 0);
+
+        var languages = new string?[count];
+        for (var index = 0; index < count; index++)
+        {
+            languages[index] = languageForPage(options.FirstPage + index);
+        }
+
+        return ResultParser.ParsePages(
+            _handle.RecognizePdfLanguages(pdf, options, firstPage, (uint)count, languages));
     }
 
     /// <summary>Releases the native handle, and with it both models.</summary>
