@@ -41,6 +41,11 @@ public type lives in a `M3scalinum.Text.*` namespace, and every type or method n
 `M3scalinum.Text.Pdf` does not pull the compiler through six native builds to run it, and so that a
 change to the compiler cannot skip it: `ci-text.yml` runs it.
 
+The suites above all see a project reference. Nothing in them would notice a package that packs
+without an assembly, a dependency or a native asset, so each of the nine packages also has one
+example under `samples/examples/`, compiled and run by the `examples` job of `ci-text.yml` against
+the `.nupkg` that same run packed — never against the project ([08 §8](08-build-and-packaging.md#8-ci)).
+
 ## 2. Unit tests (no natives)
 
 | Area | What is asserted |
