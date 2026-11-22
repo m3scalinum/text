@@ -70,3 +70,9 @@ Not yet published on nuget.org.
   names the lines no test covers; `cargo deny` over licences and advisories on each crate; a check
   that every declared `rust-version` matches its dependency graph; and one example per package built
   from its `.nupkg` in CI.
+- Merged cells, per-language number and date formatting, and a negotiated native ABI revision in the
+  document model; a sealed manifest for an archived batch of PDFs; a revocation seam for B-LT
+  signatures that never touches the network; and an OCR that refuses an unreadable page instead of
+  returning approximate text.
+- `linux-musl-x64` for every native package — the default Alpine container loads them — and a
+  CycloneDX SBOM plus a build attestation on every release.

@@ -44,6 +44,7 @@ file names, to find what you want.
 | 31 | [31-pdf-attachments.md](31-pdf-attachments.md) | `PdfAttachments`: listing, extracting, adding and removing embedded files, and what that implies for PDF/A-4f |
 | 33 | [33-archive-integrity.md](33-archive-integrity.md) | `PdfBatchManifest`: sealing a batch of files as SHA-256 fingerprints, and verifying it incrementally |
 | 35 | [35-pdf-raster.md](35-pdf-raster.md) | `PdfRaster`: one page as a PNG, at a DPI and under a pixel and memory ceiling |
+| 36 | [36-trust-lists.md](36-trust-lists.md) | `PdfLotl`: reading the European LOTL and national trust lists, and what a verifier concludes from them |
 
 ## Other formats and engines
 
