@@ -9,22 +9,25 @@
 | Unit (mcp) | `tests/Text.Mcp.Tests` | No | 95 | ~3 s |
 | Unit (barcodes) | `tests/Text.Barcodes.Tests` | **Yes** — `sharp_text_barcodes` | 105 | ~5 s |
 | Unit (docx) | `tests/Text.Docx.Tests` | **Yes** — `sharp_text_docx` | 46 | ~5 s |
+| Unit (xlsx) | `tests/Text.Xlsx.Tests` | **Yes** — `sharp_text_xlsx` | 68 | ~3 s |
 | Unit (ocr) | `tests/Text.Ocr.Tests` | No — fake native | 99 | ~5 s |
 | Unit (generator) | `tests/Text.Templates.Generator.Tests` | No | 14 | < 5 s |
 | Layouts | `tests/Text.Templates.Tests` | Yes, for the render tests | 111 | ~15 s |
 | Suite (surface and docs) | `tests/Text.Suite.Tests` | No | 7 | < 2 s |
 | Integration | `tests/Text.Typst.Integration.Tests` | **Yes** — `SHARPTYPST_NATIVE_PATH` | 241 | < 3 min |
 | ABI | `native/sharp-typst` (`cargo test`) | — | 9 | < 30 s |
+| Unit (native xlsx) | `native/text-xlsx` (`cargo test --lib`) | — | 36 | < 5 s |
 | Benchmark | `benchmarks/Text.Typst.Benchmarks` | Yes | 8 scenarios | manual / nightly |
 
-That is 1 522 managed tests in ten suites, plus the nine Rust ABI tests and the benchmark
-scenarios.
+That is 1 590 managed tests in eleven suites, plus the nine Rust ABI tests of `native/sharp-typst`, the
+thirty-six of `native/text-xlsx`, and the benchmark scenarios.
 
 A suite marked *fake native* exercises the layer above the ABI through an `internal` seam, which is
 why it runs on a machine with no Rust toolchain; a suite marked **Yes** needs the real cdylib from
-`native/artifacts` (or, for the compiler, the path in `SHARPTYPST_NATIVE_PATH`) and fails with
-`DllNotFoundException` without it. `Text.Barcodes.Tests` and `Text.Docx.Tests` are the two that
-cannot run on a checkout whose `native/artifacts` carries no `win-x64` build.
+`native/artifacts` (or, for the compiler, the path in `SHARPTYPST_NATIVE_PATH`). `Text.Barcodes.Tests`
+and `Text.Docx.Tests` fail with `DllNotFoundException` on a checkout whose `native/artifacts` carries
+no `win-x64` build; `Text.Xlsx.Tests` needs the same kind of library but skips the reader tests when
+it cannot load one, so a documentation-only change still goes green without a Rust toolchain.
 
 The split is deliberate: everything that can be tested without loading a native library is, so
 that `dotnet test` on a machine without a Rust toolchain still covers the writer, the template

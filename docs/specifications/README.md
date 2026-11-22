@@ -48,6 +48,7 @@ file names, to find what you want.
 | 20 | [20-barcodes.md](20-barcodes.md) | `M3scalinum.Text.Barcodes`: encoding and decoding symbologies in-process, over `rxing` |
 | 21 | [21-ocr.md](21-ocr.md) | `M3scalinum.Text.Ocr`: text from page images, with caller-supplied models and no download |
 | 22 | [22-docx.md](22-docx.md) | `M3scalinum.Text.Docx`: reading a Word document into the document model |
+| 28 | [28-xlsx.md](28-xlsx.md) | `M3scalinum.Text.Xlsx`: reading an Excel workbook into typed sheets, over `calamine` |
 
 ## The protocol server
 
@@ -79,7 +80,8 @@ file names, to find what you want.
 | `src/Text.Barcodes` | Ten symbologies encoded to SVG or PNG and decoded back, over a Rust `rxing` library of its own |
 | `src/Text.Ocr` | Text, lines and boxes from a page image or a PDF, with caller-supplied models and no download |
 | `src/Text.Docx` | Word documents read into the document model over `zip` 9 and `roxmltree` |
-| Tests | 1 522 across ten suites — see [09](09-testing.md#1-the-suites) |
+| `src/Text.Xlsx` | Excel workbooks read into typed sheets and cells over `calamine` 0.38, then rendered as a table |
+| Tests | 1 590 across eleven suites — see [09](09-testing.md#1-the-suites) |
 | Benchmarks | `benchmarks/Text.Typst.Benchmarks`, baseline stored, `--check` gate in CI |
 | Build & packaging | Build files in place; native packaging wired in CI |
 

@@ -32,7 +32,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        crate: [text-barcodes, text-ocr, text-docx]
+        crate: [text-barcodes, text-ocr, text-docx, text-xlsx]
         include:
           - { os: windows-latest, rid: win-x64 }
           - { os: windows-11-arm, rid: win-arm64 }
@@ -98,6 +98,7 @@ jobs:
           BARCODES_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/linux-x64/libsharp_text_barcodes.so
           M3SCALINUM_OCR_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/linux-x64/libsharp_text_ocr.so
           SHARPTEXTDOCX_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/linux-x64/libsharp_text_docx.so
+          SHARPTEXTXLSX_NATIVE_PATH: ${{ github.workspace }}/native/artifacts/linux-x64/libsharp_text_xlsx.so
         run: |
           dotnet build -c Release --no-restore
           dotnet test tests/Text.Pdf.Tests -c Release --no-build
@@ -105,6 +106,7 @@ jobs:
           dotnet test tests/Text.Barcodes.Tests -c Release --no-build
           dotnet test tests/Text.Docx.Tests -c Release --no-build
           dotnet test tests/Text.Ocr.Tests -c Release --no-build
+          dotnet test tests/Text.Xlsx.Tests -c Release --no-build
       - name: Check the release notes
         # A tag without its changelog section would reach nuget.org and only then fail to describe
         # what it published. Checked before anything is packed, so the run stops here instead.
@@ -154,6 +156,7 @@ jobs:
           dotnet restore src/Text.Templates -p:CoreVersion="$core"
           dotnet restore src/Text.Mcp -p:CoreVersion="$core"
           dotnet restore src/Text.Docx -p:CoreVersion="$core"
+          dotnet restore src/Text.Xlsx -p:CoreVersion="$core"
           dotnet pack src/Text.Pdf -c Release -o artifacts/packages "${version_args[@]}"
           dotnet pack src/Text.Templates -c Release --no-restore \
             -o artifacts/packages -p:CoreVersion="$core" "${version_args[@]}"
@@ -161,11 +164,14 @@ jobs:
           # them: all three are this train's, and the tag is their version.
           dotnet pack src/Text.Mcp -c Release --no-restore \
             -o artifacts/packages -p:CoreVersion="$core" "${version_args[@]}"
-          # The three native carriers. They depend on nothing, so they take the tag's version alone;
-          # Docx sits on the compiler wrapper and needs the same published core the others do.
+          # The native carriers. Barcodes and Ocr depend on nothing, so they take the tag's version
+          # alone; Docx and Xlsx sit on the compiler wrapper and need the same published core the
+          # others do.
           dotnet pack src/Text.Barcodes -c Release --no-build -o artifacts/packages "${version_args[@]}"
           dotnet pack src/Text.Ocr -c Release --no-build -o artifacts/packages "${version_args[@]}"
           dotnet pack src/Text.Docx -c Release --no-restore \
+            -o artifacts/packages -p:CoreVersion="$core" "${version_args[@]}"
+          dotnet pack src/Text.Xlsx -c Release --no-restore \
             -o artifacts/packages -p:CoreVersion="$core" "${version_args[@]}"
       - name: Verify the packages
         run: |

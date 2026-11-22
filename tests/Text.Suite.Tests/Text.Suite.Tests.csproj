@@ -22,6 +22,7 @@
     <ProjectReference Include="..\..\src\Text.Barcodes\Text.Barcodes.csproj" />
     <ProjectReference Include="..\..\src\Text.Ocr\Text.Ocr.csproj" />
     <ProjectReference Include="..\..\src\Text.Docx\Text.Docx.csproj" />
+    <ProjectReference Include="..\..\src\Text.Xlsx\Text.Xlsx.csproj" />
   </ItemGroup>
 
   <ItemGroup>

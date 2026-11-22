@@ -48,6 +48,7 @@ SATELLITE_ASSEMBLIES = {
     "lib/net11.0/M3scalinum.Text.Pdf.FactureX.dll",
     "lib/net11.0/M3scalinum.Text.Mcp.dll",
     "lib/net11.0/M3scalinum.Text.Docx.dll",
+    "lib/net11.0/M3scalinum.Text.Xlsx.dll",
 }
 
 # Packages that carry a Rust cdylib of their own rather than the compiler. They ship five RIDs, not
@@ -75,6 +76,13 @@ NATIVE_PACKAGES = {
         "linux-x64": "libsharp_text_docx.so",
         "linux-arm64": "libsharp_text_docx.so",
         "osx": "libsharp_text_docx.dylib",
+    },
+    "lib/net11.0/M3scalinum.Text.Xlsx.dll": {
+        "win-x64": "sharp_text_xlsx.dll",
+        "win-arm64": "sharp_text_xlsx.dll",
+        "linux-x64": "libsharp_text_xlsx.so",
+        "linux-arm64": "libsharp_text_xlsx.so",
+        "osx": "libsharp_text_xlsx.dylib",
     },
 }
 

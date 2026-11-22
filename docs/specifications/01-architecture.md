@@ -61,7 +61,7 @@ natives) and a public native package (leaks `IntPtr` into user code).
 **Decision — the document model does not depend on the compiler.** It is a package of its own,
 `M3scalinum.Text.Documents`, and it produces a `string`. It can be restored, unit-tested, diffed and
 snapshotted with no native library and no compiler present — which is what lets a format package such
-as `M3scalinum.Text.Docx` build a document without pulling in the compiler.
+as `M3scalinum.Text.Docx` and `M3scalinum.Text.Xlsx` build a document without pulling in the compiler.
 
 ## 3. Dependency rules
 

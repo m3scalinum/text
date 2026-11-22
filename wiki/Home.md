@@ -53,6 +53,8 @@ var signed = PdfSigner.Sign(pdf, certificate, new PdfSignatureOptions { Reason =
   → [Templates](Typst-Templates)
 - **`M3scalinum.Text.Docx`** — read a Word document into the document model, then render it like any
   other. → [Reading Word documents](Docx)
+- **`M3scalinum.Text.Xlsx`** — read an Excel workbook into typed sheets and cells, then render it as a
+  table. → [Reading Excel workbooks](Xlsx)
 - **`M3scalinum.Text.Barcodes`** — QR, DataMatrix, Aztec, PDF417, Code 128/39, EAN-13/8, ITF and
   Codabar, encoded to SVG or PNG and decoded back. → [Barcodes](Barcodes)
 - **`M3scalinum.Text.Ocr`** — text, lines and boxes out of a page image or a scanned PDF, with the

@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <PackageId>M3scalinum.Text.Xlsx.Tests</PackageId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Text.Xlsx\Text.Xlsx.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      The fixture is written by the builder in this project, from raw OOXML, and never committed as
+      bytes: a test states the workbook it means and the package follows from that.
+    -->
+    <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" PrivateAssets="all" />
+  </ItemGroup>
+
+</Project>
