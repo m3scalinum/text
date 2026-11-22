@@ -20,13 +20,50 @@ pub struct WorldConfig {
 /// Where fonts come from, beyond the ones embedded in the binary.
 ///
 /// Both are opt-in: a compile never reads the host's font directories unless the caller asks.
-#[derive(Debug, Clone, Default, Deserialize)]
+/// Once it does, the metadata scan is shared by every world of the process (see
+/// [`crate::fonts`]), and the switch that bypasses it is here.
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct FontsConfig {
     /// Directories scanned recursively for font files.
     pub directories: Vec<String>,
     /// Whether to load the operating system's installed fonts.
     pub system: bool,
+    /// Scans the sources again instead of reusing the process-wide index, and replaces it.
+    ///
+    /// This is how a font installed after the process started becomes visible: every other world
+    /// accepts the index it finds, and one `refresh` world rebuilds it for all of them.
+    pub refresh: bool,
+    /// Whether the persistent index is read and written. On by default.
+    pub cache: bool,
+    /// Where the persistent index lives. `None` or empty means the user's cache directory.
+    pub cache_dir: Option<String>,
+}
+
+impl Default for FontsConfig {
+    fn default() -> Self {
+        Self {
+            directories: Vec::new(),
+            system: false,
+            refresh: false,
+            cache: true,
+            cache_dir: None,
+        }
+    }
+}
+
+impl FontsConfig {
+    /// The directory the persistent index is read from and written to, if it is enabled.
+    pub fn cache_path(&self) -> Option<std::path::PathBuf> {
+        if !self.cache {
+            return None;
+        }
+
+        match self.cache_dir.as_deref() {
+            None | Some("") => crate::fonts::default_cache_dir(),
+            Some(directory) => Some(std::path::PathBuf::from(directory)),
+        }
+    }
 }
 
 /// Where `@namespace/name:version` packages come from.

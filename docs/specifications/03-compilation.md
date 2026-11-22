@@ -42,8 +42,10 @@ font book and the fonts, and `WithSource(path, markup)` returns a specialised cl
 | `AddSource(string path, ReadOnlySpan<byte> utf8)` | Same, pre-encoded. |
 | `AddAsset(string path, ReadOnlySpan<byte> bytes)` | Any file the document can read: images, `json`, `csv`, `yaml`, `bib`, `.typ` data. |
 | `AddFont(ReadOnlySpan<byte> bytes, uint faceIndex = 0)` | Registers a font. Deduplicated by content hash. |
-| `AddFontDirectory(string path)` | Scans a directory for `.ttf/.otf/.ttc`. Explicit opt-in, no system scan. |
-| `AddSystemFonts()` | Opt-in scan of OS font directories. Off by default. |
+| `AddFontDirectory(string path, FontScanMode mode = FontScanMode.Shared)` | Scans a directory for `.ttf/.otf/.ttc`. Explicit opt-in, no system scan. |
+| `AddSystemFonts(FontScanMode mode = FontScanMode.Shared)` | Opt-in use of the OS font directories. Off by default. |
+| `WithFontIndexCache(string directory)` | Puts the persistent font index in `directory` instead of the user's cache directory. |
+| `WithoutFontIndexCache()` | Disables the persistent font index: every process scans the fonts itself. |
 | `WithPackages(Action<TypstPackages>)` | Package resolution: `CacheDirectory`, `DataDirectory`, `AllowDownload`, `Registry`. Offline by default. |
 | `WithLimits(Action<TypstLimits>)` | Caps on source, asset and font bytes, and on the number of sources and fonts. |
 | `WithFixedClock(DateTimeOffset utc)` | Makes `datetime.today()` deterministic. **Default.** |
@@ -67,6 +69,7 @@ The Rust side implements `typst::World`:
 struct NetWorld {
     library: LazyHash<Library>,   // built once per process, cloned by Arc
     book:    LazyHash<FontBook>,  // immutable for the handle's lifetime
+    host:    Option<Arc<FontIndex>>, // the host fonts, shared per source set (see §14)
     sources: RwLock<HashMap<FileId, Source>>,
     files:   RwLock<HashMap<FileId, Bytes>>,
     main:    FileId,
@@ -137,7 +140,7 @@ Three sources, in increasing order of surprise:
 ```csharp
 using var world = new TypstWorldBuilder()
     .AddFontDirectory("/opt/fonts")   // scanned recursively
-    .AddSystemFonts()                 // opt-in, and it costs a scan
+    .AddSystemFonts()                 // opt-in, and the scan is shared by the process
     .AddSource("main.typ", "#set text(font: \"Inter\")\n= Title")
     .Build();
 ```
@@ -148,6 +151,9 @@ there for the cases where that trade is right, and the documentation says so.
 
 `TypstWorld.FontFamilies` lists what the world can actually resolve, sorted. It is the answer to an
 "unknown font family" warning: the list is the embedded families plus whatever the builder added.
+
+**The scan is per process, not per world.** §14 describes the index: where it lives, how it is
+invalidated, what it costs and how a world refuses it.
 
 ## 3. Compilation options
 
@@ -396,6 +402,7 @@ the exception taxonomy are in [07](07-diagnostics.md).
 | Cost | Paid when | Mitigation |
 | --- | --- | --- |
 | Font parsing | `AddFont` | Cache the parsed `FontBook` in a long-lived world; `Clone()` shares it |
+| Host font scan | the first world of the process that asks for host fonts | One index per source set, shared through `Arc` and persisted to disk (§14) |
 | Standard library construction | first compile in the process | Built once, shared via `Arc` |
 | Package fetch | `UseUniversePackages` + first use of a version | Cached on disk by the caller-supplied cache directory |
 | Layout | `Compile` | Unavoidable; scales with content, not with page count alone |
@@ -552,9 +559,10 @@ var slots = (int)(budget.TotalMilliseconds / p95Compile.TotalMilliseconds);
 new TypstCompiler(slots < 1 ? 1 : slots);
 ```
 
-`FontBytes` gives the memory side: every live world holds its font buffers, and a host that loads
-its own fonts pays them once per world that loads them. Neither number was reachable from the public
-API before, which is why a cap used to be a guess.
+`FontBytes` gives the memory side: the embedded fonts and the faces registered with `AddFont` are
+held by the world, and the host's own faces are held once per process because the index is shared
+(§14), so a server no longer pays for them once per world. Neither number was reachable from the
+public API before, which is why a cap used to be a guess.
 
 Alerting. A regression is a change in a ratio, not in an absolute duration:
 
@@ -708,3 +716,96 @@ points at, so binary font data cannot pose as an object.
 - **Predicting the size before encoding.** The subset exists only after the encode; there is no
   estimate to read from the layout.
 
+## 14. The host font index
+
+A world that asks for host fonts — `AddSystemFonts` or `AddFontDirectory` — used to enumerate the
+directories and parse every face on every `Build()`. A service that compiles per request paid that
+scan per request. The metadata scan is now one per process, and the result is reused across
+processes through a file on disk.
+
+### 14.1 Where it lives
+
+- **In the process**, a registry keyed by the source set: whether the system fonts were asked for,
+  and the directories in the order the builder registered them. Every world with the same key holds
+  the same `Arc<FontIndex>`, so the second world and the two-thousandth cost a lookup.
+- **On disk**, one JSON file per source set — `index-<hash>.json`, the hash covering the index
+  format, the compiler version and the source set — under the user's cache directory
+  (%LOCALAPPDATA%\m3scalinum\text\fonts on Windows, `$XDG_CACHE_HOME/m3scalinum/text/fonts` or
+  `~/.cache/m3scalinum/text/fonts` elsewhere), or under `WithFontIndexCache(directory)`.
+- **What it holds**: per face, the path, the face index, the `FontInfo` Typst lays out with — family,
+  variant, flags, axes, Unicode coverage — and the file's fingerprint.
+
+The index holds metadata, never font bytes. A face is parsed the first time a compilation uses it,
+so a warm process builds the font book without reading a single font file, and a document pays only
+for the faces its layout picks.
+
+### 14.2 Invalidation: the fingerprint
+
+The fingerprint is the file's length and its modification time, not a hash of its contents. A
+content hash means reading every font file — the cost the cache exists to remove — while a stat is
+one syscall per file, and replacing a font changes its mtime on every file system this library runs
+on. The two are compared per file, so a directory with one upgraded font re-parses that font and
+nothing else.
+
+| Change | Consequence |
+| --- | --- |
+| A font file is replaced | Its entry is dropped and the file parsed again |
+| A font file is added to a walked directory | The directory walk finds it and parses it; the known faces are reused |
+| A font file is deleted | Its entry leaves the index |
+| A walked root no longer exists | The file is discarded and the sources go through `typst-kit`/`fontdb` again |
+| Another Typst version or index format | The file is ignored and rewritten; there is no migration |
+| Bytes changed but length and mtime preserved | The stale entry is served — a refresh (§14.3) is the remedy |
+
+A process keeps the index it built: the file is read once, at the first world of the process. A font
+installed or replaced while the process runs is picked up on disk by a refreshing world, never by an
+ordinary one.
+
+### 14.3 Refusing the index
+
+`AddSystemFonts(FontScanMode.Refresh)` — and `AddFontDirectory(path, FontScanMode.Refresh)` — scans
+the sources again and replaces the process-wide index, so every world built after it sees the new
+faces:
+
+```csharp
+// After an operator installed fonts, or on a schedule: rescans once, for the whole process.
+using var refreshed = new TypstWorldBuilder()
+    .AddSystemFonts(FontScanMode.Refresh)
+    .AddSource("main.typ", "= x")
+    .Build();
+```
+
+The default is `FontScanMode.Shared`: a world joins the index if the process has one. The refresh
+is cooperative rather than local — a per-world copy would put the two branches of a service on
+different font sets, which is worse than the staleness it fixes.
+
+### 14.4 What it costs
+
+Measured on one Windows 11 host with 185 installed faces, from a debug build of the native library
+(a release build is faster on both sides; what matters here is the ratio):
+
+| Measurement | Value |
+| --- | --- |
+| First scan of the system fonts in a process | 0.91 s |
+| The same scan plus parsing every face, per world, before this change | 2.56 s |
+| 2 000 worlds, one page compiled each, one scan | 0.72 s in total — 0.36 ms per world, zero further scans |
+| Second process, persistent index reused | no font file parsed for the faces that did not change |
+
+The first world of a process that asks for host fonts still pays the scan; nothing later does. A
+host that wants that paid before the first request pre-warms (§14.5).
+
+### 14.5 Pre-warming
+
+- Build one world with `AddSystemFonts()` at startup and dispose it: the first real request finds a
+  warm index. A world that only registers fonts needs no source.
+- Seed a container image or a CI cache by building once with `WithFontIndexCache("/var/cache/...")`
+  and shipping that directory: the next process reads it instead of the fonts.
+- `WithoutFontIndexCache()` on a read-only file system: the process still scans once and keeps the
+  index in memory, it just does not persist it.
+- `TypstWorld.Clone()` remains the cheapest path of all: a clone shares the world's book and fonts
+  and never touches the index.
+
+### 14.6 ABI
+
+No symbol was added. `system`, `directories`, `refresh`, `cache` and `cacheDir` travel in the world
+config JSON that `tn_world_create` already takes, so a host that predates this change sends the same
+payload it always did and gets the shared index; a host that wants a refresh sets one boolean.
