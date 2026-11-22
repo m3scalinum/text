@@ -20,9 +20,9 @@
 | Unit (native pdf) | `native/text-pdf` (`cargo test --lib`) | — | 24 | < 5 s |
 | Benchmark | `benchmarks/Text.Typst.Benchmarks` | Yes | 8 scenarios | manual / nightly |
 
-That is 2 238 managed tests in eleven suites, plus the Rust tests of the six crates: the fourteen ABI
+That is 2 370 managed tests in eleven suites, plus the Rust tests of the six crates: the twenty-nine ABI
 tests of `native/sharp-typst`, the fifty-nine of `native/text-docx`, the forty of `native/text-xlsx`,
-the sixty-one of `native/text-barcodes` (plus seventeen integration tests), the fifty-seven of
+the ninety-three of `native/text-barcodes` (plus twenty-seven integration tests), the seventy-six of
 `native/text-ocr` and the twenty-four of `native/text-pdf`.
 The benchmark scenarios are separate.
 
