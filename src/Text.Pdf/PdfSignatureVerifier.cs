@@ -91,6 +91,35 @@ public static class PdfSignatureVerifier
     }
 
     /// <summary>
+    /// Verifies every signature in <paramref name="pdf"/> against <paramref name="trustStore"/>, and
+    /// says which service of <paramref name="trustList"/> covers each signing certificate.
+    /// </summary>
+    /// <param name="pdf">The document to read.</param>
+    /// <param name="trustStore">The anchors to judge the chain by. Null behaves as an empty store.</param>
+    /// <param name="trustList">The territory's trust list to judge qualification by. Null means no list
+    /// was supplied, and the returned coverage is empty.</param>
+    /// <returns>The same verification <see cref="Verify(ReadOnlySpan{byte}, PdfTrustStore)"/> returns,
+    /// plus one <see cref="PdfSignatureTrustCoverage"/> per signature.</returns>
+    /// <exception cref="PdfSignatureException">The data is not a PDF.</exception>
+    /// <remarks>
+    /// The trust list is data the caller read and chose; nothing is downloaded, and a certificate the
+    /// list does not know leaves the signature's own verdict untouched. Read the list with
+    /// <see cref="PdfLotl.Read(ReadOnlySpan{byte}, string)"/>; the caller keeps it cached, decides when to
+    /// refresh it, and checks <see cref="PdfTrustedList.IsExpiredAt"/>.
+    /// </remarks>
+    public static PdfTrustListVerification Verify(
+        ReadOnlySpan<byte> pdf,
+        PdfTrustStore? trustStore,
+        PdfTrustedList? trustList)
+    {
+        var verification = Verify(pdf, trustStore);
+
+        return new PdfTrustListVerification(
+            verification,
+            trustList is null ? [] : trustList.Evaluate(verification));
+    }
+
+    /// <summary>
     /// Reports, for every certificate the document security store embeds, which revocation data
     /// covers it and when that data was issued.
     /// </summary>
