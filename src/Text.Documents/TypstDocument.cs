@@ -1050,4 +1050,141 @@ public sealed partial class TypstDocument
             arguments.Add($"{name}: {value}");
         }
     }
+
+    // ---- bibliography and index ----
+    // Added together, at the end of the class, so a concurrent edit to the members above merges
+    // without touching this block.
+
+    private readonly TypstCitationContext _citations = new();
+
+    /// <summary>
+    /// Appends a bibliography read from BibTeX, replacing Typst's own <c>#bibliography(…)</c>.
+    /// </summary>
+    /// <param name="bibliography">The parsed entries.</param>
+    /// <param name="style">How citations and entries are written.</param>
+    /// <remarks>
+    /// <para>
+    /// The list is built by the model, one paragraph per entry, because
+    /// <c>#bibliography("refs.bib")</c> needs the file to exist in the compilation world and Typst
+    /// resolves it with hayagriva: neither is available to a document that is only a markup string.
+    /// Building it here also lets the numbering follow the document's own citation order.
+    /// </para>
+    /// <para>
+    /// <see cref="TypstBibliographyStyle.Numeric"/> numbers the entries in the order their keys are
+    /// first cited by <see cref="Citation"/>, so <c>[2]</c> is always the second work cited.
+    /// <see cref="TypstBibliographyStyle.AuthorDate"/> sorts the cited entries by first author and
+    /// then year, case-insensitively in the invariant culture, and numbers nothing. Entries no
+    /// citation names are left out; a document with no citation at all lists every entry in file
+    /// order.
+    /// </para>
+    /// <para>
+    /// One document carries one bibliography; calling this twice throws.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentNullException"><paramref name="bibliography"/> is null.</exception>
+    /// <exception cref="InvalidOperationException">The document already has a bibliography.</exception>
+    public TypstDocument Bibliography(
+        TypstBibliography bibliography,
+        TypstBibliographyStyle style = TypstBibliographyStyle.Numeric)
+    {
+        ArgumentNullException.ThrowIfNull(bibliography);
+
+        if (_citations.Bibliography is not null)
+        {
+            throw new InvalidOperationException("a document carries one bibliography");
+        }
+
+        _citations.Bibliography = bibliography;
+        _citations.Style = style;
+        _body.Add(new TypstBibliographyNode(_citations));
+        return this;
+    }
+
+    /// <summary>Appends a citation of a key the document's bibliography defines.</summary>
+    /// <param name="key">The citation key.</param>
+    /// <param name="prose">
+    /// Whether the citation is a grammatical part of the sentence: <c>Dupont (2024)</c> rather than
+    /// <c>(Dupont, 2024)</c>, and <c>Dupont [1]</c> rather than <c>[1]</c> in the numeric style.
+    /// </param>
+    /// <remarks>
+    /// The key is resolved against the bibliography when the document is written; the citation
+    /// throws <see cref="TypstCitationException"/> naming the key and the available keys, and never
+    /// writes a placeholder. When <see cref="Bibliography(TypstBibliography, TypstBibliographyStyle)"/>
+    /// has already been called the key is checked immediately.
+    /// </remarks>
+    /// <exception cref="ArgumentException"><paramref name="key"/> is blank.</exception>
+    /// <exception cref="TypstCitationException">The bibliography does not define the key.</exception>
+    /// <exception cref="InvalidOperationException">The document has no bibliography when written.</exception>
+    public TypstDocument Citation(string key, bool prose = false)
+    {
+        _body.Add(new ContentNode(CitationContent(key, prose)));
+        return this;
+    }
+
+    /// <summary>Builds a citation to place inside a paragraph with <see cref="TypstCitationContentExtensions.Cite"/>.</summary>
+    /// <param name="key">The citation key.</param>
+    /// <param name="prose">Whether the citation is a grammatical part of the sentence.</param>
+    /// <remarks>
+    /// The citation is recorded in the document's citation order here, so the number it gets is the
+    /// same as if it had been appended to the body. A content that is built and then discarded still
+    /// holds its position in that order.
+    /// </remarks>
+    /// <exception cref="ArgumentException"><paramref name="key"/> is blank.</exception>
+    /// <exception cref="TypstCitationException">The bibliography does not define the key.</exception>
+    public TypstContent CitationContent(string key, bool prose = false)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(key);
+
+        if (_citations.Bibliography is not null)
+        {
+            _citations.Bibliography.Resolve(key);
+        }
+
+        _citations.Record(key);
+        return new TypstContent().Node(new TypstCitationNode(_citations, key, prose));
+    }
+
+    /// <summary>Appends an invisible index mark at this point of the flow.</summary>
+    /// <param name="term">The term the index lists; sorted by its lowercase form.</param>
+    /// <param name="subterm">An optional subterm, printed indented under its term.</param>
+    /// <remarks>
+    /// The mark renders nothing. It records the term, the subterm and the page it is laid out on
+    /// through <c>counter(page).at(here())</c>, which <see cref="Index"/> reads back at the end of
+    /// the document. A mark inside a floating element reports the page the float lands on, which is
+    /// the page the reader sees the mark's context on.
+    /// </remarks>
+    /// <exception cref="ArgumentException">The term, or the subterm when one is given, is blank.</exception>
+    public TypstDocument IndexMark(string term, string? subterm = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(term);
+
+        if (subterm is not null && string.IsNullOrWhiteSpace(subterm))
+        {
+            throw new ArgumentException("a subterm cannot be blank; omit it instead", nameof(subterm));
+        }
+
+        _body.Add(new TypstIndexMarkNode(term.Trim(), subterm?.Trim()));
+        return this;
+    }
+
+    /// <summary>Appends the alphabetical index, built from every mark placed before it.</summary>
+    /// <param name="title">A heading printed above the index, or null for none.</param>
+    /// <remarks>
+    /// <para>
+    /// The index is computed at layout time: one <c>context</c> block queries every index mark in
+    /// the document, groups them by term and subterm, sorts the terms and subterms by their
+    /// lowercase form — a Unicode fold, so the order is culture-invariant and case is ignored — and
+    /// prints the page numbers the real page counter gives, sorted and de-duplicated.
+    /// </para>
+    /// <para>
+    /// A term marked only under a subterm prints no line of its own; terms that differ only in case
+    /// stay two adjacent lines. See <c>docs/specifications/42-bibliography-and-index.md</c> for what
+    /// the index does not do.
+    /// </para>
+    /// </remarks>
+    public TypstDocument Index(TypstContent? title = null)
+    {
+        _body.Add(new TypstIndexNode(title));
+        return this;
+    }
 }
