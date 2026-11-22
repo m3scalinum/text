@@ -79,6 +79,7 @@ table by its header: keep the column names and the `YYYY-MM-DD` date, or it will
 | --- | --- | --- | --- | --- | --- |
 | `hayro` | 0.9 | Apache-2.0 OR MIT | 5.9 M / 4.3 M | 2026-11-02 | Adopted — pure-Rust PDF rasteriser behind both `text-ocr` and `text-pdf`: a scanned page needs no native PDF engine, and neither does a page preview |
 | `image` | 0.25 | MIT OR Apache-2.0 | 261 M / 88 M | 2026-03-10 | Adopted — PNG in the barcode crate, the caller's formats in OCR; pinned to the version rxing uses |
+| `libfuzzer-sys` | 0.4 | (MIT OR Apache-2.0) AND NCSA | 74.4 M / 19.6 M | 2026-06-04 | Adopted — the libFuzzer runtime behind `fuzz/`, a fuzzing harness and never a shipped crate. NCSA is a permissive BSD-style academic licence with no copyleft clause, which is why the expression is accepted as crates.io writes it |
 | `ocrs` | 0.14 | MIT OR Apache-2.0 | 649 k / 405 k | 2026-11-08 | Adopted — text detection and line recognition, the engine behind `M3scalinum.Text.Ocr` |
 | `openssl` | 0.10 (musl only) | Apache-2.0 | 469 M / 91 M | 2026-11-01 | Adopted — `typst-kit` pulls native-tls, and a musl host has no libssl to link |
 | `quick-xml` | — | MIT | 569 M / 188 M | 2026-08-22 | Transitive — reached only through `docx-rs`, never used directly; named here so it is refused once |

@@ -1,0 +1,8 @@
+# Build output of one target, and the corpus a run grows.
+target/
+artifacts/
+
+# The one corpus seed that is generated rather than committed: `fuzz/scripts/seed-xlsx.py` writes it
+# deterministically, and the workflow runs the script before the XLSX target. A binary in git that a
+# six-line script reproduces is a binary nobody can review.
+corpus/xlsx/seed.xlsx

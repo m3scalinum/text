@@ -78,7 +78,14 @@ def _split_section(section: str) -> list[str]:
 
 
 def dependencies_in_manifest(path: str) -> list[tuple[str, str]]:
-    """Return (crate, section) for every direct dependency declared in one Cargo.toml."""
+    """Return (crate, section) for every direct dependency declared in one Cargo.toml.
+
+    A dependency carrying a `path` is this repository's own code, not a crate.io crate, and the
+    register has no row to give it: `fuzz/Cargo.toml` names the four reader crates by path because
+    the fuzz targets link them directly. Such a dependency is skipped, in both the inline form
+    (`name = { path = "../native/x" }`) and the table form (`[dependencies.name]` followed by
+    `path = ...`). A version-only dependency is never skipped: that is the one this policy governs.
+    """
 
     found: list[tuple[str, str]] = []
     section = ""
@@ -110,6 +117,10 @@ def dependencies_in_manifest(path: str) -> list[tuple[str, str]]:
                 continue
 
             if inline_crate is not None:
+                # The table form of the same dependency: a `path` below the header makes it this
+                # repository's, and the row appended above is withdrawn.
+                if re.match(r"^\s*path\s*=", line):
+                    found.pop()
                 continue
 
             if not section_is_dependency:
@@ -117,6 +128,8 @@ def dependencies_in_manifest(path: str) -> list[tuple[str, str]]:
 
             assignment = re.match(r"^([A-Za-z0-9_-]+)\s*=", line)
             if assignment:
+                if re.search(r"\bpath\s*=", line):
+                    continue
                 found.append((assignment.group(1), section))
 
     return found

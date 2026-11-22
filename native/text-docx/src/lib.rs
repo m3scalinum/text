@@ -13,6 +13,30 @@ mod xml;
 
 pub use ffi::{TdError, TnBuffer};
 
+/// The two functions the fuzzing targets in `fuzz/` drive, and nothing else.
+///
+/// The modules behind them are private because a caller has no business reaching them, but a fuzzer
+/// does: `parse::extract` is the zip path and `xml::parse` is the XML policy, and a target that
+/// could only enter through the C ABI would fuzz `catch_unwind` instead of the parser. Neither
+/// function adds a bound, changes an error or alters a behaviour — each calls exactly the code the
+/// ABI calls and drops what comes back.
+#[doc(hidden)]
+pub mod fuzz_api {
+    use crate::parse::{self, Options};
+
+    /// Reads a package under the default ceilings, discarding the tree.
+    pub fn extract(bytes: &[u8]) {
+        let _ = parse::extract(bytes, &Options::default());
+    }
+
+    /// Parses one XML part under the crate's policy, discarding the tree.
+    pub fn parse_xml(bytes: &[u8]) {
+        if let Ok(text) = std::str::from_utf8(bytes) {
+            let _ = crate::xml::parse(text, "fuzz.xml");
+        }
+    }
+}
+
 use std::ffi::c_char;
 use std::sync::atomic::{AtomicUsize, Ordering};
 

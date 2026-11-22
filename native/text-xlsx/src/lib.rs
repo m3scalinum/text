@@ -14,6 +14,22 @@ mod fixture;
 
 pub use ffi::{TxBuffer, TxError};
 
+/// The function the fuzzing target in `fuzz/` drives, and nothing else.
+///
+/// `parse::extract` is where `calamine` meets bytes a stranger chose; it is private because a caller
+/// has no business reaching it, so the fuzzer gets this one door. It adds no bound and changes no
+/// behaviour: it calls the same function the ABI calls, with the documented defaults, and drops the
+/// workbook that comes back.
+#[doc(hidden)]
+pub mod fuzz_api {
+    use crate::parse::{self, Options};
+
+    /// Reads a workbook under the default ceilings, discarding the AST.
+    pub fn extract(bytes: &[u8]) {
+        let _ = parse::extract(bytes, &Options::default());
+    }
+}
+
 use std::ffi::c_char;
 use std::sync::atomic::{AtomicUsize, Ordering};
 

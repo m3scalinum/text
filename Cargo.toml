@@ -1,0 +1,13 @@
+# The fuzzing workspace, and only that.
+#
+# `cargo fuzz` resolves its targets from `<cargo project root>/fuzz`, and the repository has no cargo
+# project root: every crate under `native/` is its own manifest with its own lock file, which is what
+# lets one reader move to a new `zip` without moving the compiler. This manifest exists so the root
+# *is* a project for cargo-fuzz, with one member — `fuzz/` — and every native crate excluded, so
+# `cargo` run inside `native/*` keeps resolving to that crate's own workspace and lock file. It
+# builds nothing by itself: `cargo fuzz run <target>` is the only command that reads it.
+
+[workspace]
+resolver = "3"
+members = ["fuzz"]
+exclude = ["native"]

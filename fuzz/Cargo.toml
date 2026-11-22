@@ -1,0 +1,61 @@
+# The fuzzing harness for the parsers of the suite.
+#
+# One crate, one binary per format: `cargo fuzz run docx` from the repository root. The targets link
+# the parser crates directly (through their `fuzz_api` door) rather than through the C ABI, so
+# libFuzzer sees the parser's panic and its allocation, not a status code that swallowed them. The
+# policy — corpus, cadence, what a crash hands back, what is out of scope — is
+# `docs/specifications/39-fuzzing.md`.
+
+[package]
+name = "text-fuzz"
+version = "0.0.0"
+edition = "2024"
+# The parsers ask for 1.92 today; a nightly is newer than any of them.
+rust-version = "1.92"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+# libFuzzer's Rust bindings. Apache-2.0 OR MIT, like the rest of the graph.
+libfuzzer-sys = "0.4"
+sharp-text-barcodes = { path = "../native/text-barcodes" }
+sharp-text-docx = { path = "../native/text-docx" }
+sharp-text-pdf = { path = "../native/text-pdf" }
+sharp-text-xlsx = { path = "../native/text-xlsx" }
+
+[[bin]]
+name = "barcodes"
+path = "fuzz_targets/barcodes.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "docx"
+path = "fuzz_targets/docx.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "docx-xml"
+path = "fuzz_targets/docx_xml.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "pdf"
+path = "fuzz_targets/pdf.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "xlsx"
+path = "fuzz_targets/xlsx.rs"
+test = false
+doc = false
+bench = false
