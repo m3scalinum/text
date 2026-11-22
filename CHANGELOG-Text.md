@@ -160,6 +160,29 @@ Not yet published.
   bytes, with a Flate-compressed stream inflated — extracted byte for byte, and added or removed as
   an incremental update. `Add` and `Remove` need the classic `trailer` that `PdfDocument.Parse`
   reads, so a file with a cross-reference stream is refused with the reason rather than rewritten.
+- `PdfBatchManifest`: a batch of files sealed as a manifest — a SHA-256, size, last-write time and
+  path identity per entry, a seal over the canonical bytes of the manifest itself, and a
+  verification that reports each entry as current, modified, missing or added. `Full` hashes every
+  entry; `Fast` trusts size and last-write time and hashes only what moved. The manifest holds no
+  copy of the files, and it does not sign itself: an opposable record is the manifest signed.
+- `IRevocationSource` and `PdfSignatureResult`: the caller supplies OCSP responses and CRLs and
+  keeps its own cache; the library embeds them in the DSS and refuses a B-LT signature when a
+  certificate in the chain has no revocation answer, naming the subject, the issuer and the serial
+  number. Asking for B-T explicitly turns the refusal into a result that lists what is missing. No
+  network call is made by the library, ever. `PdfSignatureVerifier.ReadRevocation` reads the
+  embedded answers back per certificate, with their production times.
+- OCR refuses rather than approximates: `OcrOptions` carries a minimum page confidence, a minimum
+  word confidence and a maximum ratio of rejected words, and `Recognize` returns an `OcrRecognition`
+  that is either an `OcrResult` or an `OcrUnreadable` whose `OcrRefusal` names the reason — blank
+  page, mean confidence, rejected words — with the observed value, the threshold and the count. A
+  word under its threshold is still reported, flagged, so the caller can see what was doubtful.
+- `linux-musl-x64` for the four format packages: `Barcodes`, `Ocr`, `Docx` and `Xlsx` carry the same
+  six runtimes as the rest of the suite, so an Alpine image — the default .NET container — loads
+  their native library instead of failing with `DllNotFoundException`.
+- A CycloneDX SBOM per package, generated from the `.nupkg` and its lock files — managed assemblies,
+  NuGet references, the crates the native library was built from, and the RIDs the package carries —
+  attached to every release, verified in CI, and attested with `actions/attest-build-provenance` so
+  `gh attestation verify` can check a downloaded package.
 
 ### Security
 
