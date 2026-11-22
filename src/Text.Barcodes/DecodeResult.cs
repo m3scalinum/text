@@ -18,6 +18,7 @@ public sealed class DecodeResult
         BarcodeSymbology? symbology,
         string format,
         IReadOnlyList<BarcodePoint> points,
+        BarcodeBounds? bounds,
         string? error)
     {
         Success = success;
@@ -25,6 +26,7 @@ public sealed class DecodeResult
         Symbology = symbology;
         Format = format;
         Points = points;
+        Bounds = bounds;
         Error = error;
     }
 
@@ -49,6 +51,16 @@ public sealed class DecodeResult
 
     /// <summary>The points the detector reported, in pixels of the input image.</summary>
     public IReadOnlyList<BarcodePoint> Points { get; }
+
+    /// <summary>
+    /// The box enclosing <see cref="Points"/>, in pixels of the input image, or
+    /// <see langword="null"/> when the symbology's detector reports no points.
+    /// </summary>
+    /// <remarks>
+    /// This is what a caller positioning an annotation over the symbol uses: <see cref="Points"/>
+    /// says which corners the detector found, this says where the symbol is on the page.
+    /// </remarks>
+    public BarcodeBounds? Bounds { get; }
 
     /// <summary>Why nothing was decoded, or <see langword="null"/> when a symbol was read.</summary>
     public string? Error { get; }

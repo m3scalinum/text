@@ -183,6 +183,26 @@ Not yet published.
   NuGet references, the crates the native library was built from, and the RIDs the package carries —
   attached to every release, verified in CI, and attested with `actions/attest-build-provenance` so
   `gh attestation verify` can check a downloaded package.
+- `PdfRaster` and the `native/text-pdf` crate: a page of a received PDF rendered to PNG at a chosen
+  DPI through `hayro`, so a preview or the OCR of a scan needs no external PDF engine. `PageCount`
+  answers without rendering; the default is 150 dpi, the ceilings are checked before anything is
+  allocated, and an encrypted document is refused with the package's own error rather than silently
+  decrypted. PNG only: hayro decodes, it does not encode.
+- The GS1 family in the barcodes: GS1-128 encoded with FNC1 and its field separators, read back as
+  the raw string and as a parsed list of application identifiers (76 of them, with their fixed or
+  variable length), a GS1 Digital Link URL built from those identifiers and parsed back, and DataBar,
+  MaxiCode and Micro QR decoding. `rxing` also brings UPC-A, UPC-E, Code 93 and Telepen to the
+  encoder side; what it still cannot do — DataBar encoding — is written as unsupported rather than
+  left to fail at runtime.
+- OCR preprocessing: page orientation detected among 0/90/180/270, skew estimated to a quarter of a
+  degree and corrected, and a median filter for noise — three options that default to off, so a
+  straight clean page renders exactly as before. The result reports the rotation and skew applied,
+  and the confidence refusal still decides what comes out.
+- `PdfLotl`: the European trust list (ETSI TS 119 612) read into territories, services and their
+  status periods, with the repository's XML policy applied from the first day — no DTD, no external
+  entity, byte, depth and node ceilings. `PdfSignatureVerifier` then reports, per signature, whether a
+  qualified service covered the signer's certificate at the judged instant. The list's own XAdES
+  signature is not verified here, and the specification says so.
 
 ### Security
 

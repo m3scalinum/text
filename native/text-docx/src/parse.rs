@@ -1484,6 +1484,102 @@ mod tests {
         assert_eq!(error.code(), crate::ffi::TD_ERR_LIMIT);
     }
 
+    #[test]
+    fn a_document_with_more_runs_than_the_cap_is_refused() {
+        // A run is a formatted stretch of text; two hundred thousand of them is a generator. The
+        // count is taken as the runs are collected, so the AST is never built.
+        let mut body = String::with_capacity(MAX_RUNS * 20);
+
+        body.push_str("<w:p>");
+
+        for _ in 0..=MAX_RUNS {
+            body.push_str("<w:r><w:t>x</w:t></w:r>");
+        }
+
+        body.push_str("</w:p>");
+
+        let error = refusal(&package(&document(&body), None, &[]));
+
+        assert_eq!(error.code(), crate::ffi::TD_ERR_LIMIT);
+        assert!(error.message().contains("200000 runs"));
+    }
+
+    #[test]
+    fn a_document_with_more_cells_than_the_cap_is_refused() {
+        // The table is flat, not deep: the depth guard does not see it, and the count is the only
+        // thing between a package and an AST of fifty thousand cells.
+        let mut body = String::with_capacity(MAX_CELLS * 28);
+
+        body.push_str("<w:tbl>");
+
+        for _ in 0..=MAX_CELLS {
+            body.push_str("<w:tr><w:tc><w:p/></w:tc></w:tr>");
+        }
+
+        body.push_str("</w:tbl>");
+
+        let error = refusal(&package(&document(&body), None, &[]));
+
+        assert_eq!(error.code(), crate::ffi::TD_ERR_LIMIT);
+        assert!(error.message().contains("50000 table cells"));
+    }
+
+    #[test]
+    fn a_document_with_more_media_parts_than_the_cap_is_refused() {
+        // Every image is a part the zip already expanded, so the cap is spent one part at a time as
+        // the relationships are read.
+        let mut entries = String::new();
+        let mut media: Vec<(String, Vec<u8>)> = Vec::new();
+
+        for index in 0..=MAX_MEDIA {
+            entries.push_str(&format!(
+                r#"<Relationship Id="rId{index}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image{index}.png"/>"#
+            ));
+
+            media.push((
+                format!("word/media/image{index}.png"),
+                vec![0x89, b'P', b'N', b'G'],
+            ));
+        }
+
+        let extra: Vec<(&str, &[u8])> = media
+            .iter()
+            .map(|(name, bytes)| (name.as_str(), bytes.as_slice()))
+            .collect();
+
+        let bytes = package(
+            &document(r#"<w:p><w:r><w:t>one</w:t></w:r></w:p>"#),
+            Some(&relationships(&entries)),
+            &extra,
+        );
+
+        let error = refusal(&bytes);
+
+        assert_eq!(error.code(), crate::ffi::TD_ERR_LIMIT);
+        assert!(error.message().contains("2048 media parts"));
+    }
+
+    #[test]
+    fn a_relationships_part_over_the_cap_is_refused() {
+        // A relationships part names every part the document points at. Four thousand already past a
+        // document; the cap is read before a single relationship is kept.
+        let mut entries = String::new();
+
+        for index in 0..=package::MAX_RELATIONSHIPS {
+            entries.push_str(&format!(
+                r#"<Relationship Id="rId{index}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image{index}.png"/>"#
+            ));
+        }
+
+        let error = match package::read_relationships(relationships(&entries).as_bytes()) {
+            Ok(_) => panic!("a relationships part over the cap must not be read"),
+            Err(error) => error,
+        };
+
+        assert_eq!(error.code(), crate::ffi::TD_ERR_LIMIT);
+        assert!(error.message().contains("4096 relationships"));
+    }
+
     /// A package whose `word/document.xml` is `xml`, whatever it declares.
     fn package_with_document_xml(xml: &str) -> Vec<u8> {
         pack(&[

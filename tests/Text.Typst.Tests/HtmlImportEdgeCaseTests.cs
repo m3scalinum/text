@@ -78,7 +78,7 @@ public sealed class HtmlImportEdgeCaseTests
             "<tbody><tr><td>c</td></tr></tbody><tfoot><tr><td>f</td></tr></tfoot></table>")
             .Document.ToMarkup();
 
-        Assert.Contains("table.header([A])", markup, StringComparison.Ordinal);
+        Assert.Contains("table.header(repeat: true, [A])", markup, StringComparison.Ordinal);
         Assert.Contains("[B],\n  [c],\n  [f],", markup, StringComparison.Ordinal);
     }
 
@@ -237,7 +237,7 @@ public sealed class HtmlImportEdgeCaseTests
                 .Row("y"))
             .ToMarkup();
 
-        Assert.Contains("table.header(table.cell(colspan: 2)[Both])", markup, StringComparison.Ordinal);
+        Assert.Contains("table.header(repeat: true, table.cell(colspan: 2)[Both])", markup, StringComparison.Ordinal);
         Assert.Contains("table.cell(rowspan: 3)[Tall], [x],", markup, StringComparison.Ordinal);
         Assert.Contains("[y],", markup, StringComparison.Ordinal);
     }

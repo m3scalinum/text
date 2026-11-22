@@ -64,7 +64,7 @@ public sealed class ModelAccessibilityTests
                 .Row("Hosting", "1 200"))
             .ToMarkup();
 
-        Assert.Contains("table.header([Item], [Amount]),", markup, StringComparison.Ordinal);
+        Assert.Contains("table.header(repeat: true, [Item], [Amount]),", markup, StringComparison.Ordinal);
         Assert.Contains(
             "[Hosting], [1 200],",
             markup,
@@ -102,7 +102,7 @@ public sealed class ModelAccessibilityTests
             .ToMarkup();
 
         Assert.Contains(
-            "table.header(pdf.header-cell(scope: \"both\")[Nutrient], [Per 100 g], [Per serving]),",
+            "table.header(repeat: true, pdf.header-cell(scope: \"both\")[Nutrient], [Per 100 g], [Per serving]),",
             markup,
             StringComparison.Ordinal);
     }
@@ -183,7 +183,7 @@ public sealed class ModelAccessibilityTests
         Assert.Contains("#set text(lang: \"en\")", markup, StringComparison.Ordinal);
         Assert.Contains("alt: \"Bar chart: revenue rises every quarter of 2026.\"", markup, StringComparison.Ordinal);
         Assert.Contains(
-            "table.header(pdf.header-cell(scope: \"both\")[Quarter], [Revenue]),",
+            "table.header(repeat: true, pdf.header-cell(scope: \"both\")[Quarter], [Revenue]),",
             markup,
             StringComparison.Ordinal);
         Assert.Contains("pdf.header-cell(scope: \"row\")[Q1], [1 200],", markup, StringComparison.Ordinal);

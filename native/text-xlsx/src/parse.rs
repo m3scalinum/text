@@ -26,6 +26,27 @@ pub const DEFAULT_MAX_BYTES: u64 = 64 * 1024 * 1024;
 /// broken or hostile; a million is already more rows than any invoice a person typed.
 pub const DEFAULT_MAX_CELLS: u64 = 1_000_000;
 
+/// The most sheets one workbook may hold unless told otherwise.
+///
+/// A workbook is a collection of tabs a person named: the record is in the hundreds, and a package
+/// that declares thousands is a generator. The cap exists because `calamine` opens every sheet the
+/// workbook part lists, and each one is a part of the zip that has already been expanded.
+pub const DEFAULT_MAX_SHEETS: usize = 256;
+
+/// The most bytes one cell's text may hold unless told otherwise.
+///
+/// Excel refuses a cell over 32 767 characters, so twice that is already a package no producer
+/// writes. The cap stops one shared string — the table `calamine` builds before this reader sees a
+/// cell — from becoming the whole workbook's memory.
+pub const DEFAULT_MAX_CELL_TEXT_BYTES: u64 = 64 * 1024;
+
+/// The most text, in bytes, one workbook may put in its cells unless told otherwise.
+///
+/// The cells' cap bounds how many cells there are and the cell-text cap bounds each one; this is
+/// the product of the two, and the reason a workbook of a million cells each just under the per-cell
+/// cap is refused rather than shaped into a gigabyte of `String`.
+pub const DEFAULT_MAX_TEXT_BYTES: u64 = 64 * 1024 * 1024;
+
 /// How one call reads a workbook.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Options {
@@ -33,6 +54,12 @@ pub struct Options {
     pub max_bytes: u64,
     /// The largest used region, in cells, this call will shape into an AST.
     pub max_cells: u64,
+    /// The most sheets this call will read.
+    pub max_sheets: usize,
+    /// The most bytes one cell's text may hold.
+    pub max_cell_text_bytes: u64,
+    /// The most text, in bytes, this call will shape from all the cells together.
+    pub max_text_bytes: u64,
 }
 
 impl Default for Options {
@@ -40,6 +67,9 @@ impl Default for Options {
         Self {
             max_bytes: DEFAULT_MAX_BYTES,
             max_cells: DEFAULT_MAX_CELLS,
+            max_sheets: DEFAULT_MAX_SHEETS,
+            max_cell_text_bytes: DEFAULT_MAX_CELL_TEXT_BYTES,
+            max_text_bytes: DEFAULT_MAX_TEXT_BYTES,
         }
     }
 }
@@ -94,7 +124,17 @@ pub fn extract(bytes: &[u8], options: &Options) -> Result<WorkbookAst, ParseErro
         Xlsx::new(Cursor::new(bytes)).map_err(|error| malformed("the package", &error))?;
 
     let names = workbook.sheet_names();
+
+    if names.len() > options.max_sheets {
+        return Err(ParseError::Limit(format!(
+            "the workbook declares {} sheets, over the {}-sheet limit",
+            names.len(),
+            options.max_sheets
+        )));
+    }
+
     let mut sheets = Vec::with_capacity(names.len());
+    let mut text_bytes: u64 = 0;
 
     for name in names {
         let range = workbook
@@ -105,7 +145,7 @@ pub fn extract(bytes: &[u8], options: &Options) -> Result<WorkbookAst, ParseErro
             .worksheet_formula(&name)
             .map_err(|error| malformed(&format!("the formulas of '{name}'"), &error))?;
 
-        sheets.push(sheet(name, &range, &formulas, options)?);
+        sheets.push(sheet(name, &range, &formulas, options, &mut text_bytes)?);
     }
 
     Ok(WorkbookAst { sheets })
@@ -121,6 +161,7 @@ fn sheet(
     range: &Range<Data>,
     formulas: &Range<String>,
     options: &Options,
+    text_bytes: &mut u64,
 ) -> Result<SheetAst, ParseError> {
     let (rows, columns) = range.get_size();
 
@@ -141,9 +182,30 @@ fn sheet(
             continue;
         };
 
+        charge(
+            &value,
+            &name,
+            row_offset + row as u32,
+            column_offset + column as u32,
+            options,
+            text_bytes,
+        )?;
+
         let formula = formulas
             .get_value((row_offset + row as u32, column_offset + column as u32))
             .and_then(|text| formula_text(text));
+
+        if let Some(formula) = &formula {
+            charge_text(
+                formula.len() as u64,
+                "a formula",
+                &name,
+                row_offset + row as u32,
+                column_offset + column as u32,
+                options,
+                text_bytes,
+            )?;
+        }
 
         absolute.push((
             row_offset + row as u32,
@@ -177,6 +239,16 @@ fn sheet(
             continue;
         }
 
+        charge_text(
+            formula.len() as u64,
+            "a formula",
+            &name,
+            absolute_row,
+            absolute_column,
+            options,
+            text_bytes,
+        )?;
+
         absolute.push((
             absolute_row,
             absolute_column,
@@ -205,6 +277,85 @@ fn sheet(
         column_offset: column_offset as usize,
         cells,
     })
+}
+
+/// Charges one cell's text against the per-cell ceiling and the workbook's text budget.
+///
+/// A number, a boolean or a duration costs nothing: it is a fixed few bytes in the AST. The strings
+/// a cell can carry — its text, its date, its error name — are what a hostile package inflates.
+fn charge(
+    value: &CellValue,
+    sheet: &str,
+    row: u32,
+    column: u32,
+    options: &Options,
+    spent: &mut u64,
+) -> Result<(), ParseError> {
+    let bytes = match value {
+        CellValue::Text { text } => text.len(),
+        CellValue::Date { iso, .. } => iso.len(),
+        CellValue::Error { error } => error.len(),
+        CellValue::Number { .. }
+        | CellValue::Boolean { .. }
+        | CellValue::Duration { .. }
+        | CellValue::Blank => 0,
+    };
+
+    charge_text(bytes as u64, "the text", sheet, row, column, options, spent)
+}
+
+/// Refuses a string past the per-cell ceiling, or past the workbook's text budget.
+///
+/// The two ceilings answer different attacks: the per-cell one stops one shared string from being
+/// the workbook, and the budget stops a million cells each just under it from being a gigabyte of
+/// `String` the caller never asked for.
+fn charge_text(
+    bytes: u64,
+    what: &str,
+    sheet: &str,
+    row: u32,
+    column: u32,
+    options: &Options,
+    spent: &mut u64,
+) -> Result<(), ParseError> {
+    if bytes > options.max_cell_text_bytes {
+        return Err(ParseError::Limit(format!(
+            "{what} of cell {}{} on the sheet '{sheet}' is {bytes} bytes, over the {}-byte limit of one cell",
+            column_name(column),
+            row.saturating_add(1),
+            options.max_cell_text_bytes
+        )));
+    }
+
+    *spent = spent.saturating_add(bytes);
+
+    if *spent > options.max_text_bytes {
+        return Err(ParseError::Limit(format!(
+            "the workbook holds more than the {}-byte limit of cell text",
+            options.max_text_bytes
+        )));
+    }
+
+    Ok(())
+}
+
+/// A column number as Excel names it, so the refusal names the cell a person can find.
+fn column_name(mut column: u32) -> String {
+    let mut name = Vec::new();
+
+    loop {
+        name.push(b'A' + (column % 26) as u8);
+
+        if column < 26 {
+            break;
+        }
+
+        column = column / 26 - 1;
+    }
+
+    name.reverse();
+
+    String::from_utf8(name).unwrap_or_default()
 }
 
 /// A formula as the sheet writes it. `calamine` hands back the `<f>` text without the `=`, which is
@@ -499,6 +650,72 @@ mod tests {
 
         assert_eq!(error.code(), crate::ffi::TX_ERR_LIMIT);
         assert!(error.message().contains("50-cell limit"));
+    }
+
+    #[test]
+    fn a_workbook_over_the_sheet_limit_is_refused() {
+        // A workbook is tabs a person named. Past the cap the package is a generator, and every
+        // sheet it declares is a part the zip has already expanded, so the refusal comes before the
+        // first one is read.
+        let mut fixture = Fixture::new();
+
+        for index in 0..=DEFAULT_MAX_SHEETS {
+            fixture = fixture.empty_sheet(&format!("Feuille{index}"));
+        }
+
+        let error = extract(&fixture.build(), &Options::default()).unwrap_err();
+
+        assert_eq!(error.code(), crate::ffi::TX_ERR_LIMIT);
+        assert!(error.message().contains("257 sheets"));
+        assert!(error.message().contains("256-sheet limit"));
+    }
+
+    #[test]
+    fn a_text_cell_over_the_per_cell_limit_is_refused() {
+        // Excel refuses a cell over 32 767 characters; this one is twice the suite's own ceiling, so
+        // no producer writes it and the shared-string table is what it costs to find out.
+        let text = "x".repeat(DEFAULT_MAX_CELL_TEXT_BYTES as usize + 1);
+        let bytes = Fixture::new()
+            .sheet("Facture", [Cell::text(0, 0, &text)])
+            .build();
+
+        let error = extract(&bytes, &Options::default()).unwrap_err();
+
+        assert_eq!(error.code(), crate::ffi::TX_ERR_LIMIT);
+        assert!(error.message().contains("cell A1"));
+        assert!(error.message().contains("65537 bytes"));
+        assert!(error.message().contains("65536-byte limit of one cell"));
+    }
+
+    #[test]
+    fn a_text_cell_at_the_per_cell_limit_is_read() {
+        // The control: the ceiling refuses what is past it, not what reaches it.
+        let text = "x".repeat(DEFAULT_MAX_CELL_TEXT_BYTES as usize);
+        let workbook = read(&Fixture::new().sheet("Facture", [Cell::text(0, 0, &text)]));
+
+        assert_eq!(workbook.sheets[0].cells[0].value, CellValue::Text { text });
+    }
+
+    #[test]
+    fn a_workbook_over_the_text_budget_is_refused() {
+        // Each cell is well under its own ceiling; together they are more text than the caller asked
+        // for. The budget is what stops a million legal cells from being a gigabyte of `String`.
+        let bytes = Fixture::new()
+            .sheet(
+                "Facture",
+                [Cell::text(0, 0, "aaaa"), Cell::text(0, 1, "bbbb")],
+            )
+            .build();
+
+        let options = Options {
+            max_text_bytes: 6,
+            ..Options::default()
+        };
+
+        let error = extract(&bytes, &options).unwrap_err();
+
+        assert_eq!(error.code(), crate::ffi::TX_ERR_LIMIT);
+        assert!(error.message().contains("6-byte limit of cell text"));
     }
 
     #[test]
