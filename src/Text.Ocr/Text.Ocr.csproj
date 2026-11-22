@@ -35,8 +35,8 @@
     Natives are packed under the standard runtimes/<rid>/native/ layout, so no buildTransitive
     targets are needed. The files come from the native matrix; a local pack simply omits the ones
     that are not there, and the resolver then names the RID it could not load.
-    `linux-musl-x64` is not built for this crate: unlike the compiler, it has no hand-linked musl
-    artefact, and an Alpine consumer gets the resolver's explicit error rather than a silent one.
+    `linux-musl-x64` is a staticlib linked by hand with `musl-gcc`, exactly as the compiler's is:
+    Rust cannot emit a cdylib for a musl target, so the CI job builds the archive and links it.
   -->
   <ItemGroup>
     <None Include="$(NativeArtifactsDir)\win-x64\sharp_text_ocr.dll"
@@ -51,6 +51,9 @@
     <None Include="$(NativeArtifactsDir)\linux-arm64\libsharp_text_ocr.so"
           Pack="true" PackagePath="runtimes/linux-arm64/native/" Visible="false"
           Condition="Exists('$(NativeArtifactsDir)\linux-arm64\libsharp_text_ocr.so')" />
+    <None Include="$(NativeArtifactsDir)\linux-musl-x64\libsharp_text_ocr.so"
+          Pack="true" PackagePath="runtimes/linux-musl-x64/native/" Visible="false"
+          Condition="Exists('$(NativeArtifactsDir)\linux-musl-x64\libsharp_text_ocr.so')" />
     <None Include="$(NativeArtifactsDir)\osx\libsharp_text_ocr.dylib"
           Pack="true" PackagePath="runtimes/osx/native/" Visible="false"
           Condition="Exists('$(NativeArtifactsDir)\osx\libsharp_text_ocr.dylib')" />
