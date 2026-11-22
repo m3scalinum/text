@@ -93,19 +93,16 @@ const H0: [u32; 8] = [
 /// The SHA-256 digest of `bytes`.
 pub fn digest(bytes: &[u8]) -> [u8; 32] {
     let mut state = H0;
-    let mut blocks = bytes.chunks_exact(64);
 
-    for block in blocks.by_ref() {
-        compress(
-            &mut state,
-            block.try_into().expect("chunks_exact yields 64 bytes"),
-        );
+    let whole_blocks = bytes.len() / 64;
+    for index in 0..whole_blocks {
+        compress(&mut state, &bytes[index * 64..index * 64 + 64]);
     }
 
     // Padding: a single 1 bit, zeroes to 56 bytes modulo 64, then the message
     // length in bits as a big-endian u64. Two blocks are needed when the
     // remainder leaves fewer than 9 bytes for the length.
-    let remainder = blocks.remainder();
+    let remainder = &bytes[whole_blocks * 64..];
     let mut tail = [0u8; 128];
     tail[..remainder.len()].copy_from_slice(remainder);
     tail[remainder.len()] = 0x80;
@@ -114,16 +111,13 @@ pub fn digest(bytes: &[u8]) -> [u8; 32] {
     let bit_len = (bytes.len() as u64).wrapping_mul(8);
     tail[tail_len - 8..tail_len].copy_from_slice(&bit_len.to_be_bytes());
 
-    for block in tail[..tail_len].chunks_exact(64) {
-        compress(
-            &mut state,
-            block.try_into().expect("chunks_exact yields 64 bytes"),
-        );
+    for index in 0..tail_len / 64 {
+        compress(&mut state, &tail[index * 64..index * 64 + 64]);
     }
 
     let mut out = [0u8; 32];
-    for (word, bytes) in state.iter().zip(out.chunks_exact_mut(4)) {
-        bytes.copy_from_slice(&word.to_be_bytes());
+    for (index, word) in state.iter().enumerate() {
+        out[index * 4..index * 4 + 4].copy_from_slice(&word.to_be_bytes());
     }
     out
 }
@@ -146,10 +140,13 @@ pub fn digest_pair(first: &[u8; 32], second: &[u8; 32]) -> [u8; 32] {
     digest(&joined)
 }
 
-fn compress(state: &mut [u32; 8], block: &[u8; 64]) {
+fn compress(state: &mut [u32; 8], block: &[u8]) {
+    debug_assert_eq!(block.len(), 64, "a SHA-256 block is 64 bytes");
+
     let mut schedule = [0u32; 64];
-    for (index, word) in block.chunks_exact(4).enumerate() {
-        schedule[index] = u32::from_be_bytes(word.try_into().expect("four bytes"));
+    for index in 0..16 {
+        let word = &block[index * 4..index * 4 + 4];
+        schedule[index] = u32::from_be_bytes([word[0], word[1], word[2], word[3]]);
     }
     for index in 16..64 {
         let s0 = schedule[index - 15].rotate_right(7)
