@@ -15,6 +15,9 @@ internal sealed class TypstMarkupWriter
     private int _contentDepth;
     private bool _atLineStart = true;
 
+    /// <summary>Every label this document emitted, in document order, deduplicated as it goes.</summary>
+    public TypstLabelRegistry Labels { get; } = new();
+
     /// <summary>Writes text, escaping every character that is special in markup mode.</summary>
     public void WriteText(string text)
     {

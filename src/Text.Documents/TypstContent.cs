@@ -68,10 +68,20 @@ public sealed partial class TypstContent
     }
 
     /// <summary>Appends a reference to a label.</summary>
-    public TypstContent Reference(string label)
+    /// <param name="label">The label of the target.</param>
+    /// <param name="supplement">
+    /// The word printed before the number, overriding the target's own; null keeps it.
+    /// </param>
+    public TypstContent Reference(string label, string? supplement = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(label);
-        _nodes.Add(new ReferenceNode(label));
+
+        if (supplement is not null)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(supplement);
+        }
+
+        _nodes.Add(new ReferenceNode(label, supplement));
         return this;
     }
 

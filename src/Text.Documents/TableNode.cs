@@ -6,6 +6,9 @@ namespace M3scalinum.Text.Documents;
 
 internal sealed class TableNode(TypstTable table) : TypstNode
 {
+    /// <summary>The table this node emits, so a label added later can land on it.</summary>
+    internal TypstTable Target => table;
+
     internal override void Write(TypstMarkupWriter writer)
     {
         var columns = table.ColumnCount;
@@ -18,7 +21,57 @@ internal sealed class TableNode(TypstTable table) : TypstNode
             return;
         }
 
+        // A labelled table is a numbered table: Typst only counts and numbers a table that is a
+        // figure, and only a numbered table can be referenced. An unlabelled table stays a bare
+        // #table(…) so its markup does not change.
+        if (table.LabelName is { } label)
+        {
+            WriteNumbered(writer, label);
+            return;
+        }
+
         writer.BlankLine();
+        WriteCall(writer, columns);
+        writer.NewLine();
+    }
+
+    /// <summary>Writes the table inside a <c>#figure(kind: table, …)</c> that carries the label.</summary>
+    private void WriteNumbered(TypstMarkupWriter writer, string label)
+    {
+        var columns = table.ColumnCount;
+
+        writer.BlankLine();
+        writer.WriteVerbatim("#figure(kind: table, supplement: [Table]");
+
+        if (table.Caption is { } caption)
+        {
+            writer.WriteVerbatim(", caption: ");
+            using (writer.ContentBlock())
+            {
+                caption.Write(writer);
+            }
+        }
+
+        writer.WriteVerbatim(")");
+
+        using (writer.ContentBlock())
+        {
+            using (writer.Indent())
+            {
+                writer.NewLine();
+                WriteCall(writer, columns);
+            }
+
+            writer.NewLine();
+        }
+
+        writer.WriteVerbatim(" <" + writer.Labels.Index(label) + ">");
+        writer.NewLine();
+    }
+
+    /// <summary>Writes <c>#table(…)</c>, with no leading blank line and no trailing newline.</summary>
+    private void WriteCall(TypstMarkupWriter writer, int columns)
+    {
         writer.WriteVerbatim("#table(");
 
         using (writer.Indent())
@@ -63,7 +116,6 @@ internal sealed class TableNode(TypstTable table) : TypstNode
 
         writer.NewLine();
         writer.WriteVerbatim(")");
-        writer.NewLine();
     }
 
     private static void WriteCells(TypstMarkupWriter writer, IReadOnlyList<TypstTableCell> cells)

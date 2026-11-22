@@ -14,6 +14,7 @@ public sealed partial class TypstDocument
 {
     private readonly List<TypstNode> _body = [];
     private readonly List<string> _preamble = [];
+    private readonly Dictionary<TypstLabelKind, int> _labelOrdinals = [];
     private TypstMetadata? _metadata;
     private TypstPageSetup? _page;
     private TypstDirection? _direction;
@@ -190,9 +191,158 @@ public sealed partial class TypstDocument
         return this;
     }
 
-    /// <summary>Appends a table of contents.</summary>
+    /// <summary>
+    /// Appends a reference to the element labelled <paramref name="label"/>.
+    /// </summary>
+    /// <param name="label">The label of the target, as it was given to a label call.</param>
+    /// <param name="supplement">
+    /// The word printed before the number, overriding the target's own — <c>Figure</c>,
+    /// <c>Table</c>, <c>Section</c>. Null keeps the target's supplement.
+    /// </param>
+    /// <remarks>
+    /// <para>
+    /// Emits <c>#ref(&lt;label&gt;)</c>, or <c>#ref(&lt;label&gt;, supplement: […])</c>. The model
+    /// writes the reference and no number: Typst resolves it against the laid-out document, so the
+    /// number and the page are whatever the compiled document says.
+    /// </para>
+    /// <para>
+    /// A reference may name a target that comes later, and the same label may be referenced any
+    /// number of times. A label that no element carries makes Typst fail the compilation
+    /// (<c>label `x` does not exist in the document</c>); a target without numbering fails it too
+    /// (<c>cannot reference heading without numbering</c>).
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentException"><paramref name="label"/> or <paramref name="supplement"/> is blank.</exception>
+    public TypstDocument Reference(string label, string? supplement = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(label);
+
+        if (supplement is not null)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(supplement);
+        }
+
+        _body.Add(new ContentNode(new TypstContent().Node(new ReferenceNode(label, supplement))));
+        return this;
+    }
+
+    /// <summary>
+    /// Labels the element this call follows, so a reference can find it.
+    /// </summary>
+    /// <param name="name">The label to attach, e.g. <c>fig:revenue</c>.</param>
+    /// <remarks>
+    /// <para>
+    /// The label lands on the last element added: a figure or a table is numbered as well as
+    /// labelled (<c>figure(kind: image|table, supplement: […])</c>), a heading is numbered because
+    /// the first section label turns <c>#set heading(numbering: "1.1")</c> on, and any other block
+    /// just carries the label after it.
+    /// </para>
+    /// <para>
+    /// A name the document already holds is emitted with <c>-2</c>, <c>-3</c>, … appended to the
+    /// later occurrences, because Typst refuses a document in which a label occurs twice. The first
+    /// occurrence keeps the name as written, and a reference to that name reaches it.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentException"><paramref name="name"/> is blank.</exception>
+    public TypstDocument Label(string name)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        return Attach(KindOfLastNode(), name);
+    }
+
+    /// <summary>
+    /// Labels the element this call follows with a generated name, or with
+    /// <paramref name="name"/> when one is given.
+    /// </summary>
+    /// <param name="kind">What the label sits on; it also selects the generated name's prefix.</param>
+    /// <param name="name">The label to attach, or null to generate one.</param>
+    /// <remarks>
+    /// The generated names are <c>sec:1</c>, <c>fig:1</c> and <c>tbl:1</c> for the first label of
+    /// each kind, then <c>sec:2</c>, <c>fig:2</c>, …, counted per kind in call order. They depend on
+    /// nothing but the calls the document made, so the same document always produces the same
+    /// names. Labelling a section turns <c>#set heading(numbering: "1.1")</c> on for the document —
+    /// Typst refuses to reference a heading that is not numbered — unless the document already sets
+    /// its own heading numbering.
+    /// </remarks>
+    public TypstDocument Label(TypstLabelKind kind, string? name = null)
+        => Attach(kind, name ?? NextLabelName(kind));
+
+    private TypstLabelKind? KindOfLastNode() => _body.Count == 0
+        ? null
+        : _body[^1] switch
+        {
+            HeadingNode => TypstLabelKind.Section,
+            FigureNode => TypstLabelKind.Figure,
+            TableNode => TypstLabelKind.Table,
+            _ => null,
+        };
+
+    private TypstDocument Attach(TypstLabelKind? kind, string name)
+    {
+        if (kind == TypstLabelKind.Section)
+        {
+            EnableHeadingNumbering();
+        }
+
+        switch (_body.Count == 0 ? null : _body[^1])
+        {
+            case FigureNode figure when kind is null or TypstLabelKind.Figure:
+                figure.Target.WithLabel(name);
+                break;
+
+            case TableNode table when kind is null or TypstLabelKind.Table:
+                table.Target.WithLabel(name);
+                break;
+
+            default:
+                _body.Add(new LabelNode(name));
+                break;
+        }
+
+        return this;
+    }
+
+    private string NextLabelName(TypstLabelKind kind)
+    {
+        _labelOrdinals.TryGetValue(kind, out var ordinal);
+        _labelOrdinals[kind] = ++ordinal;
+        return TypstLabelRegistry.Prefix(kind) + ":" + ordinal.ToString(CultureInfo.InvariantCulture);
+    }
+
+    private void EnableHeadingNumbering()
+    {
+        if (_preamble.Exists(line => line.Contains("heading(numbering", StringComparison.Ordinal)))
+        {
+            return;
+        }
+
+        _preamble.Add("#set heading(numbering: \"1.1\")");
+    }
+
+    /// <summary>Appends a table of contents whose page numbers come from the compiled document.</summary>
+    /// <param name="title">The heading printed above the entries, or null for none.</param>
+    /// <param name="depth">How many heading levels the entries cover, 1 to 6.</param>
+    /// <remarks>
+    /// <para>
+    /// Emits <c>#outline(title: […], depth: …)</c>. Typst fills it at layout time, in document
+    /// order, with the final page number of every heading up to <paramref name="depth"/>; headings
+    /// appear with the numbers <c>#set heading(numbering: …)</c> gave them. The model computes no
+    /// entry and no page: nothing before the compilation knows either.
+    /// </para>
+    /// <para>
+    /// A caller that needs the same tree on the host side reads
+    /// <c>TypstEvaluation.Outline</c> from the compiled document: it lists the level, the title, the
+    /// final page and the label of every heading, in the same order.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="depth"/> is not 1 to 6.</exception>
     public TypstDocument Outline(TypstContent? title = null, int depth = 2)
     {
+        if (depth is < 1 or > 6)
+        {
+            throw new ArgumentOutOfRangeException(nameof(depth), depth, "an outline depth is 1 to 6");
+        }
+
         _body.Add(new OutlineNode(title, depth));
         return this;
     }
