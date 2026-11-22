@@ -51,7 +51,7 @@ byte[] pdf = TypstCompiler.CompileToPdf("""
 | `M3scalinum.Text.Documents` | The document model: typed content, inline styles, tables, figures, lists, page setup, and the HTML and Markdown importers | — |
 | `M3scalinum.Text.Typst.DependencyInjection` | `AddTypst` for `Microsoft.Extensions.DependencyInjection` | Typst |
 | `M3scalinum.Text.Templates.Generator` | Roslyn generator: a `template.toml` becomes a typed options record | — |
-| `M3scalinum.Text.Pdf` | PAdES-B signatures, written as incremental updates | — |
+| `M3scalinum.Text.Pdf` | PAdES-B signatures written as incremental updates, text and outlines read back, and a page rendered as a PNG preview | — |
 | `M3scalinum.Text.Templates` | Seven business-document layouts — invoice, quotation, account statement, attestation, contract, payslip, purchase order — with typed options and English or French labels | Typst |
 | `M3scalinum.Text.Mcp` | A Model Context Protocol server over stdio: render a document, list the layouts, sign, merge and read PDFs | Typst, Documents, Templates, Pdf |
 | `M3scalinum.Text.Barcodes` | QR, DataMatrix, Aztec, PDF417, Code 128/39, EAN-13/8, ITF and Codabar: encode to SVG or PNG, decode back | — |
@@ -195,8 +195,10 @@ footnotes, bibliography, math, counters, labels — is in
 
 ## M3scalinum.Text.Pdf
 
-Signs a PDF you already have. It takes bytes and returns bytes: no dependency on the compiler, no
-native library.
+Signs a PDF you already have. It takes bytes and returns bytes, and depends on no part of the
+compiler: signatures, conformance, text, forms, pages, attachments, encryption and outlines are
+managed code. Rendering a page as an image is the one feature that needs a native library — its own
+Rust crate, `native/text-pdf`, packed for the six runtimes — and the package carries it.
 
 ```bash
 dotnet add package M3scalinum.Text.Pdf
@@ -212,6 +214,12 @@ byte[] signed = PdfSigner.Sign(pdf, certificate, new PdfSignatureOptions
     Reason = "Facture FA-2026-0042",
     Location = "Lille",
 });
+```
+
+```csharp
+// The first page as a PNG preview: 150 DPI unless asked otherwise, under a pixel and memory ceiling.
+PdfPageImage preview = PdfRaster.Render(pdf, 1);
+File.WriteAllBytes("preview.png", preview.Bytes);
 ```
 
 The signature is PAdES-B, written as an **incremental update**: the original bytes are untouched, so a

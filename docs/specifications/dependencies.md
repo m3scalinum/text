@@ -77,7 +77,7 @@ table by its header: keep the column names and the `YYYY-MM-DD` date, or it will
 
 | Crate | Version | Licence | Downloads | Last update | Decision |
 | --- | --- | --- | --- | --- | --- |
-| `hayro` | 0.9 | Apache-2.0 OR MIT | 5.9 M / 4.3 M | 2026-11-02 | Adopted — pure-Rust PDF rasteriser, so OCR of a scanned page needs no native PDF engine |
+| `hayro` | 0.9 | Apache-2.0 OR MIT | 5.9 M / 4.3 M | 2026-11-02 | Adopted — pure-Rust PDF rasteriser behind both `text-ocr` and `text-pdf`: a scanned page needs no native PDF engine, and neither does a page preview |
 | `image` | 0.25 | MIT OR Apache-2.0 | 261 M / 88 M | 2026-03-10 | Adopted — PNG in the barcode crate, the caller's formats in OCR; pinned to the version rxing uses |
 | `ocrs` | 0.14 | MIT OR Apache-2.0 | 649 k / 405 k | 2026-11-08 | Adopted — text detection and line recognition, the engine behind `M3scalinum.Text.Ocr` |
 | `openssl` | 0.10 (musl only) | Apache-2.0 | 469 M / 91 M | 2026-11-01 | Adopted — `typst-kit` pulls native-tls, and a musl host has no libssl to link |
@@ -224,6 +224,7 @@ Duplicate versions are a warning rather than an error because the tree has seven
 `text-barcodes` *because* `rxing` depends on that exact version, and `syn` 2 and 3 coexist because
 two derive stacks do. The counts at the time of writing — `sharp-typst` 7 (`base64`, `fearless_simd`,
 `hayro-ccitt`, `miniz_oxide`, `quick-xml`, `roxmltree`, `syn`), `text-ocr` 3, `text-barcodes` 2,
+`text-pdf` 3 (`fearless_simd`, `miniz_oxide`, `syn`, all of them hayro's own shape),
 `text-docx` and `text-xlsx` 1 each — are printed on every run, so a new one is visible in the diff of
 a log even though it does not fail the build.
 

@@ -88,6 +88,14 @@ NATIVE_PACKAGES = {
         "linux-musl-x64": "libsharp_text_xlsx.so",
         "osx": "libsharp_text_xlsx.dylib",
     },
+    "lib/net11.0/M3scalinum.Text.Pdf.dll": {
+        "win-x64": "sharp_text_pdf.dll",
+        "win-arm64": "sharp_text_pdf.dll",
+        "linux-x64": "libsharp_text_pdf.so",
+        "linux-arm64": "libsharp_text_pdf.so",
+        "linux-musl-x64": "libsharp_text_pdf.so",
+        "osx": "libsharp_text_pdf.dylib",
+    },
 }
 
 
