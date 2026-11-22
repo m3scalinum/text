@@ -72,4 +72,46 @@ public static class PdfConformanceCodes
     /// either decorative or unexplained. Only the bytes are known; a reader cannot tell.
     /// </summary>
     public const string ImageNotStructured = "PDFUA.IMAGE_NOT_STRUCTURED";
+
+    /// <summary>
+    /// A table's rows hold data cells (<c>/TD</c>) but no header cell (<c>/TH</c>), so a reader
+    /// cannot announce which column a cell belongs to. Reported by
+    /// <see cref="PdfConformance.CheckAccessibility"/> only.
+    /// </summary>
+    public const string TableHeaderMissing = "PDFUA.TABLE_HEADER_MISSING";
+
+    /// <summary>
+    /// A <c>/TH</c> header cell carries no <c>/Scope</c> (<c>Row</c>, <c>Column</c> or <c>Both</c>),
+    /// so a reader cannot tell whether the header describes its row or its column. Reported by
+    /// <see cref="PdfConformance.CheckAccessibility"/> only.
+    /// </summary>
+    public const string TableHeaderScopeMissing = "PDFUA.TABLE_HEADER_SCOPE_MISSING";
+
+    /// <summary>
+    /// A heading follows one more than one level above it (<c>/H1</c> then <c>/H3</c>), so a reader
+    /// announces an outline with a missing level. Reported by
+    /// <see cref="PdfConformance.CheckAccessibility"/> only.
+    /// </summary>
+    public const string HeadingLevelSkipped = "PDFUA.HEADING_LEVEL_SKIPPED";
+
+    /// <summary>
+    /// A tagged page does not declare <c>/Tabs /S</c>, so a reader may follow the drawing order
+    /// rather than the structure tree's reading order. Reported by
+    /// <see cref="PdfConformance.CheckAccessibility"/> only.
+    /// </summary>
+    public const string TabOrderNotStructure = "PDFUA.TABS_NOT_STRUCTURE";
+
+    /// <summary>
+    /// The catalog does not set <c>/ViewerPreferences /DisplayDocTitle true</c>, so a reader shows
+    /// the file name in its title bar instead of the document title. Reported by
+    /// <see cref="PdfConformance.CheckAccessibility"/> only.
+    /// </summary>
+    public const string DisplayDocTitleMissing = "PDFUA.DISPLAY_DOC_TITLE_MISSING";
+
+    /// <summary>
+    /// A structure element uses a role that is neither a standard structure type nor mapped by the
+    /// root's <c>/RoleMap</c>, so a reader has no standard role to announce. Reported by
+    /// <see cref="PdfConformance.CheckAccessibility"/> only.
+    /// </summary>
+    public const string RoleNotMapped = "PDFUA.ROLE_NOT_MAPPED";
 }

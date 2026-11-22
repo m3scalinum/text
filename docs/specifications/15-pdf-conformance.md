@@ -218,11 +218,14 @@ substitute for veraPDF. In particular this checker does **not** establish:
   that text inside a figure is tagged as such.
 - **Reading order and structure roles**: that `/RoleMap` maps every custom role to a standard one,
   that headings nest, that tables carry `/THead`, `/TBody`, `/TH` scope, or that lists use `/L`,
-  `/LI`, `/Lbl`, `/LBody` correctly. Only `/S /Figure` is interpreted.
+  `/LI`, `/Lbl`, `/LBody` correctly. `Check` interprets only `/S /Figure`. `CheckAccessibility`
+  (§6) adds the table header, heading level, role mapping and `/Tabs` rules; the rest of the list
+  rule and the content-stream reading order remain unexamined.
 - **Alternate descriptions on anything but figures**: links (`/Link` and its `/Alt`), annotations,
   form fields and their tooltips, `/ActualText` for ligatures and hyphenation.
-- **Document-level accessibility**: `/ViewerPreferences /DisplayDocTitle`, `/Suspects`, `/Tabs`,
-  `/OpenAction`, the order of the outline, the natural language of spans that differ from `/Lang`.
+- **Document-level accessibility**: `/Suspects`, `/OpenAction`, the order of the outline, and the
+  natural language of spans that differ from `/Lang`. `CheckAccessibility` reads
+  `/ViewerPreferences /DisplayDocTitle` and `/Tabs`; nothing else on this line is read.
 - **XMP schema conformance**: three properties are read by name (`pdfaid:part`,
   `pdfaid:conformance`, `pdfuaid:part`, plus `dc:title`); the packet is not validated against ISO
   16684, and a well-formed-but-wrong packet with the right values passes.
@@ -235,3 +238,117 @@ The claim in this document is narrow and testable: a document that passes has th
 tagged, embedded, identified PDF needs, and one that fails names the declaration that is wrong.
 Conformance to ISO 14289-1 or ISO 19005 is only ever established by running veraPDF (or another
 ISO 32000-based validator) on the produced file.
+
+## 6. The accessibility checklist, per package
+
+The European Accessibility Act applies to the digital services a business or a public body provides,
+so it applies to the documents those services produce. The standard behind it, EN 301 549, points at
+WCAG for the web and at PDF/UA for a PDF. PDF/UA-1 structure is therefore necessary, but it is not
+the whole of usability: a file can be tagged, identified and titled, and still open in a reader as
+an untitled list of "graphic" and "cell" objects. This section is the checklist the suite holds the
+pipeline to: **one line per property**, stating what the document model must carry, what the
+rendering must turn it into, what Typst 0.15.1 can produce, and how the line is verified.
+
+Each line is exactly one of three things, and says which:
+
+- **checked** — `PdfConformance.Check` or `PdfConformance.CheckAccessibility` reports it from the
+  bytes, and a test in `PdfConformanceAccessibilityTests` proves it on a real document.
+- **a writing rule** — the model or the author must supply it. The checker only sees the result and
+  cannot tell whether it is true; the line names the rule the template must follow.
+- **manual** — a person with a real screen reader and a real screen. Nothing in this repository runs
+  one.
+
+| # | Line | What the model must carry | What the rendering must do | Typst 0.15.1 | Verified by |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Alternate text for every image | a description per image, or an explicit "decorative" mark | bind the image to a `/Figure` with a non-empty `/Alt` (or `/ActualText`); a decorative image is an artifact and carries none | yes — `image(..., alt: "...")` | checked: `PDFUA.FIGURE_ALT_MISSING`; a warning `PDFUA.IMAGE_NOT_STRUCTURED` when images are drawn and no figure exists |
+| 2 | Table header cells | which row is the header, and whether each header describes its row, its column or both | `/TR` holding `/TH` cells with `/A <</O /Table /Scope /Column>>`; data cells are `/TD` | **no** — every cell is written `/TD`, no `/TH` and no scope (measured on `ua1.pdf`: 12 `/TD`, 0 `/TH`) | checked: `PDFUA.TABLE_HEADER_MISSING`, `PDFUA.TABLE_HEADER_SCOPE_MISSING`. The compiler's own PDF/UA-1 output **fails** this line |
+| 3 | Document language | the document's natural language tag | catalog `/Lang`, plus `/Lang` on any span that changes language | yes — `#set text(lang: "fr")` becomes `/Lang(fr)` | checked: `PDFUA.LANG_MISSING` |
+| 4 | Reading order and structure tree | block order as read, not as drawn; the semantic role of each block | `/StructTreeRoot` with `/ParentTree`, every page tagged with `/StructParents` and `/Tabs /S` | yes | checked: `PDFUA.STRUCT_TREE_MISSING`, `PDFUA.STRUCT_TREE_INCONSISTENT`, `PDFUA.TABS_NOT_STRUCTURE`, `PDFUA.ROLE_NOT_MAPPED` |
+| 5 | Hierarchical headings | an outline whose levels do not skip a step | `/H1` … `/H6` in document order, never a bare `/H` | yes — `=`, `==` | checked: `PDFUA.HEADING_LEVEL_SKIPPED` (a level that follows one more than one above it) |
+| 6 | Contrast and font size | the colour pair and the type scale: WCAG 1.4.3 (4.5:1 for body text) and 1.4.4 (200 % zoom without loss) | nothing — the PDF carries the colour as drawn; the renderer cannot improve a decision the model got wrong | not applicable | **not checked and not checkable from the bytes**: a property of the model and the template, stated here as a writing rule. A test asserts the checker stays silent rather than implying it validates contrast |
+| 7 | Document title | the human title of the document | `/Info /Title`, XMP `dc:title`, and `/ViewerPreferences /DisplayDocTitle true` so a reader shows the title instead of the file name | yes — `#set document(title: ...)`; `ua1.pdf` carries both `/Title` and `/DisplayDocTitle true` | checked: `PDFUA.TITLE_MISSING`, `PDFUA.DISPLAY_DOC_TITLE_MISSING` |
+| 8 | Structure roles | the semantic role of each block, expressed with standard names | standard structure types, or a custom name mapped by the root's `/RoleMap` | yes — `ua1.pdf` maps `Datetime`, `Terms`, `Title`, `Strong`, `Em` | checked: `PDFUA.ROLE_NOT_MAPPED` |
+| 9 | PDF/UA-1 only | nothing to carry: the export target is `ua-1` | declare `pdfuaid:part 1`; a document claiming part 2 while declaring UA-1 is rejected | yes for UA-1, **no** for UA-2 — the native bridge maps the single name `ua-1` | checked: `PDFUA.XMP_STANDARD_MISMATCH` on a part-2 claim, and a test asserts no UA-2 member exists in `PdfConformanceStandard` |
+| 10 | Screen-reader usability | nothing: the document itself | nothing further | — | **manual, not executed** — see §7 |
+
+### 6.1 Why the checklist is a second entry point
+
+`PdfConformance.Check` keeps its narrow claim: the declarations of the claimed standard. The
+checklist rules that depend on authoring intent, and that the compiler cannot yet satisfy, run under
+a separate call:
+
+```csharp
+var report = PdfConformance.CheckAccessibility(pdf);
+```
+
+`CheckAccessibility` runs the PDF/UA-1 structural checks and, on top, lines 2, 4, 5, 7 and 8 of the
+table. It is a separate method because line 2 **fails on the compiler's own PDF/UA-1 output**:
+`fixtures/pdfua/ua1.pdf` has a table of twelve `/TD` cells and no `/TH`. Making that an error in
+`Check` would report the fixture of §4 as broken while claiming it is the positive case. The two
+calls keep both statements true instead of hiding one. The honest reading is:
+
+> A document that passes `Check` has the declarations PDF/UA-1 requires. A document that passes
+> `CheckAccessibility` also passes the usability lines a PDF file can state. Neither is a statement
+> about what a screen reader will say.
+
+### 6.2 Which test proves which line
+
+| # | Test |
+| --- | --- |
+| 1 | `Image_Alternate_Text_Is_Reported_When_The_Figure_Loses_It` |
+| 2 | `Table_Headers_Are_Reported_Missing_On_The_Compiler_Output`, `A_Table_Header_Without_A_Scope_Is_Reported`, `A_Table_With_A_Header_Row_Is_Not_Reported`, `Tables_Nested_In_A_Head_Wrapper_Are_Still_Read` |
+| 3 | `The_Document_Language_Is_Reported_Missing` |
+| 4 | `Reading_Order_Is_Reported_When_A_Page_Does_Not_Follow_The_Structure`, `A_Structure_Without_A_Tree_Is_Reported_On_The_Accessibility_Path_Too`, `A_Structure_Role_Outside_The_RoleMap_Is_Reported`, `A_Custom_Role_Mapped_By_The_RoleMap_Is_Accepted` |
+| 5 | `A_Skipped_Heading_Level_Is_Reported` |
+| 6 | `Contrast_And_Font_Size_Are_Not_Checked_Because_They_Belong_To_The_Model` |
+| 7 | `A_Document_That_Does_Not_Display_Its_Title_Is_Reported`, `A_Document_With_No_Title_Anywhere_Is_Reported` |
+| 8 | `A_Structure_Role_Outside_The_RoleMap_Is_Reported`, `A_Custom_Role_Mapped_By_The_RoleMap_Is_Accepted` |
+| 9 | `A_PDF_UA_2_Claim_Is_Reported_Because_Only_UA_1_Exists` |
+| 10 | none — manual |
+
+Every test works on bytes: the compiler's fixture, or the demo document below with one property
+changed. None of them asserts a constant; the negative cases are length-preserving mutations of the
+fixture, so the cross-reference stays valid and the rule under test is the only thing that changed.
+
+### 6.3 The demo document
+
+The tests build, from hand-written objects, a one-page document that satisfies every automatic line
+at once — language, displayed title, `/Tabs /S`, an `H1` then an `H2`, a table with a scoped `/TH`,
+a figure with `/Alt` and an image. It is written next to the test assembly by its owning test, so a
+reviewer has a file to open:
+
+```bash
+dotnet test tests/Text.Pdf.Tests -c Release \
+  --filter "FullyQualifiedName~The_Demo_Document_Passes_The_Checklist"
+```
+
+The file lands at `tests/Text.Pdf.Tests/bin/Release/net11.0/demo-accessible.pdf`. It is a
+demonstration of the checker, not of the compiler: its structure is hand-built, so it proves the
+rules, not the pipeline. The compiler's output is `fixtures/pdfua/ua1.pdf`, and it fails line 2.
+
+## 7. What still needs a person, and has not been done
+
+A document that passes the checklist is *not* a document a screen-reader user has confirmed usable.
+The sentence "the demo document passes with a real screen reader" cannot be automated here, and this
+document does not claim it. No screen reader was run for this change; no NVDA or VoiceOver session,
+on any of the fixtures or on the demo file, was recorded. The following are the checks that only a
+person can make, and they are **open**:
+
+1. That the reading order *as heard* follows the visual order, including the order of the figure
+   relative to the surrounding paragraphs — the checker reads `/Tabs` and the tree, not the
+   content stream's marked-content order.
+2. That the alternate text says something useful ("Un carré rouge de quatre pixels") rather than
+   merely existing.
+3. That a table is announced with its header — the compiler's output has no header cell to
+   announce, so this cannot pass until line 2 is fixed in the producer.
+4. That heading navigation (`H` in NVDA, the rotor in VoiceOver) reaches the expected outline.
+5. That the contrast ratio and the 200 % zoom of line 6 hold on the rendered page, measured with a
+   contrast tool rather than read from the PDF.
+6. That links, form fields and annotations — out of scope in §5 — announce their names.
+7. That the document title is what the reader shows in its window title, which depends on
+   `DisplayDocTitle` *and* on the reader honouring it.
+
+What is delivered instead of that confirmation: one automatic test per line that can be checked,
+the demo file for a reviewer to open, and this list. A future change that runs a screen reader in CI
+must record the reader, its version and the transcript; until then the honest status of line 10 is
+"manual, not executed".

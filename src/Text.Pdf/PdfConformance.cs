@@ -16,8 +16,11 @@ namespace M3scalinum.Text.Pdf;
 /// — tagged structure, language, title, alternate text, embedded fonts, version, XMP identifiers —
 /// and nothing that would require interpreting the page description: colour, output intents, glyph
 /// coverage, reading order, contrast and the several hundred remaining rules of ISO 14289-1 are out
-/// of scope. veraPDF remains the reference validator; see
-/// <c>docs/specifications/15-pdf-conformance.md</c> for the exact list.
+/// out of scope. veraPDF remains the reference validator; see
+/// <c>docs/specifications/15-pdf-conformance.md</c> for the exact list. <see cref="CheckAccessibility"/>
+/// adds the usability rules the bytes can state — table headers and scope, heading levels, tab
+/// order, the displayed title, role mapping — and still cannot establish contrast or what a screen
+/// reader says.
 /// </para>
 /// <para>
 /// <see cref="PdfConformance.Check"/> never throws on malformed input: a file so broken that its
@@ -32,6 +35,32 @@ public static class PdfConformance
     /// <param name="standard">The standard the document claims.</param>
     /// <returns>The findings, and whether any of them is an error.</returns>
     public static PdfConformanceReport Check(ReadOnlySpan<byte> pdf, PdfConformanceStandard standard)
+        => Run(pdf, standard, accessibility: false);
+
+    /// <summary>
+    /// Checks the document against PDF/UA-1 and, on top of the structural rules, the accessibility
+    /// checklist of <c>docs/specifications/15-pdf-conformance.md</c> §6.
+    /// </summary>
+    /// <param name="pdf">The document's bytes.</param>
+    /// <returns>
+    /// The structural report plus the usability findings: table headers and their scope, heading
+    /// levels, structure-based tab order, the displayed document title, and structure roles that no
+    /// <c>/RoleMap</c> maps.
+    /// </returns>
+    /// <remarks>
+    /// These checks are separate from <see cref="Check"/> because the compiler's PDF/UA-1 output
+    /// does not satisfy some of them yet — it writes no <c>/TH</c> header cell — so making them
+    /// default errors would report the suite's own conformant output as broken. They are opt-in,
+    /// and the specification states for each line whether it is checked here, a writing rule or a
+    /// manual verification.
+    /// </remarks>
+    public static PdfConformanceReport CheckAccessibility(ReadOnlySpan<byte> pdf)
+        => Run(pdf, PdfConformanceStandard.PdfUa1, accessibility: true);
+
+    private static PdfConformanceReport Run(
+        ReadOnlySpan<byte> pdf,
+        PdfConformanceStandard standard,
+        bool accessibility)
     {
         var findings = new Findings(standard);
 
@@ -105,7 +134,7 @@ public static class PdfConformance
 
         if (requirements.RequiresTaggedStructure)
         {
-            CheckStructure(findings, file, catalog, pages, scan);
+            CheckStructure(findings, file, catalog, pages, scan, accessibility);
         }
 
         if (requirements.RequiresTitle)
@@ -390,7 +419,8 @@ public static class PdfConformance
         PdfFile file,
         PdfDictionary catalog,
         IReadOnlyList<PdfPage> pages,
-        ResourceScan scan)
+        ResourceScan scan,
+        bool accessibility)
     {
         CheckLanguage(findings, file, catalog);
 
@@ -401,6 +431,12 @@ public static class PdfConformance
                 PdfConformanceCodes.MarkInfoMissing,
                 "catalog",
                 "the catalog has no /MarkInfo dictionary whose /Marked is true");
+        }
+
+        if (accessibility)
+        {
+            CheckDisplayedTitle(findings, file, catalog);
+            CheckTabOrder(findings, file, pages);
         }
 
         if (file.ResolveDictionary(catalog["StructTreeRoot"]) is not { } root)
@@ -419,6 +455,13 @@ public static class PdfConformance
                 PdfConformanceCodes.StructTreeInconsistent,
                 "struct tree root",
                 "the /StructTreeRoot dictionary is not /Type /StructTreeRoot");
+        }
+
+        if (accessibility)
+        {
+            CheckRoles(findings, file, root);
+            CheckHeadings(findings, file, root);
+            CheckTables(findings, file, root);
         }
 
         var rootNumber = file.TryResolveReference(catalog["StructTreeRoot"], out var number, out _) ? number : 0;
@@ -523,6 +566,250 @@ public static class PdfConformance
             "the catalog declares no /Lang, so a reader cannot know the natural language of the text");
     }
 
+    private static void CheckDisplayedTitle(Findings findings, PdfFile file, PdfDictionary catalog)
+    {
+        var preferences = file.ResolveDictionary(catalog["ViewerPreferences"]);
+
+        if (file.Resolve(preferences?["DisplayDocTitle"]) is PdfBoolean { Value: true })
+        {
+            return;
+        }
+
+        findings.Error(
+            PdfConformanceCodes.DisplayDocTitleMissing,
+            "catalog",
+            "the catalog does not set /ViewerPreferences /DisplayDocTitle true, so a reader shows the file name instead of the document title");
+    }
+
+    private static void CheckTabOrder(Findings findings, PdfFile file, IReadOnlyList<PdfPage> pages)
+    {
+        foreach (var page in pages)
+        {
+            if (file.Resolve(page.Dictionary["StructParents"]) is null)
+            {
+                // The page is not tagged, so there is no structure order for /Tabs to select.
+                continue;
+            }
+
+            if (file.Resolve(page.Dictionary["Tabs"]) is PdfName { Value: "S" })
+            {
+                continue;
+            }
+
+            findings.Error(
+                PdfConformanceCodes.TabOrderNotStructure,
+                $"page {page.Number}",
+                "the page is tagged but declares no /Tabs /S, so a reader may follow the drawing order rather than the structure order");
+        }
+    }
+
+    private static void CheckRoles(Findings findings, PdfFile file, PdfDictionary root)
+    {
+        var roleMap = file.ResolveDictionary(root["RoleMap"]);
+        var unmapped = new SortedSet<string>(StringComparer.Ordinal);
+
+        WalkStructure(file, root, (element, _) =>
+        {
+            if (Role(file, element) is not { } role || StandardRoles.Contains(role))
+            {
+                return;
+            }
+
+            if (roleMap is not null && file.Resolve(roleMap[role]) is PdfName)
+            {
+                return;
+            }
+
+            unmapped.Add(role);
+        });
+
+        foreach (var role in unmapped)
+        {
+            findings.Error(
+                PdfConformanceCodes.RoleNotMapped,
+                "struct tree",
+                $"the structure uses the role /{role}, which is neither a standard structure type nor a /RoleMap entry");
+        }
+    }
+
+    private static void CheckHeadings(Findings findings, PdfFile file, PdfDictionary root)
+    {
+        var previous = 0;
+
+        WalkStructure(file, root, (element, number) =>
+        {
+            if (HeadingLevel(Role(file, element)) is not { } level)
+            {
+                return;
+            }
+
+            if (previous > 0 && level > previous + 1)
+            {
+                findings.Error(
+                    PdfConformanceCodes.HeadingLevelSkipped,
+                    number > 0 ? $"obj {number}" : "heading",
+                    $"a level-{level} heading follows a level-{previous} heading, so a reader's outline skips level {previous + 1}");
+            }
+
+            previous = level;
+        });
+    }
+
+    private static int? HeadingLevel(string? role)
+        => role is { Length: 2 } && role[0] == 'H' && role[1] is >= '1' and <= '6'
+            ? role[1] - '0'
+            : null;
+
+    private static void CheckTables(Findings findings, PdfFile file, PdfDictionary root)
+    {
+        WalkStructure(file, root, (element, number) =>
+        {
+            if (Role(file, element) != "Table")
+            {
+                return;
+            }
+
+            var cells = TableCells(file, element);
+
+            if (!cells.Any(cell => Role(file, cell.Cell) == "TH"))
+            {
+                if (cells.Any(cell => Role(file, cell.Cell) == "TD"))
+                {
+                    findings.Error(
+                        PdfConformanceCodes.TableHeaderMissing,
+                        number > 0 ? $"obj {number}" : "table",
+                        "the table holds data cells but no /TH header cell, so a reader cannot announce the column a cell belongs to");
+                }
+
+                return;
+            }
+
+            foreach (var (cell, cellNumber) in cells)
+            {
+                if (Role(file, cell) != "TH" || HasHeaderScope(file, cell))
+                {
+                    continue;
+                }
+
+                findings.Error(
+                    PdfConformanceCodes.TableHeaderScopeMissing,
+                    cellNumber > 0 ? $"obj {cellNumber}" : "table header",
+                    "the /TH header cell declares no /A /Scope (Row, Column or Both), so a reader cannot say which cells it describes");
+            }
+        });
+    }
+
+    private static bool HasHeaderScope(PdfFile file, PdfDictionary cell)
+    {
+        foreach (var attribute in file.ResolveArray(cell["A"]))
+        {
+            if (file.ResolveDictionary(attribute) is not { } dictionary)
+            {
+                continue;
+            }
+
+            if ((file.Resolve(dictionary["O"]) as PdfName)?.Value != "Table")
+            {
+                continue;
+            }
+
+            if ((file.Resolve(dictionary["Scope"]) as PdfName)?.Value is "Row" or "Column" or "Both")
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static List<(PdfDictionary Cell, int Number)> TableCells(PdfFile file, PdfDictionary table)
+    {
+        var cells = new List<(PdfDictionary Cell, int Number)>();
+
+        foreach (var row in TableRows(file, table))
+        {
+            foreach (var kid in file.ResolveArray(row["K"]))
+            {
+                if (file.Resolve(kid) is not PdfDictionary cell || Role(file, cell) is not ("TH" or "TD"))
+                {
+                    continue;
+                }
+
+                cells.Add((cell, file.TryResolveReference(kid, out var reference, out _) ? reference : 0));
+            }
+        }
+
+        return cells;
+    }
+
+    private static IEnumerable<PdfDictionary> TableRows(PdfFile file, PdfDictionary table)
+    {
+        foreach (var kid in file.ResolveArray(table["K"]))
+        {
+            if (file.ResolveDictionary(kid) is not { } child)
+            {
+                continue;
+            }
+
+            switch (Role(file, child))
+            {
+                case "TR":
+                    yield return child;
+
+                    break;
+
+                case "THead" or "TBody" or "TFoot":
+                    foreach (var row in TableRows(file, child))
+                    {
+                        yield return row;
+                    }
+
+                    break;
+
+                default:
+                    break;
+            }
+        }
+    }
+
+    private static string? Role(PdfFile file, PdfDictionary element)
+        => (file.Resolve(element["S"]) as PdfName)?.Value;
+
+    /// <summary>Visits every structure element in document order, skipping marked content and cycles.</summary>
+    private static void WalkStructure(PdfFile file, PdfDictionary root, Action<PdfDictionary, int> visit)
+    {
+        var seen = new HashSet<int>();
+
+        Walk(root, 0, 0);
+
+        void Walk(PdfDictionary element, int number, int depth)
+        {
+            if (depth > 32)
+            {
+                return;
+            }
+
+            visit(element, number);
+
+            foreach (var kid in file.ResolveArray(element["K"]))
+            {
+                if (!file.TryResolveReference(kid, out var kidNumber, out var resolved) ||
+                    resolved is not PdfDictionary child ||
+                    child["S"] is null)
+                {
+                    continue;
+                }
+
+                if (kidNumber != 0 && !seen.Add(kidNumber))
+                {
+                    continue;
+                }
+
+                Walk(child, kidNumber, depth + 1);
+            }
+        }
+    }
+
     private static HashSet<int>? ParentTreeKeys(PdfFile file, PdfDictionary root, Findings findings)
     {
         if (file.ResolveDictionary(root["ParentTree"]) is not { } tree)
@@ -579,6 +866,17 @@ public static class PdfConformance
 
     private static bool HasText(PdfFile file, PdfValue? value)
         => file.Resolve(value) is PdfString text && text.Decode().Trim().Length > 0;
+
+    /// <summary>The standard structure types of ISO 32000-1 Table 333, plus the PDF 2.0 additions.</summary>
+    private static readonly HashSet<string> StandardRoles = new(StringComparer.Ordinal)
+    {
+        "Annot", "Art", "BibEntry", "BlockQuote", "Caption", "Code", "Div", "Document", "Figure",
+        "Form", "Formula", "H", "H1", "H2", "H3", "H4", "H5", "H6", "Index", "L", "LBody", "LI",
+        "Lbl", "Link", "NonStruct", "Note", "P", "Part", "Private", "Quote", "RB", "RP", "RT",
+        "Reference", "Ruby", "Sect", "Span", "TBody", "TD", "TFoot", "TH", "THead", "TR", "Table",
+        "TOC", "TOCI", "Warichu",
+        "Aside", "DocumentFragment", "Em", "FENote", "Strong", "Sub", "Title",
+    };
 
     /// <summary>Collects the fonts and images reachable from page resources.</summary>
     private sealed class ResourceScan(PdfFile file)
