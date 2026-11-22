@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -219,7 +221,8 @@ public sealed class TypstCompiler
             var handle = _native.Compile(world.Handle, json, out var diagnosticsJson);
             var diagnostics = NativeErrorTranslator.ParseDiagnostics(diagnosticsJson);
             diagnosticCount = diagnostics.Count;
-            var result = new CompilationResult(_native, handle, diagnostics, options.DocumentKind);
+            var metrics = ReadMetrics(handle, diagnostics, started);
+            var result = new CompilationResult(_native, handle, diagnostics, options.DocumentKind, metrics);
 
             if (options.WarningsAsErrors && diagnostics.Any(d => d.Severity == TypstSeverity.Warning))
             {
@@ -254,6 +257,35 @@ public sealed class TypstCompiler
         {
             TypstInstrumentation.RecordCompilation(activity, started, pages, diagnosticCount, failure);
         }
+    }
+
+    /// <summary>
+    /// Builds the metrics of a finished compilation: the numbers only the library can measure, plus
+    /// the two the managed layer owns — the whole call and the diagnostic split.
+    /// </summary>
+    private CompilationMetrics ReadMetrics(
+        TypstDocumentHandle handle,
+        IReadOnlyList<TypstDiagnostic> diagnostics,
+        long startedTimestamp)
+    {
+        var json = _native.Metrics(handle);
+        var dto = json.Length == 0
+            ? new CompileMetricsDto()
+            : JsonSerializer.Deserialize(json, TypstJsonContext.Default.CompileMetricsDto)
+                ?? new CompileMetricsDto();
+
+        return new CompilationMetrics(
+            totalDuration: Stopwatch.GetElapsedTime(startedTimestamp),
+            // A tick is 100 ns; Typst reports nanoseconds, and the extra two decimal places are
+            // noise next to the cost of a compile.
+            compileDuration: TimeSpan.FromTicks(dto.CompileNanos / 100),
+            pageCount: dto.Pages,
+            fontCount: dto.FontsTotal,
+            embeddedFontCount: dto.FontsEmbedded,
+            fontBytes: dto.FontBytes,
+            errorCount: diagnostics.Count(d => d.Severity == TypstSeverity.Error),
+            warningCount: diagnostics.Count(d => d.Severity == TypstSeverity.Warning),
+            hintCount: diagnostics.Count(d => d.Severity == TypstSeverity.Hint));
     }
 
     /// <summary>

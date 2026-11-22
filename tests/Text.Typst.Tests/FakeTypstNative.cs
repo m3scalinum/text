@@ -230,4 +230,13 @@ internal sealed class FakeTypstNative : ITypstNative
     public int CloneCount { get; private set; }
 
     public string GetDiagnostics(TypstDocumentHandle document) => DiagnosticsJson;
+
+    /// <summary>
+    /// The JSON <c>tn_document_metrics</c> returns. The defaults describe a compilation that
+    /// measured nothing; a test that cares about the numbers sets them.
+    /// </summary>
+    public string MetricsJson { get; set; } =
+        """{"compileNanos":0,"pages":0,"fontsTotal":0,"fontsEmbedded":0,"fontBytes":0}""";
+
+    public byte[] Metrics(TypstDocumentHandle document) => Encoding.UTF8.GetBytes(MetricsJson);
 }

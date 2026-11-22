@@ -4,7 +4,7 @@
 //! there is no ambient file system access.
 
 use std::any::Any;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::Read;
 use std::sync::{Arc, OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -86,6 +86,8 @@ pub struct NetWorld {
     library: Arc<LazyHash<Library>>,
     book: Arc<LazyHash<FontBook>>,
     fonts: Arc<Vec<Font>>,
+    /// How many of `fonts` are the ones embedded in the binary — the rest are the host's.
+    embedded_fonts: usize,
     sources: RwLock<HashMap<FileId, Source>>,
     files: RwLock<HashMap<FileId, Bytes>>,
     main: FileId,
@@ -174,6 +176,7 @@ fn fonts_for(config: &crate::config::FontsConfig) -> (Arc<LazyHash<FontBook>>, A
 impl NetWorld {
     pub fn new(config: WorldConfig) -> Result<Self, TnError> {
         let shared = shared();
+        let embedded_fonts = shared.fonts.len();
         let (book, fonts) = fonts_for(&config.fonts);
 
         let main_path = VirtualPath::new("main.typ")
@@ -196,6 +199,7 @@ impl NetWorld {
             library: Arc::clone(&shared.library),
             book,
             fonts,
+            embedded_fonts,
             sources: RwLock::new(HashMap::new()),
             files: RwLock::new(HashMap::new()),
             main,
@@ -218,6 +222,7 @@ impl NetWorld {
             library: Arc::clone(&self.library),
             book: Arc::clone(&self.book),
             fonts: Arc::clone(&self.fonts),
+            embedded_fonts: self.embedded_fonts,
             sources: RwLock::new(sources),
             files: RwLock::new(files),
             main: self.main,
@@ -342,6 +347,34 @@ impl NetWorld {
 
     pub fn font_count(&self) -> usize {
         self.fonts.len()
+    }
+
+    /// How many of the fonts this world resolves are the ones embedded in the binary.
+    ///
+    /// The rest came from the host: the system font directories it asked for, or the faces it
+    /// uploaded with `add_font`. The split is what tells a caller whether a slow first compile is
+    /// its own font set or the host's.
+    pub fn embedded_font_count(&self) -> usize {
+        self.embedded_fonts
+    }
+
+    /// Bytes of font data this world can resolve, counting each buffer once.
+    ///
+    /// A font collection — a `ttc` or an `otc` — exposes one `Font` per face over the same buffer,
+    /// so summing per face would count that file once per face. The pointer and the length identify
+    /// the buffer, which is what a caller wants to compare with what it registered.
+    pub fn font_bytes(&self) -> u64 {
+        let mut seen = HashSet::new();
+        let mut bytes = 0u64;
+
+        for font in self.fonts.iter() {
+            let data = font.data().as_slice();
+            if seen.insert((data.as_ptr() as usize, data.len())) {
+                bytes += data.len() as u64;
+            }
+        }
+
+        bytes
     }
 
     /// Points the compilation at `root`, registering nothing.

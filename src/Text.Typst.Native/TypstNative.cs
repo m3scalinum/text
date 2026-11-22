@@ -222,6 +222,14 @@ internal sealed class TypstNative : ITypstNative
             return NativeCallException.ReadAndFree(output);
         });
 
+    public byte[] Metrics(TypstDocumentHandle document)
+        => WithHandle(document, pointer =>
+        {
+            var status = NativeMethods.DocumentMetrics(pointer, out var output, out var error);
+            NativeCallException.ThrowIfFailed(status, error, "read metrics");
+            return NativeCallException.ReadAndFree(output);
+        });
+
     public byte[] PageText(TypstDocumentHandle document, int page)
         => WithHandle(document, pointer =>
         {

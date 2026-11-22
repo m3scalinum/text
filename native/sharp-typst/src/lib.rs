@@ -16,6 +16,7 @@ mod world;
 use std::ffi::{CString, c_char};
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Instant;
 
 use typst::foundations::Output;
 use typst_html::HtmlDocument;
@@ -47,6 +48,27 @@ pub enum Document {
 pub struct TnDocument {
     document: Document,
     diagnostics: String,
+    metrics: CompileMetrics,
+}
+
+/// What one compilation cost, measured where the work happens.
+///
+/// The managed side measures the whole call — marshalling included — and this measures the part
+/// only the library can see: how long Typst itself ran, and what the resulting world and document
+/// are made of. The two numbers together answer "is the time in the compiler or around it".
+#[derive(Debug, Clone, Copy, Default)]
+struct CompileMetrics {
+    /// Nanoseconds spent inside the compile: `typst::compile`, plus the bundle export when the
+    /// target is a bundle, because a bundle document only exists once its files are written.
+    compile_nanos: u64,
+    /// Pages the layout produced. Zero for HTML and bundle documents, which have none.
+    pages: u32,
+    /// Fonts the world could resolve, embedded and host together.
+    fonts_total: u32,
+    /// How many of them are the ones embedded in the binary.
+    fonts_embedded: u32,
+    /// Bytes of distinct font data the world held, each buffer counted once.
+    font_bytes: u64,
 }
 
 // ---------------------------------------------------------------------------
@@ -81,11 +103,16 @@ fn world_handle(inner: NetWorld) -> Box<TnWorld> {
 }
 
 /// The only way a document handle is created. See [`world_handle`].
-fn document_handle(document: Document, diagnostics: String) -> Box<TnDocument> {
+fn document_handle(
+    document: Document,
+    diagnostics: String,
+    metrics: CompileMetrics,
+) -> Box<TnDocument> {
     LIVE_DOCUMENTS.fetch_add(1, Ordering::Relaxed);
     Box::new(TnDocument {
         document,
         diagnostics,
+        metrics,
     })
 }
 
@@ -380,6 +407,11 @@ pub unsafe extern "C" fn tn_compile(
 
             world.inner.set_root(&options.root)?;
 
+            // The clock covers the compiler, not the bookkeeping around it: parsing the options
+            // and resolving the root are the caller's inputs, so costing them says nothing about
+            // Typst. Everything between here and the handle is the work being measured.
+            let compile_started = Instant::now();
+
             let (document, diagnostics) = match options.document.as_str() {
                 "paged" => compile_as::<PagedDocument>(&world.inner, Document::Paged)?,
                 "html" => compile_as::<HtmlDocument>(&world.inner, Document::Html)?,
@@ -414,7 +446,16 @@ pub unsafe extern "C" fn tn_compile(
                 }
             };
 
-            Ok(document_handle(document, diagnostics))
+            let metrics = CompileMetrics {
+                compile_nanos: u64::try_from(compile_started.elapsed().as_nanos())
+                    .unwrap_or(u64::MAX),
+                pages: page_count(&document),
+                fonts_total: world.inner.font_count() as u32,
+                fonts_embedded: world.inner.embedded_font_count() as u32,
+                font_bytes: world.inner.font_bytes(),
+            };
+
+            Ok(document_handle(document, diagnostics, metrics))
         })
     }
 }
@@ -436,11 +477,7 @@ pub unsafe extern "C" fn tn_document_page_count(document: *const TnDocument) -> 
     if document.is_null() {
         return 0;
     }
-    match unsafe { &(*document).document } {
-        Document::Paged(paged) => paged.pages().len() as u32,
-        // An HTML or bundle document has no pages; the caller asked for a semantic tree.
-        Document::Html(_) | Document::Bundle { .. } => 0,
-    }
+    page_count(unsafe { &(*document).document })
 }
 
 /// # Safety
@@ -464,6 +501,41 @@ pub unsafe extern "C" fn tn_document_diagnostics(
             }
             let json = (*document).diagnostics.clone();
             *out_json = TnBuffer::from_vec(json.into_bytes());
+            Ok(())
+        })
+    }
+}
+
+/// What the compilation cost, as JSON: the time inside Typst, the pages, the fonts it resolved and
+/// the bytes they occupy.
+///
+/// The managed layer measures the whole call; this is the part only the library can see. A host
+/// reads it once per document, when the result is attached, and needs no counter of its own — a
+/// process-wide counter would be shared by every compilation running at the same time, which is
+/// exactly the case a metrics API has to get right (Spec 03 §12).
+///
+/// # Safety
+/// `document` is a valid handle; `out` is writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn tn_document_metrics(
+    document: *const TnDocument,
+    out: *mut TnBuffer,
+    out_error: *mut *mut TnError,
+) -> i32 {
+    unsafe {
+        guard_status(out_error, || {
+            if document.is_null() {
+                return Err(TnError::new(
+                    TN_ERR_INVALID_HANDLE,
+                    "document handle is null",
+                ));
+            }
+            if out.is_null() {
+                return Err(TnError::invalid_argument("out must not be null"));
+            }
+
+            let metrics = (*document).metrics;
+            *out = TnBuffer::from_vec(metrics_json(&metrics).into_bytes());
             Ok(())
         })
     }
@@ -760,6 +832,31 @@ unsafe fn world_mut<'a>(world: *mut TnWorld) -> Result<&'a mut TnWorld, TnError>
     Ok(unsafe { &mut *world })
 }
 
+/// The metrics as the JSON object the managed layer decodes.
+///
+/// Serialising by hand, rather than deriving it, keeps the contract in one visible place: these
+/// names are read by `CompileMetricsDto` on the managed side, and a rename here without one there
+/// is a silent zero.
+fn metrics_json(metrics: &CompileMetrics) -> String {
+    serde_json::json!({
+        "compileNanos": metrics.compile_nanos,
+        "pages": metrics.pages,
+        "fontsTotal": metrics.fonts_total,
+        "fontsEmbedded": metrics.fonts_embedded,
+        "fontBytes": metrics.font_bytes,
+    })
+    .to_string()
+}
+
+/// Pages a document has. An HTML or bundle document has none: the caller asked for a semantic
+/// tree or a set of files, not for pages.
+fn page_count(document: &Document) -> u32 {
+    match document {
+        Document::Paged(paged) => paged.pages().len() as u32,
+        Document::Html(_) | Document::Bundle { .. } => 0,
+    }
+}
+
 /// Runs one layout pass and wraps the output, keeping warnings on success.
 fn compile_as<T: Output>(
     world: &NetWorld,
@@ -810,5 +907,57 @@ mod tests {
             .expect("the version literal is utf-8");
 
         assert_eq!(text, format!("{TN_ABI_VERSION}.0.0"));
+    }
+
+    /// A compilation is measurable offline: the library, the embedded fonts and the layout are all
+    /// in the binary, so a minimal source proves that the numbers are produced by real work rather
+    /// than defaulted.
+    #[test]
+    fn a_compilation_reports_its_time_pages_and_fonts() {
+        let mut world = NetWorld::new(WorldConfig::default()).expect("world");
+        world
+            .add_source("main.typ", "= Hello".to_string())
+            .expect("source");
+        world.set_root("main.typ").expect("root");
+
+        let started = Instant::now();
+        let (document, _diagnostics) =
+            compile_as::<PagedDocument>(&world, Document::Paged).expect("compile");
+        let elapsed = started.elapsed();
+
+        assert!(elapsed > std::time::Duration::ZERO);
+        assert_eq!(page_count(&document), 1, "`= Hello` is one page");
+        assert!(
+            world.font_count() > 0,
+            "the embedded fonts are in the binary"
+        );
+        assert_eq!(
+            world.embedded_font_count(),
+            world.font_count(),
+            "a default world loads no system font"
+        );
+        assert!(world.font_bytes() > 0, "the embedded fonts have bytes");
+    }
+
+    /// The six names are the ABI: the managed decoder reads them by name, and a rename that is not
+    /// mirrored there turns the metric into a silent zero.
+    #[test]
+    fn the_metrics_json_carries_every_field_the_host_reads() {
+        let metrics = CompileMetrics {
+            compile_nanos: 1_500_000,
+            pages: 3,
+            fonts_total: 12,
+            fonts_embedded: 10,
+            font_bytes: 2_048_576,
+        };
+
+        let json: serde_json::Value =
+            serde_json::from_str(&metrics_json(&metrics)).expect("the metrics are valid JSON");
+
+        assert_eq!(json["compileNanos"], 1_500_000);
+        assert_eq!(json["pages"], 3);
+        assert_eq!(json["fontsTotal"], 12);
+        assert_eq!(json["fontsEmbedded"], 10);
+        assert_eq!(json["fontBytes"], 2_048_576);
     }
 }

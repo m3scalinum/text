@@ -9,5 +9,6 @@ namespace M3scalinum.Text.Typst.Internal;
 [JsonSerializable(typeof(BundleManifestDto))]
 [JsonSerializable(typeof(DiagnosticPayloadDto))]
 [JsonSerializable(typeof(EvaluationDto))]
+[JsonSerializable(typeof(CompileMetricsDto))]
 [JsonSerializable(typeof(string[]))]
 internal sealed partial class TypstJsonContext : JsonSerializerContext;

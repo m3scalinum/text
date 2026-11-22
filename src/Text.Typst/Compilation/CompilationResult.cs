@@ -26,16 +26,40 @@ public sealed class CompilationResult : IDisposable
         ITypstNative native,
         TypstDocumentHandle handle,
         IReadOnlyList<TypstDiagnostic> diagnostics,
-        TypstDocumentKind kind)
+        TypstDocumentKind kind,
+        CompilationMetrics metrics)
     {
         _native = native;
         _handle = handle;
         Diagnostics = diagnostics;
         Kind = kind;
+        Metrics = metrics;
     }
 
     /// <summary>Which layout pass produced this document.</summary>
     public TypstDocumentKind Kind { get; }
+
+    /// <summary>
+    /// What this compilation cost: time, pages, fonts and diagnostics, measured when it ran.
+    /// </summary>
+    /// <remarks>
+    /// Fixed at compile time — the result carries it rather than a process-wide collector, so
+    /// parallel compilations never see each other's numbers. The size of a produced file is not
+    /// here: it does not exist until an export runs, and it is reported by <see cref="LastExport"/>.
+    /// </remarks>
+    public CompilationMetrics Metrics { get; }
+
+    /// <summary>
+    /// The most recent export of this document: format, bytes and duration. <see langword="null"/>
+    /// until the first export succeeds.
+    /// </summary>
+    /// <remarks>
+    /// Set only by a successful export, and by the last one when a caller exports twice: it is a
+    /// reading of what this result produced, not an audit log of every call. That is enough for the
+    /// question it answers — how large is the document, and what did encoding it cost — without
+    /// keeping a list per result.
+    /// </remarks>
+    public ExportMetrics? LastExport { get; private set; }
 
     /// <summary>Number of pages. Zero for an HTML document, which has no pages.</summary>
     public int PageCount => _handle.PageCount;
@@ -289,6 +313,7 @@ public sealed class CompilationResult : IDisposable
         try
         {
             bytes = _native.Export(_handle, nativeFormat, json);
+            LastExport = new ExportMetrics(format, bytes.LongLength, Stopwatch.GetElapsedTime(started));
             return bytes;
         }
         catch (NativeCallException exception)
@@ -319,6 +344,10 @@ public sealed class CompilationResult : IDisposable
         {
             _native.ExportTo(_handle, nativeFormat, json, destination);
             written = destination.CanSeek ? destination.Position - position : null;
+            LastExport = new ExportMetrics(
+                format,
+                written ?? 0L,
+                Stopwatch.GetElapsedTime(started));
         }
         catch (NativeCallException exception)
         {
