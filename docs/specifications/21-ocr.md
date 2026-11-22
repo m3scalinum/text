@@ -415,3 +415,135 @@ expensive than a refusal (an invoice pipeline, an archive); lower it toward 0.4 
 human review and a slightly wrong string is cheaper. `MaximumRejectedWordRatio` is the lever for "the
 page is mostly fine but a whole column is noise": at 0.5, half the words may be doubtful before the
 page is refused.
+
+## 13. Preprocessing: turning, levelling and denoising
+
+A page that reaches a scanner through a person's hands is not always straight, level or
+clean. Three stages fix the three usual mistakes, and they run on the decoded image before
+the recogniser sees it. They are off by default: a correct 300 DPI scan needs none of them,
+and every stage costs time.
+
+| `OcrOptions` | Default | What it does |
+| --- | --- | --- |
+| `DetectRotation` | `false` | Detects a page turned by 90°, 180° or 270° and turns it back. |
+| `Deskew` | `false` | Estimates a fine skew of at most 10° either way and removes it. |
+| `Denoise` | `false` | Applies a 3×3 median filter to the page's luma. |
+
+`OcrPdfOptions` inherits all three, so one set of switches governs images and pages. Every
+page of a document is preprocessed on its own: one page a scanner turned does not turn the
+others.
+
+### 13.1 The algorithms, one sentence each
+
+- **Turning.** The mean length of the ink runs across the page is compared with the mean
+  length down it — letters are separated by two or three pixels, so horizontal text has
+  long horizontal runs, and text turned a quarter turn swaps the two; that picks the axis
+  and, for the axis, the ink in a line's top quarter is compared with its bottom quarter,
+  because printed Latin text has more ascenders than descenders, which is what tells upright
+  from upside down.
+- **Levelling.** The page is projected onto the vertical axis at every angle from −10° to
+  +10° in quarter-degree steps, and the angle whose projection is the tightest — text lines
+  becoming one thin spike each — is the skew, which is then removed by one bilinear
+  resampling.
+- **Denoising.** A 3×3 median of the luma channel, not a mean: the median removes an isolated
+  speck without softening the edge of a stroke, which a mean would blur into a thinner,
+  greyer one.
+
+The whole page is handled in greyscale after the first step, and the image handed to the
+recogniser is greyscale RGB; the median is computed on luma, and pairing it with the colour
+channels it did not filter would be a lie about what was filtered. Ink is separated from
+paper by Otsu's threshold, computed per page, because a fixed threshold would be a constant
+guessed from one scanner.
+
+### 13.2 What the result reports
+
+`OcrResult.Preprocess` and `OcrPageResult.Preprocess` are an `OcrPreprocessReport`:
+
+| Property | Meaning |
+| --- | --- |
+| `RotationDegrees` | The clockwise quarter turns applied to make the page upright: 0, 90, 180 or 270. |
+| `SkewDegrees` | The fine rotation the deskew applied, in degrees, positive clockwise, in [−10, +10]; 0 when it was off or found the page level. |
+| `Denoised` | Whether the median filter ran. |
+| `Changed` | Whether anything was applied at all. |
+
+A document with nothing to report carries no `preprocess` object, and a report with no
+`preprocess` reads as `OcrPreprocessReport.None` — a native library older than this feature
+can only ever describe an untouched page.
+
+**The boxes and the size belong to the preprocessed page.** `Width`, `Height` and every
+`OcrBox` are the image the recogniser saw, which after a quarter turn has its sides swapped
+and after a deskew has a white border where the rotation left the page's rectangle. A caller
+that has to map a box back to the bytes it passed in must apply the inverse of the reported
+rotation and skew; a caller that only wants the text needs neither.
+
+### 13.3 The ranges and the cost
+
+- Rotation: 0, 90, 180 or 270 degrees. Anything else is not a page a scanner produces, and
+  it is the deskew's job only up to 10°.
+- Skew: ±10°, in quarter-degree steps. A page tilted further is a page that was not fed
+  straight, and the estimate saturates at the edge of the window rather than guessing.
+- Denoise: 3×3. A stroke one pixel wide is a minority in its own window and is removed with
+  the noise it sits in; a 300 DPI scan's strokes are 2–4 pixels, so that is the limit, and it
+  is stated rather than tuned away.
+
+The cost was measured on a 2480 × 3508 page (A4 at 300 DPI) in a release build on one core:
+**about 150 ms with all three stages on**, against a recognition pass measured in seconds.
+The deskew dominates it, and it is bounded by design — at most 81 angles over a page sampled
+down to 600 px on its longest side — so a bigger page costs the same. With every stage off
+the input is returned byte for byte and nothing is computed.
+
+### 13.4 What preprocessing does not do
+
+| Not done | Why |
+| --- | --- |
+| Perspective correction | A photographed page has four corners that converge; that needs corner detection and a homography, which is a different feature with its own failure modes. A photograph at an angle is still read worse than a scan. |
+| Tables, columns, reading order | The recogniser returns lines with boxes. Reconstructing a table is a grouping problem with no single right answer, and rotation is not what prevents it. |
+| Handwriting | Rotating a handwritten page does not make the recogniser able to read it. That needs a different model. |
+| Colour restoration, background removal, thresholding to black and white | The luma split is enough for the detector, and a binarised page throws away the anti-aliasing the recogniser's own preprocessing uses. |
+| Detecting a page that is upside down *and* symmetric | A page of digits, all capitals or a table has no ascender/descender imbalance to measure. The dead zone answers "no signal" and the page is left as it is, because a wrong 180° turn is worse than none. This is the honest limit of a model-free heuristic. |
+| An inverted page (white on black) | Out of scope: the ink map follows Otsu, and a page whose paper is the dark side is a page a caller should invert before handing it over. |
+
+### 13.5 The ABI: two additive exports, revision unchanged
+
+Two entry points are added, and no existing signature changes:
+
+```c
+int32_t to_engine_recognize_preprocessed(
+    ToEngine *engine, const uint8_t *image, size_t length,
+    double page_confidence, double word_confidence, double max_rejected_word_ratio,
+    int32_t detect_rotation, int32_t deskew, int32_t denoise,
+    ToBuffer *out_json, ToError **out_error);
+
+int32_t to_engine_recognize_pdf_preprocessed(/* as above, plus dpi, first_page, page_count */);
+```
+
+The three flags are `int32_t` — 0 leaves a stage off, any other value turns it on — because
+§1 admits nothing else across the boundary. `to_abi_version` stays **2**: nothing that was
+there moved, so a host written against revision 2 runs unchanged, and a host that wants
+preprocessing calls a symbol it can check for. The managed side takes the old call when every
+switch is off, so the overwhelmingly common path is the one that was already proved; if the
+library predates the exports and a caller asks for a stage, the failure is
+`OcrException` with `Code == "unsupported"` naming the missing symbol, not a page read at the
+wrong angle.
+
+### 13.6 What is proved, and where
+
+- **The three stages** are proved in Rust, in `native/text-ocr/src/preprocess.rs`: a straight
+  page is returned byte for byte; a page turned 90°, 180° or 270° is turned back to exactly
+  the bytes it started from; a page skewed by 3° reports a correction within half a degree
+  and its line profile gets sharper; a 25° tilt is not guessed past the window; a speckled
+  page loses most of its isolated blobs *and* keeps its line profile sharper than before; a
+  blank page is left alone. `cargo test --lib` runs them. The fixtures are drawn, not
+  photographed: they are glyph-shaped marks with the proportions of printed Latin text
+  (a wide body, common thin ascenders, rare thin descenders), so the orientation heuristic is
+  exercised on the property it uses.
+- **The mapping** — every switch reaching the ABI as the flag it names, no stage taking the
+  new call, the two exported symbols resolving, a library without them failing as
+  `unsupported` — is proved in `tests/Text.Ocr.Tests` against a double and, where the library
+  loads, against the real library.
+- **The report** — the `preprocess` object becoming `OcrPreprocessReport`, a document without
+  it reading as `None`, a partial object filling its gaps, and a refused page still parsing —
+  is proved on the exact documents the native half writes.
+- **That a turned, skewed, noisy *scan* now reads better** needs the models, and this
+  repository ships none: it is the one claim in this section no test here has watched. What
+  is proved is the geometry, which is where the correction happens.

@@ -54,6 +54,20 @@ internal static partial class NativeMethods
         double pageConfidence, double wordConfidence, double maxRejectedWordRatio,
         out NativeBuffer json, out IntPtr error);
 
+    [LibraryImport(LibraryName, EntryPoint = "to_engine_recognize_preprocessed")]
+    internal static unsafe partial int EngineRecognizePreprocessed(
+        IntPtr engine, byte* image, nuint length,
+        double pageConfidence, double wordConfidence, double maxRejectedWordRatio,
+        int detectRotation, int deskew, int denoise,
+        out NativeBuffer json, out IntPtr error);
+
+    [LibraryImport(LibraryName, EntryPoint = "to_engine_recognize_pdf_preprocessed")]
+    internal static unsafe partial int EngineRecognizePdfPreprocessed(
+        IntPtr engine, byte* pdf, nuint length, uint dpi, uint firstPage, uint pageCount,
+        double pageConfidence, double wordConfidence, double maxRejectedWordRatio,
+        int detectRotation, int deskew, int denoise,
+        out NativeBuffer json, out IntPtr error);
+
     internal static string ReadUtf8(IntPtr pointer)
         => Marshal.PtrToStringUTF8(pointer) ?? string.Empty;
 }

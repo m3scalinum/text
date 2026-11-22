@@ -179,6 +179,55 @@ internal sealed unsafe class NativeLibraryOcr : IOcrNative
     }
 
     /// <inheritdoc />
+    public int EngineRecognizePreprocessed(
+        IntPtr engine,
+        byte[] image,
+        double pageConfidence,
+        double wordConfidence,
+        double maxRejectedWordRatio,
+        bool detectRotation,
+        bool deskew,
+        bool denoise,
+        out NativeBuffer json,
+        out IntPtr error)
+    {
+        fixed (byte* pixels = image)
+        {
+            return NativeMethods.EngineRecognizePreprocessed(
+                engine, pixels, (nuint)image.Length,
+                pageConfidence, wordConfidence, maxRejectedWordRatio,
+                detectRotation ? 1 : 0, deskew ? 1 : 0, denoise ? 1 : 0,
+                out json, out error);
+        }
+    }
+
+    /// <inheritdoc />
+    public int EngineRecognizePdfPreprocessed(
+        IntPtr engine,
+        byte[] pdf,
+        uint dpi,
+        uint firstPage,
+        uint pageCount,
+        double pageConfidence,
+        double wordConfidence,
+        double maxRejectedWordRatio,
+        bool detectRotation,
+        bool deskew,
+        bool denoise,
+        out NativeBuffer json,
+        out IntPtr error)
+    {
+        fixed (byte* bytes = pdf)
+        {
+            return NativeMethods.EngineRecognizePdfPreprocessed(
+                engine, bytes, (nuint)pdf.Length, dpi, firstPage, pageCount,
+                pageConfidence, wordConfidence, maxRejectedWordRatio,
+                detectRotation ? 1 : 0, deskew ? 1 : 0, denoise ? 1 : 0,
+                out json, out error);
+        }
+    }
+
+    /// <inheritdoc />
     public NativeBuffer ErrorJson(IntPtr error) => NativeMethods.ErrorJson(error);
 
     /// <inheritdoc />
@@ -233,14 +282,42 @@ internal sealed class OcrEngineHandle : IDisposable
     {
         var handle = Handle();
 
-        var status = _library.EngineRecognize(
-            handle,
-            image,
-            options.MinimumPageConfidence,
-            options.MinimumWordConfidence,
-            options.MaximumRejectedWordRatio,
-            out var json,
-            out var error);
+        int status;
+        NativeBuffer json;
+        IntPtr error;
+
+        if (options.RequiresPreprocessing)
+        {
+            try
+            {
+                status = _library.EngineRecognizePreprocessed(
+                    handle,
+                    image,
+                    options.MinimumPageConfidence,
+                    options.MinimumWordConfidence,
+                    options.MaximumRejectedWordRatio,
+                    options.DetectRotation,
+                    options.Deskew,
+                    options.Denoise,
+                    out json,
+                    out error);
+            }
+            catch (EntryPointNotFoundException exception)
+            {
+                throw Unsupported(exception, "to_engine_recognize_preprocessed");
+            }
+        }
+        else
+        {
+            status = _library.EngineRecognize(
+                handle,
+                image,
+                options.MinimumPageConfidence,
+                options.MinimumWordConfidence,
+                options.MaximumRejectedWordRatio,
+                out json,
+                out error);
+        }
 
         return Take(status, json, error);
     }
@@ -249,20 +326,61 @@ internal sealed class OcrEngineHandle : IDisposable
     {
         var handle = Handle();
 
-        var status = _library.EngineRecognizePdf(
-            handle,
-            pdf,
-            (uint)options.Dpi,
-            firstPage,
-            pageCount,
-            options.MinimumPageConfidence,
-            options.MinimumWordConfidence,
-            options.MaximumRejectedWordRatio,
-            out var json,
-            out var error);
+        int status;
+        NativeBuffer json;
+        IntPtr error;
+
+        if (options.RequiresPreprocessing)
+        {
+            try
+            {
+                status = _library.EngineRecognizePdfPreprocessed(
+                    handle,
+                    pdf,
+                    (uint)options.Dpi,
+                    firstPage,
+                    pageCount,
+                    options.MinimumPageConfidence,
+                    options.MinimumWordConfidence,
+                    options.MaximumRejectedWordRatio,
+                    options.DetectRotation,
+                    options.Deskew,
+                    options.Denoise,
+                    out json,
+                    out error);
+            }
+            catch (EntryPointNotFoundException exception)
+            {
+                throw Unsupported(exception, "to_engine_recognize_pdf_preprocessed");
+            }
+        }
+        else
+        {
+            status = _library.EngineRecognizePdf(
+                handle,
+                pdf,
+                (uint)options.Dpi,
+                firstPage,
+                pageCount,
+                options.MinimumPageConfidence,
+                options.MinimumWordConfidence,
+                options.MaximumRejectedWordRatio,
+                out json,
+                out error);
+        }
 
         return Take(status, json, error);
     }
+
+    /// <summary>
+    /// The native library predates the preprocessing exports: an ABI revision 2 library
+    /// built before them loads and recognises, and only this one call is missing.
+    /// </summary>
+    private static OcrException Unsupported(EntryPointNotFoundException exception, string export)
+        => new(
+            "unsupported",
+            $"the native library does not export {export} ({exception.Message}); "
+            + "rebuild native/text-ocr to preprocess pages");
 
     public void Dispose()
     {

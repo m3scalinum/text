@@ -12,6 +12,7 @@
 mod engine;
 mod ffi;
 mod pdf;
+mod preprocess;
 
 use std::ffi::{CString, c_char};
 use std::sync::OnceLock;
@@ -19,6 +20,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use engine::{Engine, Thresholds};
 use ffi::{ToBuffer, ToError, guard_buffer, guard_ptr, read_bytes};
+use preprocess::PreprocessOptions;
 
 /// The opaque engine handle. It owns both models.
 pub struct ToEngine {
@@ -78,6 +80,7 @@ pub extern "C" fn to_build_info() -> *const c_char {
             "ocrs": "0.14",
             "rten": "0.28",
             "hayro": "0.9",
+            "preprocess": "quarter-turn, deskew and median denoise",
         })
         .to_string();
         CString::new(json).expect("build info has no interior NUL")
@@ -196,6 +199,10 @@ pub unsafe extern "C" fn to_engine_free(engine: *mut ToEngine) {
 /// refused as `invalid_argument`; it is never silently ignored, because ignoring it
 /// would turn a refusal rule off.
 ///
+/// No preprocessing is done: this is the entry point of ABI revision 1 and 2. A
+/// caller that wants the page turned upright or levelled calls
+/// [`to_engine_recognize_preprocessed`], which is the same call with three flags.
+///
 /// On success `out_json` holds the result document and the return value is `TO_OK`;
 /// on failure the return value is the error code and `out_error` holds the error.
 ///
@@ -214,6 +221,76 @@ pub unsafe extern "C" fn to_engine_recognize(
     out_error: *mut *mut ToError,
 ) -> i32 {
     unsafe {
+        recognize_image(
+            engine,
+            image,
+            length,
+            Thresholds {
+                page: page_confidence,
+                word: word_confidence,
+                max_rejected_ratio: max_rejected_word_ratio,
+            },
+            PreprocessOptions::default(),
+            out_json,
+            out_error,
+        )
+    }
+}
+
+/// Recognises an encoded image after the requested preprocessing.
+///
+/// `detect_rotation`, `deskew` and `denoise` are the three options `OcrOptions`
+/// carries; 0 leaves that stage off and any other value turns it on. The page is
+/// turned upright, levelled and denoised before the recogniser sees it, and the
+/// result document carries a `preprocess` object naming what was done.
+///
+/// # Safety
+/// Same contract as [`to_engine_recognize`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn to_engine_recognize_preprocessed(
+    engine: *mut ToEngine,
+    image: *const u8,
+    length: usize,
+    page_confidence: f64,
+    word_confidence: f64,
+    max_rejected_word_ratio: f64,
+    detect_rotation: i32,
+    deskew: i32,
+    denoise: i32,
+    out_json: *mut ToBuffer,
+    out_error: *mut *mut ToError,
+) -> i32 {
+    unsafe {
+        recognize_image(
+            engine,
+            image,
+            length,
+            Thresholds {
+                page: page_confidence,
+                word: word_confidence,
+                max_rejected_ratio: max_rejected_word_ratio,
+            },
+            PreprocessOptions::from_flags(detect_rotation, deskew, denoise),
+            out_json,
+            out_error,
+        )
+    }
+}
+
+/// The body of both image entry points, so the two signatures share one path.
+///
+/// # Safety
+/// `engine` is null or a valid handle; `image` is valid for `length`.
+unsafe fn recognize_image(
+    engine: *mut ToEngine,
+    image: *const u8,
+    length: usize,
+    thresholds: Thresholds,
+    preprocess: PreprocessOptions,
+    out_json: *mut ToBuffer,
+    out_error: *mut *mut ToError,
+) -> i32 {
+    unsafe {
         if engine.is_null() {
             return guard_buffer(out_error, out_json, || {
                 Err(ToError::invalid_argument("engine must not be null"))
@@ -227,14 +304,9 @@ pub unsafe extern "C" fn to_engine_recognize(
             if bytes.is_empty() {
                 return Err(ToError::invalid_argument("image is empty"));
             }
-            handle.engine.recognize_image(
-                &bytes,
-                Thresholds {
-                    page: page_confidence,
-                    word: word_confidence,
-                    max_rejected_ratio: max_rejected_word_ratio,
-                },
-            )
+            handle
+                .engine
+                .recognize_image(&bytes, thresholds, preprocess)
         })
     }
 }
@@ -242,7 +314,8 @@ pub unsafe extern "C" fn to_engine_recognize(
 /// Renders and recognises a PDF.
 ///
 /// `first_page` is zero-based; `page_count` 0 means "to the end". Each page is
-/// assessed on its own with the same thresholds as [`to_engine_recognize`].
+/// assessed on its own with the same thresholds as [`to_engine_recognize`]. No
+/// preprocessing is done; see [`to_engine_recognize_pdf_preprocessed`].
 ///
 /// # Safety
 /// Same contract as [`to_engine_recognize`].
@@ -261,6 +334,87 @@ pub unsafe extern "C" fn to_engine_recognize_pdf(
     out_error: *mut *mut ToError,
 ) -> i32 {
     unsafe {
+        recognize_pdf(
+            engine,
+            pdf,
+            length,
+            dpi,
+            first_page,
+            page_count,
+            Thresholds {
+                page: page_confidence,
+                word: word_confidence,
+                max_rejected_ratio: max_rejected_word_ratio,
+            },
+            PreprocessOptions::default(),
+            out_json,
+            out_error,
+        )
+    }
+}
+
+/// Renders pages of a PDF and recognises each one after the requested preprocessing.
+///
+/// Each page is preprocessed and assessed on its own, so one page turned by a scanner
+/// does not turn the others.
+///
+/// # Safety
+/// Same contract as [`to_engine_recognize`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn to_engine_recognize_pdf_preprocessed(
+    engine: *mut ToEngine,
+    pdf: *const u8,
+    length: usize,
+    dpi: u32,
+    first_page: u32,
+    page_count: u32,
+    page_confidence: f64,
+    word_confidence: f64,
+    max_rejected_word_ratio: f64,
+    detect_rotation: i32,
+    deskew: i32,
+    denoise: i32,
+    out_json: *mut ToBuffer,
+    out_error: *mut *mut ToError,
+) -> i32 {
+    unsafe {
+        recognize_pdf(
+            engine,
+            pdf,
+            length,
+            dpi,
+            first_page,
+            page_count,
+            Thresholds {
+                page: page_confidence,
+                word: word_confidence,
+                max_rejected_ratio: max_rejected_word_ratio,
+            },
+            PreprocessOptions::from_flags(detect_rotation, deskew, denoise),
+            out_json,
+            out_error,
+        )
+    }
+}
+
+/// The body of both PDF entry points, so the two signatures share one path.
+///
+/// # Safety
+/// `engine` is null or a valid handle; `pdf` is valid for `length`.
+#[allow(clippy::too_many_arguments)]
+unsafe fn recognize_pdf(
+    engine: *mut ToEngine,
+    pdf: *const u8,
+    length: usize,
+    dpi: u32,
+    first_page: u32,
+    page_count: u32,
+    thresholds: Thresholds,
+    preprocess: PreprocessOptions,
+    out_json: *mut ToBuffer,
+    out_error: *mut *mut ToError,
+) -> i32 {
+    unsafe {
         if engine.is_null() {
             return guard_buffer(out_error, out_json, || {
                 Err(ToError::invalid_argument("engine must not be null"))
@@ -274,17 +428,9 @@ pub unsafe extern "C" fn to_engine_recognize_pdf(
             if bytes.is_empty() {
                 return Err(ToError::invalid_argument("pdf is empty"));
             }
-            handle.engine.recognize_pdf(
-                &bytes,
-                dpi,
-                first_page,
-                page_count,
-                Thresholds {
-                    page: page_confidence,
-                    word: word_confidence,
-                    max_rejected_ratio: max_rejected_word_ratio,
-                },
-            )
+            handle
+                .engine
+                .recognize_pdf(&bytes, dpi, first_page, page_count, thresholds, preprocess)
         })
     }
 }

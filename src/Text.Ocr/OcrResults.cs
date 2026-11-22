@@ -5,6 +5,49 @@ using System.Linq;
 namespace M3scalinum.Text.Ocr;
 
 /// <summary>
+/// What the preprocessing stages did to the page before it was read.
+/// </summary>
+/// <remarks>
+/// A caller who asked for preprocessing needs to know what it did, because the boxes and
+/// the width and height of the result are the preprocessed page's: they were found in the
+/// image the recogniser saw, not in the bytes the caller passed in.
+/// </remarks>
+public sealed class OcrPreprocessReport
+{
+    /// <summary>The report for a page nothing was done to: no rotation, no skew, no denoise.</summary>
+    public static OcrPreprocessReport None { get; } = new(0, 0.0, false);
+
+    internal OcrPreprocessReport(int rotationDegrees, double skewDegrees, bool denoised)
+    {
+        RotationDegrees = rotationDegrees;
+        SkewDegrees = skewDegrees;
+        Denoised = denoised;
+    }
+
+    /// <summary>
+    /// The clockwise quarter turns applied to make the page upright: 0, 90, 180 or 270.
+    /// </summary>
+    public int RotationDegrees { get; }
+
+    /// <summary>
+    /// The fine rotation the deskew applied, in degrees, positive clockwise, in
+    /// [-10, +10]; 0 when the deskew was off or found the page already level.
+    /// </summary>
+    public double SkewDegrees { get; }
+
+    /// <summary>Whether the median filter ran.</summary>
+    public bool Denoised { get; }
+
+    /// <summary>Whether anything was applied at all.</summary>
+    public bool Changed => RotationDegrees != 0 || SkewDegrees != 0.0 || Denoised;
+
+    /// <inheritdoc />
+    public override string ToString() => Changed
+        ? $"rotated {RotationDegrees}°, deskewed {SkewDegrees:F2}°, denoised: {Denoised}"
+        : "no preprocessing";
+}
+
+/// <summary>
 /// Whether a reading was accepted or refused.
 /// </summary>
 public enum OcrOutcome
@@ -132,12 +175,14 @@ public sealed class OcrResult : OcrRecognition
         IReadOnlyList<OcrLine> lines,
         double meanConfidence,
         int width,
-        int height)
+        int height,
+        OcrPreprocessReport? preprocess = null)
         : base(width, height)
     {
         Text = text;
         Lines = lines;
         MeanConfidence = meanConfidence;
+        Preprocess = preprocess ?? OcrPreprocessReport.None;
         RejectedWordCount = lines.Sum(line => line.Words.Count(word => word.Rejected));
 
         var words = lines.Sum(line => line.Words.Count);
@@ -152,6 +197,9 @@ public sealed class OcrResult : OcrRecognition
 
     /// <summary>The mean of <see cref="OcrLine.Confidence"/> over <see cref="Lines"/>, or 0 when there are none.</summary>
     public double MeanConfidence { get; }
+
+    /// <summary>What preprocessing did to the page before it was read.</summary>
+    public OcrPreprocessReport Preprocess { get; }
 
     /// <summary>How many words fell below <see cref="OcrOptions.MinimumWordConfidence"/>.</summary>
     public int RejectedWordCount { get; }
@@ -309,12 +357,14 @@ public sealed class OcrPageResult : OcrPageOutcome
         double meanConfidence,
         int width,
         int height,
-        int dpi)
+        int dpi,
+        OcrPreprocessReport? preprocess = null)
         : base(pageIndex, width, height, dpi)
     {
         Text = text;
         Lines = lines;
         MeanConfidence = meanConfidence;
+        Preprocess = preprocess ?? OcrPreprocessReport.None;
         RejectedWordCount = lines.Sum(line => line.Words.Count(word => word.Rejected));
 
         var words = lines.Sum(line => line.Words.Count);
@@ -329,6 +379,9 @@ public sealed class OcrPageResult : OcrPageOutcome
 
     /// <summary>The mean of <see cref="OcrLine.Confidence"/> over <see cref="Lines"/>, or 0 when there are none.</summary>
     public double MeanConfidence { get; }
+
+    /// <summary>What preprocessing did to the page before it was read.</summary>
+    public OcrPreprocessReport Preprocess { get; }
 
     /// <summary>How many words fell below <see cref="OcrOptions.MinimumWordConfidence"/>.</summary>
     public int RejectedWordCount { get; }
