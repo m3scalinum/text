@@ -88,7 +88,7 @@ public sealed class TableSpanTests
             .ToMarkup();
 
         Assert.Contains(
-            "table.header(pdf.header-cell(table.cell(colspan: 2)[both], scope: \"both\")),",
+            "table.header(repeat: true, pdf.header-cell(table.cell(colspan: 2)[both], scope: \"both\")),",
             markup,
             StringComparison.Ordinal);
     }
@@ -166,7 +166,7 @@ public sealed class TableSpanTests
         Assert.Equal(
             "#table(\n" +
             "  columns: (1fr, 1fr),\n" +
-            "  table.header([Item], [Amount]),\n" +
+            "  table.header(repeat: true, [Item], [Amount]),\n" +
             "  [Hosting], [1 200 EUR],\n" +
             ")\n",
             markup);
