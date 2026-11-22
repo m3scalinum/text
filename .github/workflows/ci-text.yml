@@ -469,4 +469,56 @@ jobs:
           Typst M3scalinum.Text.Typst
           Documents M3scalinum.Text.Documents
           TABLE
+      - uses: actions/upload-artifact@v7
+        # The `sbom` job reads the very packages the examples ran against, so the SBOM it checks
+        # describes what a consumer installs rather than a second build that might differ.
+        with:
+          name: example-packages
+          path: artifacts/packages-examples/*.nupkg
+          if-no-files-found: error
+
+  sbom:
+    name: sbom
+    # The release workflows generate and verify the SBOMs of the packages they publish; this job
+    # runs the same tool on every pull request, over the packages the examples job just packed, so a
+    # change to the crates, the RIDs or the nuspec that would produce an incomplete SBOM is red here
+    # and not in the middle of a release. It also proves the verifier still rejects a broken SBOM.
+    needs: [examples]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: example-packages
+          path: artifacts/packages
+      - name: Generate the SBOMs
+        run: python3 .github/sbom/sbom.py generate --packages artifacts/packages --output artifacts/sbom
+      - name: Verify the SBOMs
+        run: python3 .github/sbom/sbom.py verify --packages artifacts/packages --sbom artifacts/sbom
+      - name: Prove the verifier rejects a broken SBOM
+        # A verifier that only ever passes proves nothing. Each package's SBOM is emptied in turn —
+        # with every other SBOM still in place, so the failure can only come from the emptied one —
+        # and the job goes red if `verify` accepts it.
+        run: |
+          for sbom in artifacts/sbom/*.cdx.json; do
+            rm -rf artifacts/sbom-broken
+            cp -r artifacts/sbom artifacts/sbom-broken
+            python3 - "artifacts/sbom-broken/$(basename "$sbom")" <<'PY'
+          import json, sys
+          path = sys.argv[1]
+          sbom = json.load(open(path, encoding="utf-8"))
+          sbom["components"] = []
+          open(path, "w", encoding="utf-8").write(json.dumps(sbom))
+          PY
+            if python3 .github/sbom/sbom.py verify --packages artifacts/packages --sbom artifacts/sbom-broken; then
+              echo "verify accepted an SBOM with no components: $(basename "$sbom")" >&2
+              exit 1
+            fi
+          done
+          echo "verify rejected every emptied SBOM"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sboms
+          path: artifacts/sbom/*.cdx.json
+          if-no-files-found: error
 

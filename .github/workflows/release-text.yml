@@ -178,14 +178,62 @@ jobs:
           for package in artifacts/packages/*.nupkg; do
             python3 tests/verify-package.py "$package"
           done
+      - name: Generate the SBOMs
+        # One CycloneDX SBOM per .nupkg, built from the package itself: the .nuspec names the
+        # referenced packages, runtimes/<rid>/native names the RIDs and the native libraries, and
+        # each library names the crate whose Cargo.lock is the Rust side of the graph. The restore
+        # graph adds the managed transitive closure when obj/project.assets.json is present.
+        run: python3 .github/sbom/sbom.py generate --packages artifacts/packages --output artifacts/sbom
+      - name: Verify the SBOMs
+        # Reads each package again and fails when an SBOM is empty, omits a crate the package
+        # embeds, or misses a RID the package ships: a release must not ship a voucher it cannot
+        # stand behind.
+        run: python3 .github/sbom/sbom.py verify --packages artifacts/packages --sbom artifacts/sbom
       - uses: actions/upload-artifact@v7
         with:
           name: packages
           path: artifacts/packages/*
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sboms
+          path: artifacts/sbom/*.cdx.json
+          if-no-files-found: error
+
+  attest:
+    name: attest
+    needs: [pack]
+    runs-on: ubuntu-latest
+    # Build provenance for the packages this run produced. GitHub only issues attestations for a
+    # public repository or GitHub Enterprise Cloud; m3scalinum/text is public, which is exactly what
+    # lets a consumer run `gh attestation verify` on a downloaded .nupkg. The token scopes are the
+    # two the attestation API needs and nothing else.
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: packages
+          path: artifacts/packages
+      - uses: actions/download-artifact@v8
+        with:
+          name: sboms
+          path: artifacts/sbom
+      - name: Verify the SBOMs as shipped
+        # Re-checked here rather than trusting the pack job's log: these are the files the
+        # attestation covers.
+        run: python3 .github/sbom/sbom.py verify --packages artifacts/packages --sbom artifacts/sbom
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: |
+            artifacts/packages/*.nupkg
+            artifacts/sbom/*.cdx.json
 
   publish:
     name: publish
-    needs: [pack]
+    needs: [pack, attest]
     # `inputs.publish` is the string "false" in this context, which is truthy; `github.event.inputs`
     # is the string form and compares unambiguously.
     if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.publish == 'true'
@@ -248,6 +296,10 @@ jobs:
         with:
           name: packages
           path: artifacts/packages
+      - uses: actions/download-artifact@v8
+        with:
+          name: sboms
+          path: artifacts/sbom
       - name: Create the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -270,7 +322,7 @@ jobs:
           print(body)
           PY
           assets=()
-          for file in artifacts/packages/*.nupkg artifacts/packages/*.snupkg; do
+          for file in artifacts/packages/*.nupkg artifacts/packages/*.snupkg artifacts/sbom/*.cdx.json; do
             if [ -e "$file" ]; then assets+=("$file"); fi
           done
           # A re-run must not go red because the page already exists: edit it and replace the assets.
