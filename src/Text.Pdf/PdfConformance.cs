@@ -132,6 +132,11 @@ public static class PdfConformance
         var metadata = ReadMetadata(file, catalog, requirements, findings);
         CheckIdentity(findings, requirements, metadata);
 
+        if (standard is PdfConformanceStandard.PdfA4f)
+        {
+            CheckAssociatedFiles(findings, file, catalog);
+        }
+
         if (requirements.RequiresTaggedStructure)
         {
             CheckStructure(findings, file, catalog, pages, scan, accessibility);
@@ -396,6 +401,226 @@ public static class PdfConformance
             }
         }
     }
+
+    /// <summary>
+    /// The rules PDF/A-4f adds to PDF/A-4, from ISO 19005-4 Annex A: the document carries at least one
+    /// embedded file, every embedded file states how it relates to the document, and the catalog's
+    /// <c>/AF</c> lists the files the name tree names.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The profile does not merely tolerate an embedded file: it defines the level by the fact that
+    /// the file carries one. A 4f claim over a document with an empty <c>/EmbeddedFiles</c> tree is
+    /// therefore a false claim, and it is reported as one.
+    /// </para>
+    /// <para>
+    /// The last rule is this checker's reading of the profile rather than a quotation of it: an
+    /// embedded file that a reader finds through the name tree but not through <c>/AF</c> is not an
+    /// associated file, which is what PDF/A-4f permits. Files associated with an annotation or a page
+    /// are not required to appear in the catalog's array, so the check runs in one direction only —
+    /// every named embedded file must be in <c>/AF</c>, not every <c>/AF</c> entry in the tree.
+    /// </para>
+    /// </remarks>
+    private static void CheckAssociatedFiles(Findings findings, PdfFile file, PdfDictionary catalog)
+    {
+        var tree = EmbeddedNameTree(file, catalog);
+        var association = file.Catalog?["AF"];
+        var associated = association is null ? [] : file.ResolveArray(association);
+
+        if (association is null)
+        {
+            findings.Error(
+                PdfConformanceCodes.AssociatedFilesMissing,
+                "catalog",
+                "PDF/A-4f requires the catalog's /AF array to list the document's associated files, and the catalog has none: "
+                + "a file named only in /Names /EmbeddedFiles is not an associated file");
+        }
+
+        if (tree.Count == 0)
+        {
+            findings.Error(
+                PdfConformanceCodes.EmbeddedFilesMissing,
+                "catalog",
+                "PDF/A-4f requires at least one embedded file, and the /Names /EmbeddedFiles tree is missing or holds no entry, "
+                + "so the most this file can be is PDF/A-4");
+        }
+
+        var reported = new HashSet<int>();
+        var arrayNumbers = new HashSet<int>();
+        var arrayNames = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var item in associated)
+        {
+            var number = file.TryResolveReference(item, out var referenced, out _) ? referenced : 0;
+
+            if (number > 0)
+            {
+                arrayNumbers.Add(number);
+            }
+
+            if (file.ResolveDictionary(item) is not { } specification)
+            {
+                findings.Error(
+                    PdfConformanceCodes.AssociatedFilesInconsistent,
+                    "catalog /AF",
+                    "an /AF entry does not resolve to a file specification dictionary, so the association names nothing");
+
+                continue;
+            }
+
+            var itemName = TextOf(file, specification["UF"]) ?? TextOf(file, specification["F"]);
+            if (itemName is { Length: > 0 })
+            {
+                arrayNames.Add(itemName);
+            }
+
+            CheckRelationship(findings, file, itemName ?? Describe(number), specification, number, reported);
+        }
+
+        foreach (var (name, specification) in tree)
+        {
+            if (file.ResolveDictionary(specification) is not { } dictionary)
+            {
+                findings.Error(
+                    PdfConformanceCodes.AssociatedFilesInconsistent,
+                    $"embedded file '{name}'",
+                    "the /EmbeddedFiles entry does not resolve to a file specification dictionary");
+
+                continue;
+            }
+
+            var number = specification is PdfReference reference ? reference.Number : 0;
+
+            if (file.ResolveDictionary(dictionary["EF"]) is not { } embedded ||
+                (file.ResolveStream(embedded["F"]) is null && file.ResolveStream(embedded["UF"]) is null))
+            {
+                findings.Error(
+                    PdfConformanceCodes.AssociatedFilesInconsistent,
+                    $"embedded file '{name}'",
+                    "the file specification names no embedded file stream, so the entry is a name without a file behind it");
+            }
+
+            CheckRelationship(findings, file, name, dictionary, number, reported);
+
+            if (!arrayNumbers.Contains(number) && !arrayNames.Contains(name))
+            {
+                findings.Error(
+                    PdfConformanceCodes.AssociatedFilesInconsistent,
+                    $"embedded file '{name}'",
+                    "the file is named in /Names /EmbeddedFiles but is not listed in the catalog's /AF array, so a reader that "
+                    + "follows the association array does not see it as an associated file");
+            }
+        }
+    }
+
+    /// <summary>Reports an embedded file whose <c>/AFRelationship</c> is absent, empty or unknown.</summary>
+    private static void CheckRelationship(
+        Findings findings,
+        PdfFile file,
+        string name,
+        PdfDictionary specification,
+        int number,
+        HashSet<int> reported)
+    {
+        // The same file specification is reached through the name tree and through /AF; the check
+        // runs once, on whichever route it met first.
+        if (number > 0 && !reported.Add(number))
+        {
+            return;
+        }
+
+        var stream = file.ResolveDictionary(specification["EF"]) is { } embedded
+            ? file.ResolveStream(embedded["F"]) ?? file.ResolveStream(embedded["UF"])
+            : null;
+
+        var relationship = (file.Resolve(specification["AFRelationship"]) as PdfName)?.Value
+            ?? (file.Resolve(stream?.Dictionary["AFRelationship"]) as PdfName)?.Value;
+
+        if (string.IsNullOrEmpty(relationship))
+        {
+            findings.Error(
+                PdfConformanceCodes.EmbeddedFileRelationshipMissing,
+                $"embedded file '{name}'",
+                "the embedded file states no /AFRelationship, which PDF/A-4f requires of every one: it must say whether it "
+                + "is the /Source, the /Data, an /Alternative to or a /Supplement of the document");
+
+            return;
+        }
+
+        if (!KnownRelationship(relationship))
+        {
+            findings.Error(
+                PdfConformanceCodes.EmbeddedFileRelationshipUnknown,
+                $"embedded file '{name}'",
+                $"the embedded file declares /AFRelationship /{relationship}, which is not one of the values ISO 32000-2 "
+                + "defines (/Source, /Data, /Alternative, /Supplement, /Unspecified), not /Schema, and not a second-class name");
+        }
+    }
+
+    /// <summary>The relationships ISO 32000-2 defines, plus the one PDF/A-4 adds.</summary>
+    private static readonly HashSet<string> Relationships = new(StringComparer.Ordinal)
+    {
+        "Source",
+        "Data",
+        "Alternative",
+        "Supplement",
+        "Unspecified",
+        "Schema",
+    };
+
+    /// <summary>Whether a relationship is one this checker knows, or a second-class name it accepts.</summary>
+    private static bool KnownRelationship(string relationship)
+        => Relationships.Contains(relationship) || relationship.Contains('_', StringComparison.Ordinal);
+
+    /// <summary>The <c>/Names /EmbeddedFiles</c> tree's entries, in the order the tree lists them.</summary>
+    private static List<(string Name, PdfValue Specification)> EmbeddedNameTree(PdfFile file, PdfDictionary catalog)
+    {
+        var entries = new List<(string Name, PdfValue Specification)>();
+
+        if (file.ResolveDictionary(catalog["Names"]) is not { } names || names["EmbeddedFiles"] is not { } root)
+        {
+            return entries;
+        }
+
+        Walk(root, 0);
+
+        return entries;
+
+        void Walk(PdfValue? node, int depth)
+        {
+            // The bound is a cycle guard: a name tree is balanced and a few levels deep.
+            if (depth > 16 || file.ResolveDictionary(node) is not { } dictionary)
+            {
+                return;
+            }
+
+            foreach (var kid in file.ResolveArray(dictionary["Kids"]))
+            {
+                Walk(kid, depth + 1);
+            }
+
+            var items = file.ResolveArray(dictionary["Names"]);
+            for (var index = 0; index + 1 < items.Count; index += 2)
+            {
+                var key = items[index] is PdfString text ? text.Decode() : null;
+                if (!string.IsNullOrEmpty(key))
+                {
+                    entries.Add((key, items[index + 1]));
+                }
+            }
+        }
+    }
+
+    /// <summary>Reads a text string or a name as text, or returns <see langword="null"/>.</summary>
+    private static string? TextOf(PdfFile file, PdfValue? value) => file.Resolve(value) switch
+    {
+        PdfString text => text.Decode(),
+        PdfName name => name.Value,
+        _ => null,
+    };
+
+    /// <summary>How a file specification with no name is referred to in a finding.</summary>
+    private static string Describe(int number) => number > 0 ? $"obj {number}" : "unnamed file";
 
     private static void CheckTitle(Findings findings, PdfFile file, string? metadata)
     {

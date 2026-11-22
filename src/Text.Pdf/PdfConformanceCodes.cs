@@ -114,4 +114,35 @@ public static class PdfConformanceCodes
     /// <see cref="PdfConformance.CheckAccessibility"/> only.
     /// </summary>
     public const string RoleNotMapped = "PDFUA.ROLE_NOT_MAPPED";
+
+    /// <summary>
+    /// The catalog names no <c>/AF</c> array, so the document states no associated file at all.
+    /// Reported for PDF/A-4f only.
+    /// </summary>
+    public const string AssociatedFilesMissing = "PDFA4F.AF_MISSING";
+
+    /// <summary>
+    /// The <c>/Names /EmbeddedFiles</c> tree is missing or holds no entry, and PDF/A-4f requires at
+    /// least one embedded file. Reported for PDF/A-4f only.
+    /// </summary>
+    public const string EmbeddedFilesMissing = "PDFA4F.EMBEDDED_FILES_MISSING";
+
+    /// <summary>
+    /// An embedded file states no <c>/AFRelationship</c>, which PDF/A-4f requires of every one.
+    /// Reported for PDF/A-4f only.
+    /// </summary>
+    public const string EmbeddedFileRelationshipMissing = "PDFA4F.RELATIONSHIP_MISSING";
+
+    /// <summary>
+    /// An embedded file states an <c>/AFRelationship</c> that is neither one of the values ISO 32000-2
+    /// defines, nor <c>/Schema</c>, nor a second-class name. Reported for PDF/A-4f only.
+    /// </summary>
+    public const string EmbeddedFileRelationshipUnknown = "PDFA4F.RELATIONSHIP_UNKNOWN";
+
+    /// <summary>
+    /// The catalog's <c>/AF</c> and the <c>/EmbeddedFiles</c> name tree disagree: a named embedded
+    /// file is not listed as an associated file, or an <c>/AF</c> entry is not a usable file
+    /// specification. Reported for PDF/A-4f only.
+    /// </summary>
+    public const string AssociatedFilesInconsistent = "PDFA4F.AF_INCONSISTENT";
 }
