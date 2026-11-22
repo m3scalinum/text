@@ -127,8 +127,9 @@ which cannot run a Microsoft.Testing.Platform project.
 
 Notes:
 
-- `InvariantGlobalization` is on: the library formats numbers and dates with the invariant culture
-  by contract, and a document must not change because the host's locale did.
+- `InvariantGlobalization` is on: nothing the library formats comes from the process culture. Dates,
+  numbers and currencies are formatted from a per-language pattern table (`TypstFormatting`), so a
+  document cannot change because the host's locale did.
 - `PathMap` strips absolute paths from PDBs so builds are reproducible across machines.
 - `CS1591` (missing XML comment) is suppressed only because `internal` members are documented in
   these specifications instead; public members still carry XML docs by review.
