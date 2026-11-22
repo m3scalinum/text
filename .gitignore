@@ -27,3 +27,4 @@ Thumbs.db
 ## Local only
 # Working notes on why the project exists; not part of the published specification set.
 docs/specifications/idea.md
+__pycache__/
