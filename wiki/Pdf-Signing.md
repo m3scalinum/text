@@ -148,6 +148,76 @@ time. Never at the claimed signing time, which is whatever the file says.
 evidence to be checked later. The second says whether *you* trust the root it ends at. A document can
 be `BaselineLT` and `Untrusted`, and both statements are useful.
 
+## A person or a legal person
+
+`PdfSignatureOptions.Kind` says which eIDAS act the call performs. `PdfSignatureKind.Person` (the
+default) is a natural person signing; `PdfSignatureKind.Seal` is a legal person sealing, and the
+signer requires the certificate to carry `id-kp-documentSigning` (1.3.6.1.5.5.7.3.36):
+
+```csharp
+byte[] sealedPdf = PdfSigner.Sign(pdf, sealCertificate, new PdfSignatureOptions
+{
+    Kind = PdfSignatureKind.Seal,
+    Reason = "Facture FA-2026-0042",
+});
+```
+
+Reading it back keeps the two questions apart — what the bytes prove, and what a trust list states:
+
+```csharp
+var eidas = PdfSignatureVerifier.ReadEidas(pdf);   // no list: every qualification is NotEvaluated
+
+var judged = PdfSignatureVerifier.ReadEidas(pdf, trustStore, trustList);
+
+foreach (var verdict in judged.Signatures)
+{
+    // verdict.Kind, verdict.SignerQualification, verdict.SignerExplanation,
+    // verdict.TimestampAuthorityQualification, verdict.Level
+}
+
+foreach (var timestamp in judged.DocumentTimestamps)
+{
+    // timestamp.Qualification, timestamp.Explanation
+}
+```
+
+`ReadEidas` is answered from the signing certificate's extended key usage, not from anything the PDF
+says about itself, and from the trust list the caller read with `PdfLotl.Read`. Nothing is
+downloaded. Without a list the report says `NotEvaluated` — never "not qualified".
+
+## Supplying the revocation evidence
+
+A `PdfDssOptions` hands the store every byte up front. When the evidence lives behind the caller's own
+cache or policy, `IRevocationSource` is asked one certificate at a time instead:
+
+```csharp
+sealed class CacheRevocation : IRevocationSource
+{
+    public PdfRevocationAnswer GetRevocation(X509Certificate2 certificate, X509Certificate2 issuer)
+        => _cache.TryGet(certificate, out var answer) ? answer : PdfRevocationAnswer.None;
+}
+
+PdfSignatureResult result = PdfSigner.SignWithReport(pdf, certificate, new PdfSignatureOptions
+{
+    RevocationSource = new CacheRevocation(),
+});
+
+byte[] signed = result.Content;
+result.Level;                  // what the call was configured to reach
+result.Revocation;             // one entry per certificate and kind that went into the store
+result.MissingRevocation;      // certificates no evidence covers; empty at PAdES-B-LT
+```
+
+The source is called once per certificate that needs an entry, in chain order, and it may block — the
+writer calls it synchronously. `Sign` returns the bytes alone; `SignWithReport` is the same operation
+with the account of what the seam contributed. A source that returns `PdfRevocationAnswer.None` for a
+certificate the level requires refuses the signature with `PdfRevocationException` rather than
+silently writing a weaker level.
+
+`PdfSignatureVerifier.ReadRevocation(pdf)` reads the other direction: for every certificate the store
+embeds, which evidence covers it and when that evidence was issued. Nothing is fetched and nothing is
+judged there.
+
 ## A document timestamp
 
 An RFC 3161 token over the whole file, added after the signatures, attesting that the document existed
@@ -220,6 +290,7 @@ bytes, refresh them, and let the level, not a database row, say what they prove.
 
 - the data has no `startxref`, no trailer or no `/Root` — it is not a PDF this writer can update;
 - the certificate carries no private key;
+- a seal is asked for a certificate that does not carry `id-kp-documentSigning`;
 - the document is empty;
 - a timestamp authority is named without a client, or a client without an authority;
 - an archive is asked for a document that carries no signature;

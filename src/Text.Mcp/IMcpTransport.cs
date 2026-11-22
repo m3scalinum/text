@@ -30,6 +30,22 @@ public interface IMcpMessageHandler
     /// answered.
     /// </returns>
     Task<byte[]?> HandleMessageAsync(string message, CancellationToken cancellationToken);
+
+    /// <summary>Handles one message that arrived inside a transport session.</summary>
+    /// <param name="message">One complete JSON-RPC message, as text.</param>
+    /// <param name="sessionId">
+    /// The session the message arrived in, or <see langword="null"/> when the framing has none.
+    /// </param>
+    /// <param name="cancellationToken">Ends the work when the transport is closing.</param>
+    /// <returns>The JSON-RPC response as UTF-8 bytes, or <see langword="null"/> when it is not to be answered.</returns>
+    /// <remarks>
+    /// A transport that owns sessions — <see cref="McpHttpServer"/> — calls this overload so the
+    /// handler can attribute a call to a client, which is what makes a per-client quota and a journal
+    /// possible. A handler that has no use for the session inherits this default implementation and
+    /// sees the same message it always did.
+    /// </remarks>
+    Task<byte[]?> HandleMessageAsync(string message, string? sessionId, CancellationToken cancellationToken)
+        => HandleMessageAsync(message, cancellationToken);
 }
 
 /// <summary>

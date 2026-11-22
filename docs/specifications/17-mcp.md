@@ -11,28 +11,30 @@ depend on one that does not.
 
 | In scope | Detail |
 | --- | --- |
-| Transport | stdio: one UTF-8 JSON-RPC 2.0 message per line, no headers, no length prefix. HTTP/1.1: the MCP streamable-HTTP shape, authenticated, on loopback by default |
+| Transport | stdio: one UTF-8 JSON-RPC 2.0 message per line, no headers, no length prefix. HTTP/1.1: the MCP streamable-HTTP shape, authenticated, on loopback by default, with an `Origin` allow-list |
 | Lifecycle | `initialize`, notifications, `ping`, end of input as shutdown; HTTP sessions issued, required and deleted |
-| Discovery | `tools/list` with a JSON Schema per tool |
+| Discovery | `tools/list` projected from the same table `tools/call` dispatches through; `resources/list` for the layout pack |
 | Tools | `render_document`, `list_templates`, `sign_document`, `merge_documents`, `extract_text` |
-| Limits | document size, message size, allowed template ids, wall clock, file output, concurrent sessions |
+| Resources | one `m3scalinum://templates/{id}` per served layout, read-only, contents = the layout's manifest |
+| Limits | document size, message size, allowed template ids, wall clock, file output, concurrent sessions, renders per session per minute |
+| Journal | one JSON line per call through a `TextWriter` the host supplies, off by default: tool, session, sizes, duration, outcome |
 
 | Out of scope | Why |
 | --- | --- |
 | Streaming responses, `GET` event streams, HTTP/2, chunked request bodies | One request carries one JSON-RPC message and one answer is written: a render finishes or fails inside `RenderTimeout`, so there is nothing to stream. A request has a declared length, so a body of unknown size is refused rather than buffered |
 | TLS inside the process | A host that exposes this beyond loopback terminates TLS in a reverse proxy it already operates; the server keeps one job, and one set of crypto, out of the process |
-| Resources, prompts, sampling, roots | This server renders; it has nothing to read or ask |
+| Prompts, sampling, roots, and any write to a resource | This server renders and reads; a resource here is a layout's manifest, and nothing in the pack is writable from a call |
 | Progress and cancellation notifications | A call either finishes inside the timeout or fails; the loop is sequential |
 | Batch requests | MCP does not define them; the server answers a batch with `-32600` |
 
 **Decision — JSON-RPC by hand, no SDK package.** The official C# SDK brings a hosting model
 (`Microsoft.Extensions.Hosting`, dependency injection, logging) the suite does not otherwise use, and
 it is not verified here to be trim- and AOT-clean. This repository forbids reflection-based JSON and
-requires `PublishAot` to keep working, so the surface a client can reach is small and fixed: four
-methods, six tools, two transports. It is written directly against `Utf8JsonWriter` and a
-source-generated serialization context, which keeps `IsAotCompatible` meaningful — an analyzer failure
-here is a publish failure in a consumer. If the SDK becomes the right answer, the protocol methods
-below are the contract to keep.
+requires `PublishAot` to keep working, so the surface a client can reach is small and fixed: six
+methods, five tools, one resource per layout, two transports. It is written directly against
+`Utf8JsonWriter` and a source-generated serialization context, which keeps `IsAotCompatible` meaningful
+— an analyzer failure here is a publish failure in a consumer. If the SDK becomes the right answer,
+the protocol methods below are the contract to keep.
 
 ## 2. The server
 
@@ -111,11 +113,19 @@ to be.
 - **Binding.** `IPAddress.Loopback` unless the host says otherwise, and port `0` — the operating
   system assigns one — unless the host names a port. `Port` and `Endpoint` are readable as soon as
   `StartAsync` returns.
+- **Origins.** Streamable HTTP requires a server to validate the `Origin` header on every incoming
+  connection, to defeat DNS rebinding: any page can make a browser POST to `http://127.0.0.1:PORT/mcp`.
+  A request that carries an `Origin` must name one of `AllowedOrigins`, compared case-insensitively
+  after normalization to `scheme://host[:port]`; anything else is `403` with a plain-text body naming
+  the origin and the list, decided on the head alone, before one byte of the body is read. A request
+  with no `Origin` did not come from a browser — a CLI, an agent runtime — and is served. The default
+  list is empty, which refuses every browser origin.
 - **Refusals.** Any path other than the endpoint is `404`; any method other than `POST` and `DELETE`
   is `405` with `Allow`; a body larger than `MaxRequestSize` is `413`, decided on the declared
   `Content-Length` before a single body byte is stored; a request with no length is `411`; a
   `Transfer-Encoding` (chunked) body is `411`; a non-JSON `Content-Type` is `415`; a header block
-  above `MaxHeaderBytes` is `431`. A refused request closes its connection after the response.
+  above `MaxHeaderBytes` is `431`; an `Origin` the host did not allow is `403`. A refused request
+  closes its connection after the response.
 
 `McpHttpServerOptions` is the network surface, and the protocol limits stay where they were:
 
@@ -129,6 +139,7 @@ to be.
 | `SessionIdleTimeout` | 1 h | How long an untouched session is remembered |
 | `RequestTimeout` | 30 s | Head plus body of one request |
 | `MaxHeaderBytes` | 16 KiB | Ceiling on one header block |
+| `AllowedOrigins` | — (empty) | Browser origins allowed to call the server; empty refuses every `Origin` |
 | `McpServerOptions.MaxRequestSize` | 4 MiB | Ceiling on one body, enforced before it is read |
 | `McpServerOptions.MaxDocumentSize` | 1 MiB | Ceiling on the document a call carries, applied after the body is parsed |
 
@@ -147,16 +158,18 @@ Every response is `{"jsonrpc":"2.0","id":…}` plus either `result` or `error`.
 
 | Method | Kind | Result |
 | --- | --- | --- |
-| `initialize` | request | `protocolVersion`, `capabilities.tools`, `serverInfo` |
+| `initialize` | request | `protocolVersion`, `capabilities.tools`, `capabilities.resources`, `serverInfo` |
 | `notifications/initialized` | notification | none — a notification is never answered |
 | `ping` | request | `{}` |
-| `tools/list` | request | the six tools, each with `inputSchema` |
+| `tools/list` | request | the five tools, each with `inputSchema` |
 | `tools/call` | request | `content`, and `isError` when the work failed |
+| `resources/list` | request | one resource per served layout |
+| `resources/read` | request | the manifest of the layout the resource URI names |
 
 `initialize` answers with the revision the client asked for when the server knows it — `2024-11-05`,
 `2025-03-26` or `2025-06-18` — and with `2025-06-18`, the newest it speaks, otherwise. The capability
-object declares tools only, with `listChanged: false`: the tool list is fixed for the life of the
-process.
+object declares tools and resources, both with `listChanged: false`, and resources with
+`subscribe: false`: neither list changes while the server runs, and a resource here is read-only.
 
 ### Errors
 
@@ -168,7 +181,8 @@ client should be able to tell the two apart.
 | `-32700` | the line is not JSON, or is longer than `MaxRequestSize` |
 | `-32600` | not an object, `jsonrpc` is not `"2.0"`, `method` is not a string, or a batch |
 | `-32601` | no such method |
-| `-32602` | no such tool, or the arguments are missing or of the wrong shape |
+| `-32602` | no such tool, no such resource, or the arguments are missing or of the wrong shape |
+| `-32000` | the render quota of the caller is exhausted for this minute (see §8.1) |
 
 A call that was well formed and whose *work* failed — Typst rejected the source, the document is not a
 PDF, the path could not be written — is a result with `"isError": true` and one text block
@@ -281,16 +295,21 @@ options are the whole of what a host can relax.
   path, refuses every other method, caps the header block, the body (on its declared length, before
   reading it) and the number of live sessions, and forgets a session that goes idle. TLS is not
   terminated here; a host that exposes the port beyond loopback puts it behind a proxy.
+- **A browser is not a client.** An `Origin` the host did not list is `403`, so a page on any site
+  cannot drive the endpoint through a rebinding trick even though it can reach loopback. The allow
+  list is empty by default: a host that wants a browser console states which origin it is.
 - **Bounded work.** `MaxDocumentSize` caps one document in UTF-8 bytes before it is parsed or
   compiled; `MaxRequestSize` caps one JSON-RPC line while it is being read, discarding the rest of an
   oversized line and answering `-32700` rather than growing a buffer; `RenderTimeout` bounds one
   compilation, queue time included.
 - **Bounded surface.** `AllowedTemplateIds` restricts which layouts may be rendered and listed — a
   host can ship the invoice layout alone. The tool list never changes.
-- **No state.** The protocol core holds no state between messages: no working directory, no cache,
-  no loaded document. An HTTP session is a name the transport remembers, not a conversation the
-  server keeps — it carries no document and no compiler state, so expiry costs a client its id, not
-  its work. Two callers of the same process cannot see each other's work.
+- **No document state.** The protocol core holds no working directory, no cache, no loaded document.
+  An HTTP session is a name the transport remembers, not a conversation the server keeps — it carries
+  no document and no compiler state, so expiry costs a client its id, not its work. Two callers of
+  the same process cannot see each other's work. The two things that survive a message are counts and
+  identifiers: the render window of `MaxRendersPerMinute`, and the journal line — tool, session,
+  sizes, outcome — that contains no document text.
 
 ## 7. Tests
 
@@ -317,3 +336,155 @@ path, `405` for a `GET`, `202` for a notification, `413` for a body over `MaxReq
 session cap, and an `Accept: text/event-stream` client receiving its answer as one event. No real MCP
 client was run against the HTTP transport: the shape is exercised with the HTTP client every .NET
 process carries, which proves the wire, not another SDK's interpretation of it.
+
+Beyond the wire, four files cover the behaviour §8 describes. `QuotaTests` drives the sliding window
+directly — the ceiling, the release of the oldest call, one window per client, an emptied window
+dropped — then asserts through the protocol that the call over the ceiling is `-32000` with its
+`data`, that a `ping` between two document calls does not reset the counter, that `list_templates`
+spends no slot, and that two HTTP sessions have separate windows. `CallJournalTests` asserts one line
+per call with the sizes and the outcome, `tool_error` and `quota_exceeded` outcomes, an HTTP session
+id in the `session` field, a writer that throws not failing the call, and that a base64 argument's
+bytes never appear in a line. `HttpOriginTests` covers the four origin outcomes — absent, allowed,
+refused with the list in the body, and none allowed at all — plus the `403` a `DELETE` from a refused
+origin earns and an origin that names a path failing when the server is built. `ResourceTests` lists
+the seven URIs, reads each, checks the manifest's declared parameters, and covers a uri of another
+scheme, an unknown id, a layout outside `AllowedTemplateIds` and a manifest over the document
+ceiling. `ToolDiscoveryTests` is the set comparison between `tools/list` and `tools/call`.
+
+Local runs skip the nine tests that need `SHARPTYPST_NATIVE_PATH`; the assembly's coverage gate runs
+with the native library, so the measurement comes from CI.
+
+## 8. Quotas, journal, discovery and resources
+
+### 8.1 The render quota
+
+A limit on what one call carries says nothing about how many calls a client makes.
+`McpServerOptions.MaxRendersPerMinute` caps that: how many *document* calls one client may make in a
+sliding minute, `null` (the default) meaning no ceiling.
+
+- **What counts.** A render is a call that reads, compiles or rewrites a document —
+  `render_document`, `sign_document`, `merge_documents`, `extract_text`. `list_templates` is metadata
+  and is never counted, and neither is any protocol method. A call is counted when it is admitted,
+  before its arguments are checked, so a client cannot buy unlimited work with malformed calls.
+- **Who counts.** The client is the transport's session: `Mcp-Session-Id` on HTTP, one bucket for a
+  stdio process. Two HTTP sessions of the same process have separate windows, and a new session
+  starts empty.
+- **The window slides.** A slot is taken at admission and released one minute later, oldest first. A
+  client cannot render twice the ceiling by straddling a minute boundary: `MaxRendersPerMinute = 2`
+  admits two calls, and the third waits for the older of the two to leave — a second later if the
+  calls were a second apart.
+- **Where it lives.** In memory, in the process, for as long as the process runs: the counter survives
+  the request, not a restart. It is keyed by session, and a key whose window has emptied is dropped,
+  so the memory follows the number of live sessions rather than the number of calls.
+
+A call over the ceiling is answered with a JSON-RPC error, never with a closed connection and never
+with a `202`:
+
+```json
+{"jsonrpc":"2.0","id":7,"error":{
+  "code":-32000,
+  "message":"render quota exceeded: session '9c0f…' already made 2 document call(s) in the last minute; retry in 41 second(s)",
+  "data":{"reason":"render_quota_exceeded","limit":2,"windowSeconds":60,"retryAfterSeconds":41}}}
+```
+
+`-32000` is a server-defined error in the JSON-RPC implementation range; `data.reason` makes it
+greppable, `data.limit` and `data.windowSeconds` are the configured ceiling and window, and
+`data.retryAfterSeconds` is what the client waits before the oldest admitted call leaves. The refusal
+belongs to the call, not to the session: the next request is served normally.
+
+```csharp
+var options = new McpServerOptions { MaxRendersPerMinute = 60 };
+```
+
+### 8.2 The call journal
+
+`McpServerOptions.CallJournal` is a `TextWriter` the host supplies; `null` — the default — keeps no
+journal at all. When it is set, every `tools/call` appends one JSON object and one newline, flushed
+immediately:
+
+| Field | Meaning |
+| --- | --- |
+| `timestamp` | When the answer was written, in UTC, ISO 8601 |
+| `session` | The transport's session id; absent for a stdio process |
+| `tool` | The name the call carried, even when no such tool exists |
+| `inputBytes` | UTF-8 bytes of the call's `arguments` object, `0` when it carried none |
+| `outputBytes` | UTF-8 bytes of the `tools/call` result the client received, `0` when it received an error object |
+| `durationMs` | How long the call took, in whole milliseconds |
+| `outcome` | `ok`, `tool_error`, `invalid_params` or `quota_exceeded` |
+| `errorCode` | The JSON-RPC code, when the call ended in one |
+
+`tool_error` is a result carrying `"isError": true` — the wire has no error object there, so the
+journal records `-32603`, the code MCP reserves for a tool failure, to make the outcome countable. A
+`quota_exceeded` line carries `-32000`; `invalid_params` carries `-32602`.
+
+**The journal carries no document text.** It records sizes and identifiers — who called what, how
+much went in, how much came out, how it ended — never the Typst source, the PDF bytes, a parameter
+value or an extracted page. A host can ship it to a log collector without that collector becoming a
+second copy of every document the server served.
+
+```json
+{"timestamp":"2026-01-01T12:00:00.0000000+00:00","session":"9c0f…","tool":"render_document","inputBytes":2418,"outputBytes":32768,"durationMs":214,"outcome":"ok"}
+```
+
+Writing is best effort in one direction only: a line that cannot be written is lost, and the call it
+described has already been answered, so a full disk costs the journal a line rather than the client
+its render. The journal never touches the protocol stream — the answer carries the same bytes whether
+a journal is configured or not.
+
+```csharp
+await using var journal = new StreamWriter("mcp-calls.jsonl", append: true);
+var options = new McpServerOptions { CallJournal = journal };
+```
+
+### 8.3 `tools/list` is generated from the dispatch table
+
+The tools are one table — name, prose, `inputSchema`, whether the tool counts against the quota, and
+the delegate that runs it. `tools/list` projects that table and `tools/call` dispatches through it, so
+a tool cannot be advertised without being callable, nor callable without being advertised, and the
+message a call for an unknown tool earns names the same list.
+
+The wire shape is unchanged: five tools, in this order — `render_document`, `list_templates`,
+`sign_document`, `merge_documents`, `extract_text` — each with the `inputSchema` it had.
+`tests/Text.Mcp.Tests/ToolDiscoveryTests.cs` compares the two sets through the protocol: it calls
+every announced tool and asserts none of them answers "unknown tool", then calls a name nobody
+announced and asserts it is `-32602`.
+
+### 8.4 The layout pack as resources
+
+Each layout the host serves is one MCP resource:
+
+- **URI.** `m3scalinum://templates/{id}`, for example `m3scalinum://templates/invoice`. The id is the
+  catalog id `list_templates` and `render_document` use, so a client that read a resource can call the
+  tool with the same string.
+- **Contents.** The layout's manifest, as JSON with `application/json`: `id`, `name`, `version`,
+  `entry`, `description`, `authors`, `languages`, each declared parameter with its `type` and
+  `required`, plus `allowExtraParameters` and `minTypst`. Not the layout's Typst source:
+  `TypstTemplate` exposes its manifest and renders through it, and nothing in the pack's public
+  surface hands out the entry file. The manifest is also what a client needs — the parameters to
+  pass, and the version to pin.
+- **Read-only.** `capabilities.resources` is declared with `subscribe: false` and
+  `listChanged: false`, and no method writes: a subscription or a write on a resource is `-32601`.
+- **Bounded like a tool.** A manifest larger than `McpServerOptions.MaxDocumentSize` is refused with
+  `-32602` instead of being served.
+- **Filtered by the same allow-list.** `AllowedTemplateIds` filters `resources/list` and refuses
+  `resources/read` for a layout outside it — a host that ships the invoice layout alone does not leak
+  the names of the others through a resource read.
+
+`resources/list` answers one entry per served layout:
+
+```json
+{"resources":[
+  {"uri":"m3scalinum://templates/invoice","name":"invoice","description":"…","mimeType":"application/json"}]}
+```
+
+`resources/read` with `{"uri":"m3scalinum://templates/invoice"}`:
+
+```json
+{"contents":[{"uri":"m3scalinum://templates/invoice","mimeType":"application/json",
+  "text":"{\"id\":\"invoice\",\"name\":\"invoice\",\"version\":\"1.0.0\",\"entry\":\"template.typ\",…}"}]}
+```
+
+A `uri` outside the `m3scalinum://templates/` prefix — including `file:///…` — is `-32602` naming the
+scheme the server does serve, and an id the pack does not carry is `-32602` pointing at
+`resources/list`. The `m3scalinum://documents/{guid}.pdf` URI a render returns stays what it was: an
+identifier for bytes carried inline, not an address that can be read back.

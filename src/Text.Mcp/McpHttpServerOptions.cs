@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Net;
 
 namespace M3scalinum.Text.Mcp;
@@ -76,6 +77,70 @@ public sealed class McpHttpServerOptions
     /// <summary>The largest header block one request may carry.</summary>
     public int MaxHeaderBytes { get; init; } = DefaultMaxHeaderBytes;
 
+    /// <summary>
+    /// The browser origins allowed to call this server, such as <c>https://app.example.com</c>; empty
+    /// — the default — accepts no <c>Origin</c> at all.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// MCP's streamable-HTTP transport requires a server to validate the <c>Origin</c> header on
+    /// every incoming connection, to defeat DNS rebinding: a page on any site can make a browser
+    /// POST to <c>http://127.0.0.1:PORT/mcp</c>, and the browser stamps that request with the page's
+    /// origin. A request that carries no <c>Origin</c> did not come from a browser — a CLI or an
+    /// agent runtime — and stays allowed, because refusing it would break every non-browser client.
+    /// </para>
+    /// <para>
+    /// An entry is <c>scheme://host[:port]</c> — the origin of the page, not a path — and is compared
+    /// case-insensitively. An <c>Origin</c> the list does not carry is refused with <c>403</c> and a
+    /// body naming both the origin and the list, before the body of the request is read.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyCollection<string> AllowedOrigins { get; init; } = [];
+
+    /// <summary>
+    /// The configured origins, normalized to <c>scheme://host[:port]</c> and checked.
+    /// </summary>
+    /// <exception cref="ArgumentException">An entry is not an origin.</exception>
+    internal IReadOnlyList<string> NormalizedOrigins()
+    {
+        if (AllowedOrigins is null or { Count: 0 })
+        {
+            return [];
+        }
+
+        var origins = new List<string>(AllowedOrigins.Count);
+
+        foreach (var origin in AllowedOrigins)
+        {
+            origins.Add(NormalizeOrigin(origin));
+        }
+
+        return origins;
+    }
+
+    /// <summary>
+    /// Normalizes one allowed origin, refusing anything that is not a scheme, a host and an optional
+    /// port.
+    /// </summary>
+    /// <exception cref="ArgumentException">The value is not an absolute HTTP or HTTPS origin.</exception>
+    internal static string NormalizeOrigin(string origin)
+    {
+        if (string.IsNullOrWhiteSpace(origin)
+            || !Uri.TryCreate(origin, UriKind.Absolute, out var uri)
+            || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
+            || uri.AbsolutePath.TrimEnd('/').Length > 0
+            || uri.Query.Length > 0
+            || uri.Fragment.Length > 0
+            || uri.UserInfo.Length > 0)
+        {
+            throw new ArgumentException(
+                $"'{origin}' is not an origin; an allowed origin is scheme://host[:port], with no path, "
+                    + "query, fragment or credentials");
+        }
+
+        return uri.GetComponents(UriComponents.SchemeAndServer, UriFormat.UriEscaped);
+    }
+
     /// <summary>Rejects a value that cannot work.</summary>
     /// <exception cref="ArgumentException">
     /// The token is blank, the path is not an absolute path, a limit is not positive, or the port is
@@ -123,5 +188,8 @@ public sealed class McpHttpServerOptions
             throw new ArgumentException(
                 "MaxHeaderBytes must be at least 256, or a request line does not fit", nameof(MaxHeaderBytes));
         }
+
+        // Checked here so a bad origin fails when the server is built, not on the first browser call.
+        _ = NormalizedOrigins();
     }
 }
