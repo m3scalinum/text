@@ -198,6 +198,19 @@ Not yet published. Embeds Typst 0.15.1.
   reconstruction: no headings, no list structure, and hyphenation and ligatures come out as the
   font mapped them. `ExportText()` is unchanged and still reads the HTML tree. The ABI grows
   `tn_document_page_text`.
+- Host fonts are scanned once per process: the faces found on the machine are described by an index
+  shared across worlds through an `Arc`, and that index is also written to the user cache directory so
+  the next process reads a file instead of walking the font directories. An entry is invalidated by the
+  file's size and modification time, a world can ask for a rescan that ignores both the shared index and
+  the disk one (`FontScanMode.Refresh`), and the ABI keeps its shape: `fonts.refresh`, `fonts.cache` and
+  `fonts.cacheDir` travel in the configuration JSON, no symbol is added. Two thousand compilations in one
+  process load the fonts once.
+- A document can be laid out in columns across pages: `TypstDocument.Columns(TypstColumnLayout, content)`
+  emits the page-level form (`#set page(columns: …)` plus the gutter on the `columns` element), because
+  the container form refuses a page break inside it. `MarginNote(marker, content)` places a note in the
+  outer margin on the line of its marker, as an inline zero-width box; the note does not break across
+  pages and two markers closer than a note's height overlap, which the specification states and a
+  characterisation test pins.
 
 ### Changed
 

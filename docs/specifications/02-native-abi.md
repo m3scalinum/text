@@ -114,6 +114,9 @@ uint32_t tn_world_live_count(void);
 | `packages.registry` | registry base URL, http(s) | `https://packages.typst.org` |
 | `fonts.directories` | directories scanned recursively for font files | `[]` |
 | `fonts.system` | whether to load the host's installed fonts | `false` |
+| `fonts.refresh` | rescan the host fonts and ignore the persistent index, instead of reusing the one the process built | `false` |
+| `fonts.cache` | keep a persistent index of the host faces on disk, so the next process reads a file instead of the directories | `true` |
+| `fonts.cacheDir` | where that index lives; `null` means the user cache directory | `null` |
 | `limits.*` | hard caps, `TN_ERR_LIMIT` beyond | see above |
 
 Packages resolve in the order data directory → cache directory → registry. The cache layout is
