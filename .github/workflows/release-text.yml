@@ -13,6 +13,14 @@ on:
 env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
+  # The five packages that carry a Rust library declare one `runtimes/<rid>/native/` entry per RID
+  # in their csproj, and `linux-musl-arm64` is missing from those lists — the change that added the
+  # RID owned the workflows, the staging and the verifier, not `src/`. These two hooks are how
+  # Microsoft.Common.targets lets a file outside the project add the entry at pack time; the file
+  # conditions every item on the staged library existing. Exported rather than passed on each
+  # command line so the release pack step cannot forget them.
+  CustomAfterMicrosoftCommonTargets: ${{ github.workspace }}/.github/native/linux-musl-arm64.targets
+  CustomAfterMicrosoftCommonCrossTargetingTargets: ${{ github.workspace }}/.github/native/linux-musl-arm64.targets
 
 # Read-only by default; the publish job adds id-token: write for trusted publishing.
 permissions:
@@ -21,14 +29,15 @@ permissions:
 # Everything in the suite that does not embed the compiler: M3scalinum.Text.Pdf, .Templates, .Mcp,
 # .Barcodes, .Ocr, .Docx and .Xlsx. These packages do not version themselves after Typst, they follow TextVersion, so
 # they need their own tag namespace and their own workflow. The five native ones are the reason the
-# `native` job below exists: they ship six RIDs each, built here and packed by `pack`.
+# `native` job below exists: they ship seven RIDs each, built here and packed by `pack`.
 
 jobs:
   native:
     name: native (${{ matrix.crate }}, ${{ matrix.rid }})
-    # Six RIDs, the compiler's set: `linux-musl-x64` is hand-linked from the staticlib with
-    # `musl-gcc` because Rust cannot emit a cdylib for a musl target, and an Alpine consumer — the
-    # default .NET image is musl — gets a library it can load rather than a DllNotFoundException.
+    # Seven RIDs, one more than the compiler's set: both musl entries are hand-linked from the
+    # staticlib with `musl-gcc` because Rust cannot emit a cdylib for a musl target, and an Alpine
+    # consumer — the default .NET image is musl — gets a library it can load on either architecture
+    # rather than a DllNotFoundException.
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -41,6 +50,9 @@ jobs:
           - { os: ubuntu-24.04-arm, rid: linux-arm64, target: "" }
           # Cross-compiled on the x64 pool: musl-tools ships an x86_64 host toolchain only.
           - { os: ubuntu-latest, rid: linux-musl-x64, target: x86_64-unknown-linux-musl }
+          # Not a cross-compile: on the arm64 runner `musl-tools` installs an aarch64 musl-gcc, the
+          # architecture the target links for, so the recipe above needs no cross linker.
+          - { os: ubuntu-24.04-arm, rid: linux-musl-arm64, target: aarch64-unknown-linux-musl }
           # The universal dylib cross-compiles from either macOS host; the Intel pool keeps CI off
           # the arm64 queue GitHub throttles.
           - { os: macos-15-intel, rid: osx, target: "" }
@@ -213,8 +225,8 @@ jobs:
           dotnet pack src/Text.Xlsx -c Release --no-restore \
             -o artifacts/packages -p:CoreVersion="$core" "${version_args[@]}"
       - name: Verify the packages
-        # `--native`: this job downloads every crate's six RIDs, so a package that ships without one
-        # of its libraries is caught here rather than by a consumer's DllNotFoundException.
+        # `--native`: this job downloads every crate's seven RIDs, so a package that ships without
+        # one of its libraries is caught here rather than by a consumer's DllNotFoundException.
         run: |
           for package in artifacts/packages/*.nupkg; do
             python3 tests/verify-package.py "$package" --native
