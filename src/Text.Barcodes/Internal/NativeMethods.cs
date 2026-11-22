@@ -113,6 +113,36 @@ internal static partial class NativeMethods
     [LibraryImport(LibraryName, EntryPoint = "bt_decode_live_count")]
     internal static partial uint DecodeLiveCount();
 
+    [LibraryImport(LibraryName, EntryPoint = "bt_decode_box")]
+    internal static partial int DecodeBox(
+        IntPtr decoded, out NativeBuffer box, out IntPtr error);
+
+    [LibraryImport(LibraryName, EntryPoint = "bt_decode_image")]
+    internal static unsafe partial IntPtr DecodeImage(
+        byte* data, nuint length, ulong maximumPixels, nuint maximumBytes, out IntPtr error);
+
+    [LibraryImport(LibraryName, EntryPoint = "bt_decode_page_count")]
+    internal static partial uint DecodePageCount(IntPtr page);
+
+    [LibraryImport(LibraryName, EntryPoint = "bt_decode_page_width")]
+    internal static partial uint DecodePageWidth(IntPtr page);
+
+    [LibraryImport(LibraryName, EntryPoint = "bt_decode_page_height")]
+    internal static partial uint DecodePageHeight(IntPtr page);
+
+    [LibraryImport(LibraryName, EntryPoint = "bt_decode_page_error")]
+    internal static partial int DecodePageError(
+        IntPtr page, out NativeBuffer message, out IntPtr error);
+
+    [LibraryImport(LibraryName, EntryPoint = "bt_decode_page_symbol")]
+    internal static partial IntPtr DecodePageSymbol(IntPtr page, uint index, out IntPtr error);
+
+    [LibraryImport(LibraryName, EntryPoint = "bt_decode_page_free")]
+    internal static partial void DecodePageFree(IntPtr page);
+
+    [LibraryImport(LibraryName, EntryPoint = "bt_decode_page_live_count")]
+    internal static partial uint DecodePageLiveCount();
+
     internal static string ReadUtf8(IntPtr pointer)
         => Marshal.PtrToStringUTF8(pointer) ?? string.Empty;
 }

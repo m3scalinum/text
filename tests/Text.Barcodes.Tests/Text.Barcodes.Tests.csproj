@@ -7,6 +7,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Text.Barcodes\Text.Barcodes.csproj" />
+    <!-- The PDF recipe of Spec 20 §9 is a composition, and the composition is what the test proves:
+         render a page with PdfRaster, hand its bytes to Barcode.DecodeAll. Nothing in the barcode
+         package depends on Text.Pdf; only this test does. -->
+    <ProjectReference Include="..\..\src\Text.Pdf\Text.Pdf.csproj" />
   </ItemGroup>
 
   <ItemGroup>

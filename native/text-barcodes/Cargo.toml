@@ -12,12 +12,14 @@ name = "sharp_text_barcodes"
 crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
-# rxing is Apache-2.0, the licence of this repository. Only the encoders and decoders are built:
-# no image I/O beyond PNG, no SVG reader, no client support.
+# rxing is Apache-2.0, the licence of this repository. Only the encoders, the decoders and the
+# multi-symbol readers are built: no image I/O beyond PNG, no SVG reader, no client support. The
+# multi-symbol readers are what `decode_png_all` uses to return every barcode on a page.
 rxing = { version = "0.9.4", default-features = false, features = [
     "encoders",
     "decoders",
     "full_barcode_format_support",
+    "multi_barcode_readers",
     "encoding_rs",
 ] }
 # PNG only, pinned to the version rxing itself depends on so the tree holds one copy. MIT OR
