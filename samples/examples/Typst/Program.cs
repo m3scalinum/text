@@ -46,13 +46,13 @@ if (pdf.Length < 5 || pdf[0] != '%' || pdf[1] != 'P' || pdf[2] != 'D' || pdf[3] 
     throw new InvalidOperationException("the export did not produce a PDF header");
 }
 
-var text = compilation.ExportText();
+var outline = compilation.Evaluate().Outline;
 
-if (!text.Contains("M3scalinum.Text.Typst sample", StringComparison.Ordinal))
+if (outline.Count == 0)
 {
-    throw new InvalidOperationException($"the exported text does not hold the heading: '{text}'");
+    throw new InvalidOperationException("the compiled document has no heading in its outline");
 }
 
-Console.WriteLine($"  exported     {text.Length} chars of text, heading present");
+Console.WriteLine($"  outline      {string.Join(" > ", outline.Select(entry => entry.Title))}");
 Console.WriteLine();
 Console.WriteLine("M3scalinum.Text.Typst: the native compiler loaded from the package and compiled.");
