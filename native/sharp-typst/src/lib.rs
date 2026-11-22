@@ -105,16 +105,44 @@ pub extern "C" fn tn_document_live_count() -> u32 {
 // Version handshake
 // ---------------------------------------------------------------------------
 
+/// The ABI revision this crate implements.
+///
+/// Revision 2 adds [`tn_abi_version_min`] and the negotiated range; every symbol that existed in
+/// revision 1 keeps its name and its signature, so a revision 1 host still works against this
+/// library.
+pub const TN_ABI_VERSION: u32 = 2;
+
+/// The oldest ABI revision this crate still answers for.
+///
+/// A revision stays served for two ABI revisions — its own and the next one — so revision 1 is
+/// dropped when revision 3 ships. [`tn_abi_version`] and this constant together are the range a
+/// host intersects with its own.
+pub const TN_ABI_MIN_VERSION: u32 = 1;
+
+/// The ABI revision this library implements.
+///
+/// A host reads it once, at load, and compares it with the range it was built for. The library
+/// never refuses a host on its own: it cannot know which managed assembly called it.
 #[unsafe(no_mangle)]
 pub extern "C" fn tn_abi_version() -> u32 {
-    1
+    TN_ABI_VERSION
 }
 
+/// The oldest ABI revision this library still serves.
+///
+/// Exported for introspection and conformance only: a managed layer that also runs against
+/// revision 1 libraries must not call it, because revision 1 does not export it.
+#[unsafe(no_mangle)]
+pub extern "C" fn tn_abi_version_min() -> u32 {
+    TN_ABI_MIN_VERSION
+}
+
+/// Human-readable form of [`tn_abi_version`], for logs and error messages.
 #[unsafe(no_mangle)]
 pub extern "C" fn tn_abi_version_string() -> *const c_char {
     static VERSION: OnceLock<CString> = OnceLock::new();
     VERSION
-        .get_or_init(|| CString::new("1.0.0").expect("literal has no interior NUL"))
+        .get_or_init(|| CString::new("2.0.0").expect("literal has no interior NUL"))
         .as_ptr()
 }
 
@@ -746,5 +774,41 @@ fn compile_as<T: Output>(
             TN_ERR_COMPILATION,
             diag::to_json(world, &errors, "compilation"),
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ffi::CStr;
+
+    use super::*;
+
+    /// The two numbers a host negotiates with must describe a range, not a point: the current
+    /// revision, the oldest one still served, and exactly two revisions between them.
+    #[test]
+    fn the_abi_range_is_coherent() {
+        // Compile-time facts: a bad constant should fail the build, not one test.
+        const { assert!(TN_ABI_MIN_VERSION >= 1, "revision 0 is not an ABI") };
+        const { assert!(TN_ABI_MIN_VERSION <= TN_ABI_VERSION) };
+        const {
+            assert!(
+                TN_ABI_VERSION - TN_ABI_MIN_VERSION + 1 == 2,
+                "a revision is served for two ABI revisions: its own and the next"
+            )
+        };
+
+        assert_eq!(tn_abi_version(), TN_ABI_VERSION);
+        assert_eq!(tn_abi_version_min(), TN_ABI_MIN_VERSION);
+    }
+
+    /// The string form is what an error message quotes, so it must name the revision the number
+    /// reports. A drift here makes every diagnostic about a mismatch misleading.
+    #[test]
+    fn the_version_string_names_the_current_revision() {
+        let text = unsafe { CStr::from_ptr(tn_abi_version_string()) }
+            .to_str()
+            .expect("the version literal is utf-8");
+
+        assert_eq!(text, format!("{TN_ABI_VERSION}.0.0"));
     }
 }

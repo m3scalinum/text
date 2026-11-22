@@ -11,6 +11,11 @@ internal static partial class NativeMethods
 {
     internal const string LibraryName = "sharp_typst";
 
+    /// <summary>
+    /// The ABI revision the library implements. <c>tn_abi_version_min</c> — the oldest revision it
+    /// serves — is deliberately not declared here: a revision 1 library does not export it, and the
+    /// range that decides is the one compiled into this assembly (Spec 02 §11).
+    /// </summary>
     [LibraryImport(LibraryName, EntryPoint = "tn_abi_version")]
     internal static partial uint AbiVersion();
 

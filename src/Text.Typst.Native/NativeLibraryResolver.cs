@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Threading;
 
 namespace M3scalinum.Text.Typst.Native;
 
@@ -12,6 +13,15 @@ namespace M3scalinum.Text.Typst.Native;
 internal static class NativeLibraryResolver
 {
     private const string OverrideVariable = "SHARPTYPST_NATIVE_PATH";
+
+    private static string? _loadedPath;
+
+    /// <summary>
+    /// The file that was loaded, or <see langword="null"/> when the runtime's default probe found
+    /// it. An ABI mismatch quotes it: a path is what tells the caller which copy of the library is
+    /// in play (Spec 02 §11).
+    /// </summary>
+    internal static string? LoadedPath => Volatile.Read(ref _loadedPath);
 
     /// <summary>
     /// Installs the resolver. Called from <see cref="TypstNative"/>'s static constructor,
@@ -32,20 +42,30 @@ internal static class NativeLibraryResolver
         var overridePath = Environment.GetEnvironmentVariable(OverrideVariable);
         if (!string.IsNullOrEmpty(overridePath) && File.Exists(overridePath))
         {
-            return NativeLibrary.Load(overridePath);
+            return Load(overridePath);
         }
 
         foreach (var candidate in Candidates())
         {
             if (File.Exists(candidate))
             {
-                return NativeLibrary.Load(candidate);
+                return Load(candidate);
             }
         }
 
         // Fall back to the default probing rules; if that fails, the runtime raises
         // DllNotFoundException naming the library, which is the clearest signal we can give.
         return IntPtr.Zero;
+    }
+
+    /// <summary>
+    /// Loads <paramref name="path"/> and records it, so a later ABI mismatch can name the file.
+    /// </summary>
+    private static IntPtr Load(string path)
+    {
+        var handle = NativeLibrary.Load(path);
+        Volatile.Write(ref _loadedPath, path);
+        return handle;
     }
 
     internal static string[] Candidates()

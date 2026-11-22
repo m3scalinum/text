@@ -19,14 +19,10 @@ internal sealed class TypstNative : ITypstNative
 
     public TypstNative()
     {
-        var abi = NativeMethods.AbiVersion();
-        if (abi != 1)
-        {
-            throw new NativeCallException(
-                NativeStatus.AbiMismatch,
-                string.Empty,
-                $"native library reports ABI version {abi}, this build requires 1");
-        }
+        // The load-time contract: a native library outside the accepted range is refused here, with
+        // a message that names both revisions, the range and the file, instead of failing later as
+        // an EntryPointNotFoundException on whichever symbol changed first (Spec 02 §11).
+        AbiContract.Ensure(NativeMethods.AbiVersion(), NativeLibraryResolver.LoadedPath, AbiWarning.Warn);
 
         _typstVersion = NativeMethods.ReadUtf8(NativeMethods.TypstVersion());
     }
