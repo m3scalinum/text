@@ -525,6 +525,7 @@ jobs:
           Ocr M3scalinum.Text.Ocr
           Docx M3scalinum.Text.Docx
           Xlsx M3scalinum.Text.Xlsx
+          Pdf M3scalinum.Text.Pdf
           TABLE
 
   examples:
