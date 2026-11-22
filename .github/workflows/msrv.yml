@@ -1,0 +1,45 @@
+name: msrv
+
+# `rust-version` in each crate's `[package]` is a promise: with that toolchain or newer, the crate
+# builds. The number is therefore a property of the resolved dependency graph, not a preference, and
+# it drifts silently the moment a dependency bumps its own floor -- nothing fails, the promise just
+# becomes wrong. `tools/check-msrv.py` compares the promise with the graph (edition floor included)
+# for all five crates and fails when the two disagree.
+#
+# The control is static: no job here downloads an old toolchain. Building every crate at its floor
+# on five platforms would cost a matrix of its own for a number that can be read out of the graph in
+# a second, and the release workflows already build each crate for real on every RID. What this job
+# catches is the failure a stable-toolchain build cannot: a `rust-version` lower than a dependency
+# allows (a broken promise to the reader) or higher than the graph requires (a refusal of toolchains
+# that would have worked).
+#
+# `cargo metadata --locked` reads the committed `Cargo.lock`, so the graph compared is the graph
+# that ships, dev-dependencies and target-specific dependencies included.
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A branch pushed three times otherwise runs three checks over the same commits.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  floor:
+    name: rust-version matches the dependency graph
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      # Standard library only, so there is nothing to install. The runner's stable cargo is only
+      # the tool that reads the graph; its version is never compared to any floor.
+      - name: Compare rust-version with the dependency graph
+        run: python3 tools/check-msrv.py
