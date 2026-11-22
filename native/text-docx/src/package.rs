@@ -182,9 +182,7 @@ pub const MAX_RELATIONSHIPS: usize = 4096;
 pub fn read_relationships(xml: &[u8]) -> Result<Vec<Relationship>, ParseError> {
     let text = xml_text(xml)?;
 
-    let document = roxmltree::Document::parse(text).map_err(|error| {
-        ParseError::MalformedPackage(format!("a relationships part is not valid XML: {error}"))
-    })?;
+    let document = crate::xml::parse(text, "a relationships part")?;
 
     let mut relationships = Vec::new();
 
