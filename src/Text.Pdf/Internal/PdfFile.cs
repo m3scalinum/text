@@ -31,6 +31,18 @@ internal sealed partial class PdfFile
     /// <summary>The most objects a cross-reference section may declare, as a guard against garbage.</summary>
     private const int MaxObjects = 1_000_000;
 
+    /// <summary>
+    /// The most bytes one stream may decode to.
+    /// </summary>
+    /// <remarks>
+    /// A stream's declared <c>/Length</c> says nothing about what its filters produce: a few
+    /// kilobytes of deflated zeroes inflate to hundreds of megabytes, and the bomb is bounded only by
+    /// the caller's address space when no ceiling is applied. Thirty-two megabytes is past every
+    /// stream this reader consumes — a content stream, an object stream, an ICC profile, a font
+    /// program — and well below what a bomb reaches from a file small enough to be mailed.
+    /// </remarks>
+    internal const int MaxStreamBytes = 32 * 1024 * 1024;
+
     private readonly byte[] _data;
     private readonly Dictionary<int, XrefEntry> _entries = [];
     private readonly Dictionary<int, PdfValue> _cache = [];
@@ -768,7 +780,10 @@ internal sealed partial class PdfFile
         return objects;
     }
 
-    /// <summary>Decodes a stream's filters. Returns <see langword="null"/> for an unsupported filter.</summary>
+    /// <summary>
+    /// Decodes a stream's filters. Returns <see langword="null"/> for an unsupported filter or a
+    /// stream that decodes past <see cref="MaxStreamBytes"/>, which is recorded as a reading problem.
+    /// </summary>
     internal byte[]? Decode(PdfStream stream)
     {
         var filters = new List<string>();
@@ -820,7 +835,7 @@ internal sealed partial class PdfFile
         return Predict(data, Resolve(stream.Dictionary["DecodeParms"]) as PdfDictionary);
     }
 
-    private static byte[]? Inflate(byte[] data)
+    private byte[]? Inflate(byte[] data)
     {
         try
         {
@@ -846,12 +861,34 @@ internal sealed partial class PdfFile
             }
         }
 
-        static byte[] Read(Stream inflater)
+        byte[]? Read(Stream inflater)
         {
             using var output = new MemoryStream();
-            inflater.CopyTo(output);
+            var buffer = new byte[81920];
 
-            return output.ToArray();
+            while (true)
+            {
+                var read = inflater.Read(buffer, 0, buffer.Length);
+                if (read == 0)
+                {
+                    return output.ToArray();
+                }
+
+                if (output.Length + read > MaxStreamBytes)
+                {
+                    // Refused while it is being read, not after it exists: the read stops one chunk
+                    // past the ceiling, so a stream that would decode to gigabytes never allocates
+                    // them. The caller sees the object as undecodable and the report names the rule.
+                    _problems.Add(new PdfReadingProblem(
+                        PdfConformanceCodes.ObjectUnreadable,
+                        "stream",
+                        $"a stream decodes past the {MaxStreamBytes}-byte limit of one decoded stream; its filters were abandoned at that size, so the object reads as undecodable"));
+
+                    return null;
+                }
+
+                output.Write(buffer, 0, read);
+            }
         }
     }
 

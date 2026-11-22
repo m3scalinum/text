@@ -662,6 +662,37 @@ mod tests {
     }
 
     #[test]
+    fn a_part_that_would_build_too_many_nodes_is_refused() {
+        // Two million empty siblings are eight megabytes of XML and a tree no document has. The
+        // parser is told the node ceiling, so the refusal costs the cap and not the tree; if the
+        // ceiling is raised past the fixture, the parse succeeds and this fails.
+        let mut xml = String::with_capacity(MAX_XML_NODES as usize * 4 + 16);
+
+        xml.push_str("<r>");
+        xml.push_str(&"<e/>".repeat(MAX_XML_NODES as usize));
+        xml.push_str("</r>");
+
+        assert_eq!(check(&xml).unwrap_err(), Refusal::TooManyNodes);
+    }
+
+    #[test]
+    fn a_subset_with_more_declarations_than_the_cap_is_refused() {
+        // The declaration cap bounds the prologue scan's own recursion, which is why it is checked
+        // before the expansion is measured: sixty-five short entities are refused as too many
+        // declarations, not as an expansion. Raise the cap and this document reads as a plain DTD
+        // refusal instead.
+        let mut xml = String::from("<?xml version=\"1.0\"?><!DOCTYPE d [");
+
+        for index in 0..=MAX_ENTITY_DECLARATIONS {
+            xml.push_str(&format!("<!ENTITY e{index} \"x\">"));
+        }
+
+        xml.push_str("]><d>&e0;</d>");
+
+        assert_eq!(check(&xml).unwrap_err(), Refusal::EntityExpansion);
+    }
+
+    #[test]
     fn a_policy_refusal_names_the_part_and_the_rule() {
         let error = check(DOCTYPE).unwrap_err().into_error("word/document.xml");
 
