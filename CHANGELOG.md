@@ -6,7 +6,7 @@ its own version number, its own tag namespace and its own changelog:
 | Train | Packages | Version | Detail |
 | --- | --- | --- | --- |
 | Compiler | `M3scalinum.Text.Typst`, `.Documents`, `.DependencyInjection`, `.Templates.Generator` | follows the embedded Typst, `0.15.1.N` | [CHANGELOG-Typst.md](CHANGELOG-Typst.md) |
-| Suite | `M3scalinum.Text.Pdf`, `.Templates`, `.Mcp`, `.Barcodes`, `.Ocr`, `.Docx` | follows `TextVersion`, `0.1.N` | [CHANGELOG-Text.md](CHANGELOG-Text.md) |
+| Suite | `M3scalinum.Text.Pdf`, `.Templates`, `.Mcp`, `.Barcodes`, `.Ocr`, `.Docx`, `.Xlsx` | follows `TextVersion`, `0.1.N` | [CHANGELOG-Text.md](CHANGELOG-Text.md) |
 
 This file records what the project gains as a whole. The per-package detail lives in the two train
 files and is not repeated here.
@@ -52,3 +52,12 @@ Not yet published on nuget.org.
   Codabar) over the `rxing` crate, and OCR over `ocrs` with the models the caller supplies.
 - A Word document read into the document model over `zip` and `roxmltree`, then renderable by the
   compiler like any other document.
+- An `.xlsx` workbook read into the document model over `calamine`, typed cells and cached formula
+  values included, and rendered as a table — a spreadsheet reaches a PDF with no Excel present.
+- The document model written back out as Markdown and as semantic HTML, each naming the constructs it
+  could not represent, so a document built in C# leaves the library without paying the compiler for
+  plain text.
+- A per-package accessibility checklist for the European Accessibility Act, with a test per
+  automatically checkable line, and the lines that only a screen reader run can settle named as such.
+- One XML entry point for the DOCX reader that refuses DTDs, external entities, entity expansion
+  bombs, and parts past a size or a depth bound.
