@@ -65,10 +65,16 @@ jobs:
       # toolchain does not ship.
       - uses: dtolnay/rust-toolchain@nightly
 
+      # Built from source, pinned. `install-action` does not publish a prebuilt `cargo-fuzz`, and a
+      # `cargo install` that runs once per job is a minute and a half without the cache below.
       - name: Install cargo-fuzz
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-fuzz@${{ env.CARGO_FUZZ_VERSION }}
+        run: |
+          set -euo pipefail
+          if command -v cargo-fuzz >/dev/null 2>&1; then
+            cargo fuzz --version
+          else
+            cargo +nightly install cargo-fuzz --locked --version "$CARGO_FUZZ_VERSION"
+          fi
 
       # The registry and the instrumented build. The committed root `Cargo.lock` pins the harness,
       # and the four native manifests are hashed because the fuzz crate depends on them by path; a
@@ -78,6 +84,7 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
+            ~/.cargo/bin/cargo-fuzz
             target
           key: fuzz-${{ runner.os }}-${{ matrix.target }}-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'fuzz/Cargo.toml', 'native/*/Cargo.toml', 'native/*/src/**') }}
           restore-keys: |
