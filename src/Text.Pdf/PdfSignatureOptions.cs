@@ -14,6 +14,28 @@ public sealed class PdfSignatureOptions
     /// <summary>Why the document is signed, as the signer declares it. Default: none.</summary>
     public string? Reason { get; init; }
 
+    /// <summary>
+    /// Which eIDAS act this call performs: a person's signature, or a legal person's seal.
+    /// Default: <see cref="PdfSignatureKind.Person"/>.
+    /// </summary>
+    /// <remarks>
+    /// A seal is not a different structure — it is a PAdES signature whose certificate states the
+    /// document signing usage and whose CMS carries the claimed signing time. Setting
+    /// <see cref="PdfSignatureKind.Seal"/> therefore does two things: the writer refuses a
+    /// certificate whose extended key usage does not carry <c>id-kp-documentSigning</c>
+    /// (1.3.6.1.5.5.7.3.36), naming the missing extension; and it signs the CAdES
+    /// <c>signing-time</c> signed attribute with <see cref="SignedAt"/>, so a validator reads a
+    /// <c>claimedSigningTime</c> from the signature rather than from the document alone. A person's
+    /// signature is written exactly as before: no usage is required and no attribute is added.
+    /// <para>
+    /// The kind says what the certificate is for, not whether the seal is <em>qualified</em>: that
+    /// is a statement a trust list makes about a service, and
+    /// <see cref="PdfSignatureVerifier.ReadEidas(ReadOnlySpan{byte}, PdfTrustStore, PdfTrustedList)"/>
+    /// is what reads it.
+    /// </para>
+    /// </remarks>
+    public PdfSignatureKind Kind { get; init; } = PdfSignatureKind.Person;
+
     /// <summary>Where the signature was made. Default: none.</summary>
     public string? Location { get; init; }
 

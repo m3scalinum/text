@@ -1,8 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using M3scalinum.Text.Barcodes.Internal;
+using M3scalinum.Text.Documents;
 
 namespace M3scalinum.Text.Barcodes;
 
@@ -76,6 +80,189 @@ public static class Barcode
         ArgumentNullException.ThrowIfNull(data);
         return Encode(BarcodeSymbology.Gs1_128, data.Raw, options);
     }
+
+    /// <summary>
+    /// Renders <paramref name="payload"/> for paper: a resolution, a physical size, and the quiet
+    /// zone the symbology requires.
+    /// </summary>
+    /// <param name="symbology">The symbology to write.</param>
+    /// <param name="payload">The text to encode, as for <see cref="Encode"/>.</param>
+    /// <param name="printOptions">The print target, or <see langword="null"/> for 300 dpi at the
+    /// symbology's minimum module size.</param>
+    /// <returns>The raster, the module size in millimetres and the size the symbol really prints
+    /// at.</returns>
+    /// <remarks>
+    /// <para>
+    /// Unlike <see cref="Encode"/>, which keeps the historic quiet zones so an existing document
+    /// never changes size, a print target renders at the symbology's normative minimum or wider,
+    /// and refuses anything narrower. The module floor is enforced the same way: 0.25 mm for a
+    /// one-dimensional symbol, 0.40 mm for a two-dimensional one.
+    /// </para>
+    /// <para>
+    /// A layout that cannot hold the symbol plus its quiet zone is refused rather than cropped —
+    /// see <see cref="BarcodePrintOptions.WidthModules"/>.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentNullException"><paramref name="payload"/> is null.</exception>
+    /// <exception cref="BarcodeException"><paramref name="payload"/> is empty or holds a NUL, or
+    /// <paramref name="printOptions"/> holds a value out of range.</exception>
+    /// <exception cref="BarcodeFormatException">The symbology cannot represent this payload.</exception>
+    /// <exception cref="BarcodeUnsupportedException">The symbology is read only in this build.</exception>
+    /// <exception cref="BarcodeGs1Exception">The payload is not a GS1 element string this build
+    /// understands.</exception>
+    public static BarcodePrint Print(
+        BarcodeSymbology symbology,
+        string payload,
+        BarcodePrintOptions? printOptions = null)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+
+        if (!CanEncode(symbology))
+        {
+            throw new BarcodeUnsupportedException(
+                $"{symbology} is read only in this build: the engine has no writer for it, so it can be decoded but not encoded");
+        }
+
+        var options = printOptions ?? new BarcodePrintOptions();
+        options.Validate();
+        ValidatePayload(payload);
+
+        try
+        {
+            var (png, json) = BarcodeNative.Print(
+                symbology.ToAbiName(),
+                payload,
+                options.QuietZone ?? -1,
+                options.BarHeight ?? -1,
+                options.ErrorCorrection.ToAbiName(),
+                options.Dpi,
+                options.EffectiveWidthMillimetres,
+                options.EffectiveModuleMillimetres(MinimumModuleSize(symbology)),
+                options.WidthModules ?? 0);
+
+            return ParsePrint(symbology, payload, png, json);
+        }
+        catch (NativeCallException error)
+        {
+            throw Translate(error, symbology);
+        }
+    }
+
+    /// <summary>
+    /// Encodes <paramref name="payload"/> and adds it to <paramref name="document"/> as a figure,
+    /// with a readable alternative description.
+    /// </summary>
+    /// <param name="document">The document to add the figure to.</param>
+    /// <param name="symbology">The symbology to write.</param>
+    /// <param name="payload">The text to encode.</param>
+    /// <param name="printOptions">The print target, or <see langword="null"/> for 300 dpi at the
+    /// symbology's minimum module size.</param>
+    /// <param name="altText">The alternative description, or <see langword="null"/> for
+    /// <c>"QRCode barcode: HELLO"</c> — the symbology and the content, which is what a screen
+    /// reader needs in place of the image.</param>
+    /// <param name="assetName">The virtual path of the image, or <see langword="null"/> for a name
+    /// derived from the symbology, the payload and the print target.</param>
+    /// <returns>The figure that was added, with the PNG to register under
+    /// <see cref="BarcodeFigure.AssetName"/>.</returns>
+    /// <remarks>
+    /// The document model is write-only Typst source and refers to images by virtual path, so the
+    /// raster cannot travel inside it. It comes back on the result instead: no temporary file, no
+    /// manual encoding, one call. Register <see cref="BarcodeFigure.Png"/> under
+    /// <see cref="BarcodeFigure.AssetName"/> with the world builder that compiles the document.
+    /// </remarks>
+    /// <exception cref="ArgumentNullException"><paramref name="document"/> or
+    /// <paramref name="payload"/> is null.</exception>
+    /// <exception cref="ArgumentException"><paramref name="assetName"/> is not a plain file name.</exception>
+    /// <exception cref="BarcodeException">The payload or the print target is out of range.</exception>
+    /// <exception cref="BarcodeFormatException">The symbology cannot represent this payload.</exception>
+    /// <exception cref="BarcodeUnsupportedException">The symbology is read only in this build.</exception>
+    public static BarcodeFigure AddToDocument(
+        TypstDocument document,
+        BarcodeSymbology symbology,
+        string payload,
+        BarcodePrintOptions? printOptions = null,
+        string? altText = null,
+        string? assetName = null)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+
+        var print = Print(symbology, payload, printOptions);
+        var alt = string.IsNullOrWhiteSpace(altText) ? DefaultAltText(symbology, payload) : altText;
+        var name = assetName ?? AssetNameFor(symbology, payload, print);
+
+        ValidateAssetName(name);
+
+        document.Figure(figure => figure
+            .Image(name, TypstLength.Mm(print.WidthMillimetres))
+            .Alt(alt));
+
+        return new BarcodeFigure(name, alt, print);
+    }
+
+    /// <summary>
+    /// Encodes a GS1 element string and adds it to <paramref name="document"/> as a figure, with the
+    /// human-readable form as the alternative description.
+    /// </summary>
+    /// <param name="document">The document to add the figure to.</param>
+    /// <param name="data">The elements to write.</param>
+    /// <param name="printOptions">The print target, or <see langword="null"/> for 300 dpi at the
+    /// symbology's minimum module size.</param>
+    /// <param name="altText">The alternative description, or <see langword="null"/> for the
+    /// printed form, <c>(01)09501101530003(10)LOT-42</c>.</param>
+    /// <param name="assetName">The virtual path of the image, or <see langword="null"/>.</param>
+    /// <returns>The figure that was added.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="document"/> or
+    /// <paramref name="data"/> is null.</exception>
+    /// <exception cref="BarcodeGs1Exception">An element is not one this build understands.</exception>
+    public static BarcodeFigure AddGs1ToDocument(
+        TypstDocument document,
+        Gs1Data data,
+        BarcodePrintOptions? printOptions = null,
+        string? altText = null,
+        string? assetName = null)
+    {
+        ArgumentNullException.ThrowIfNull(data);
+
+        return AddToDocument(
+            document,
+            BarcodeSymbology.Gs1_128,
+            data.Raw,
+            printOptions,
+            altText ?? $"GS1-128 barcode: {data.HumanReadable}",
+            assetName);
+    }
+
+    /// <summary>
+    /// The quiet zone, in modules on each side, a print target renders for
+    /// <paramref name="symbology"/> unless the caller asks for more.
+    /// </summary>
+    /// <param name="symbology">The symbology to ask about.</param>
+    /// <returns>Four for a QR Code, one for a DataMatrix, ten for a Code 128, eleven for an
+    /// EAN-13, nine for a UPC, two for a PDF417.</returns>
+    /// <remarks>
+    /// Read from the native library, which also enforces it: the floor a caller sees and the floor
+    /// <see cref="Print"/> refuses to go under are one table.
+    /// </remarks>
+    /// <exception cref="BarcodeException"><paramref name="symbology"/> is not in the loaded
+    /// library's table.</exception>
+    public static int MinimumQuietZone(BarcodeSymbology symbology) => Rule(symbology).QuietZone;
+
+    /// <summary>
+    /// The smallest module, in millimetres, a print target renders for
+    /// <paramref name="symbology"/>.
+    /// </summary>
+    /// <param name="symbology">The symbology to ask about.</param>
+    /// <returns>0.25 mm for a one-dimensional symbol, 0.40 mm for a two-dimensional one.</returns>
+    /// <remarks>
+    /// ISO 15394:2009 §6.1.3 sets 0.25 mm as the narrow element floor for Code 39 and Code 128,
+    /// and the GS1 General Specifications set the same absolute floor for the GS1 members; the
+    /// 0.40 mm two-dimensional floor is the 0.396 mm minimum of symbol specification table 1,
+    /// rounded up. Spec 20 §10 carries the table and its sources.
+    /// </remarks>
+    /// <exception cref="BarcodeException"><paramref name="symbology"/> is not in the loaded
+    /// library's table.</exception>
+    public static double MinimumModuleSize(BarcodeSymbology symbology)
+        => Rule(symbology).MinimumModuleMillimetres;
 
     /// <summary>
     /// Encodes <paramref name="payload"/> as <paramref name="symbology"/>.
@@ -279,6 +466,99 @@ public static class Barcode
                 "payload must not contain a NUL character: it would truncate at the ABI");
         }
     }
+
+    /// <summary>Reads the geometry the native print call reported into its managed type.</summary>
+    private static BarcodePrint ParsePrint(
+        BarcodeSymbology symbology, string payload, byte[] png, string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        var geometry = document.RootElement;
+
+        return new BarcodePrint(
+            symbology,
+            payload,
+            png,
+            (int)geometry.GetProperty("dpi").GetDouble(),
+            geometry.GetProperty("moduleMm").GetDouble(),
+            geometry.GetProperty("modulePixels").GetInt32(),
+            geometry.GetProperty("quietZone").GetInt32(),
+            geometry.GetProperty("widthModules").GetInt32(),
+            geometry.GetProperty("heightModules").GetInt32(),
+            geometry.GetProperty("widthMm").GetDouble(),
+            geometry.GetProperty("heightMm").GetDouble(),
+            geometry.GetProperty("widthPixels").GetInt32(),
+            geometry.GetProperty("heightPixels").GetInt32());
+    }
+
+    /// <summary>The description a figure carries when the caller names none.</summary>
+    private static string DefaultAltText(BarcodeSymbology symbology, string payload)
+        => $"{symbology.ToAbiName()} barcode: {payload}";
+
+    /// <summary>
+    /// The virtual path a document figure refers to, derived from what the symbol is and how it
+    /// prints. Deterministic, so a rebuild produces the same document and the same asset names.
+    /// </summary>
+    private static string AssetNameFor(
+        BarcodeSymbology symbology, string payload, BarcodePrint print)
+    {
+        var description = string.Create(
+            CultureInfo.InvariantCulture,
+            $"{symbology}|{payload}|{print.Dpi}|{print.ModuleMillimetres:R}");
+
+        var hash = Convert.ToHexString(
+            SHA256.HashData(Encoding.UTF8.GetBytes(description)))[..8].ToLowerInvariant();
+
+        return $"barcode-{symbology.ToString().ToLowerInvariant()}-{hash}.png";
+    }
+
+    /// <summary>
+    /// Keeps an asset name to a plain file name: a path separator or a `..` would let a document
+    /// write outside the bundle, and the model has no reason to allow it.
+    /// </summary>
+    private static void ValidateAssetName(string name)
+    {
+        if (name.Length == 0
+            || name.Contains("..", StringComparison.Ordinal)
+            || name.Any(character =>
+                !char.IsAsciiLetterOrDigit(character) && character is not ('-' or '_' or '.')))
+        {
+            throw new ArgumentException(
+                "an asset name is a plain file name: letters, digits, '-', '_' and '.', with no directory",
+                nameof(name));
+        }
+    }
+
+    /// <summary>The quiet-zone and module floors of one symbology, as the native library reports them.</summary>
+    private readonly record struct SymbologyRule(
+        int QuietZone, double MinimumModuleMillimetres);
+
+    private static SymbologyRule Rule(BarcodeSymbology symbology)
+        => RuleTable.Value.TryGetValue(symbology, out var rule)
+            ? rule
+            : throw new BarcodeException(
+                BarcodeErrorCode.Unsupported,
+                $"{symbology} is not in the loaded native library's table");
+
+    /// <summary>
+    /// The floors, read once from the native capability report so the value a caller sees and the
+    /// value the renderer enforces cannot drift apart.
+    /// </summary>
+    private static readonly Lazy<IReadOnlyDictionary<BarcodeSymbology, SymbologyRule>> RuleTable =
+        new(() =>
+        {
+            var rules = new Dictionary<BarcodeSymbology, SymbologyRule>();
+
+            foreach (var capability in BarcodeNative.SymbologyCapabilities())
+            {
+                if (BarcodeSymbologyNames.FromAbiName(capability.Name) is { } symbology)
+                {
+                    rules[symbology] = new SymbologyRule(
+                        capability.QuietZone, capability.MinimumModuleMillimetres);
+                }
+            }
+
+            return rules;
+        });
 
     /// <summary>Maps a native failure on a GS1 call onto the public taxonomy.</summary>
     /// <param name="error">The failure from the interop layer.</param>

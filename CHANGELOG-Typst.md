@@ -64,6 +64,20 @@ Not yet published. Embeds Typst 0.15.1.
   resolves at layout, so a reference before its target still prints the right number. A labelled
   table is wrapped in a `figure(kind: table)`, which is the only way Typst counts it. `Outline` gains
   its title and depth; the page numbers come from the compilation, never from C#.
+- Notes and figures numbered per section: `Footnote(content, TypstNumberingScope.Section)` resets
+  Typst's footnote counter at each level-1 heading, and a figure in section scope numbers `1.1`,
+  `1.2`, `2.1` off `counter(heading)` — resolved by the layout, so a table of contents in the middle
+  of the document does not shift them. A figure before the first section prints `1`. The default is
+  still one sequence per document, byte for byte as before.
+- A table header repeats on every page (`table.header(repeat: true)`, the default once a header
+  exists) and a row can be kept whole with `TypstTableCell.Breakable = false`, which makes Typst move
+  the row to the next page instead of splitting a cell across two. Both were verified against the real
+  compiler on a 200-row table.
+- `CompilationResult.Metrics`: what a compilation cost — the wall time and the time inside Typst, the
+  page count, how many fonts were resolved and how many bytes they occupy, the diagnostics by
+  severity — and `LastExport` for the size and duration of the export that ran. A value on the
+  result, not a process-wide counter: two compilations can run at once, and a shared counter would
+  report one call's pages for another's.
 - In-process compilation of Typst source through a C ABI over the Rust `typst` crate. No process
   spawn, no binary on `PATH`, no temporary files.
 - Export to PDF, SVG (single page or merged), PNG (single page or merged), HTML, Markdown, plain

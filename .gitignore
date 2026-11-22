@@ -30,3 +30,4 @@ docs/specifications/idea.md
 
 ## Fuzzing (the virtual workspace at the repository root holds only fuzz/)
 /target/
+__pycache__/

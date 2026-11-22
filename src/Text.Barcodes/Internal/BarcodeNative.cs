@@ -74,6 +74,47 @@ internal sealed class BarcodeNative
     public static byte[] Png(BarcodeHandle barcode, int scale)
         => ReadBytes(barcode, scale, "read the PNG", NativeMethods.BarcodePng);
 
+    /// <summary>Encodes for paper and returns the raster with the geometry the native side computed.</summary>
+    /// <param name="symbology">The ABI name of the symbology.</param>
+    /// <param name="payload">The text to encode.</param>
+    /// <param name="quietZone">Modules on each side, or a negative value for the normative minimum.</param>
+    /// <param name="barHeight">Bar height in modules, or a negative value for the default.</param>
+    /// <param name="errorCorrection">The error correction level, or null.</param>
+    /// <param name="dpi">The output resolution, in dots per inch.</param>
+    /// <param name="widthMillimetres">The whole-symbol width, or zero when the module size sizes it.</param>
+    /// <param name="moduleMillimetres">The X-dimension, or zero when the width sizes it.</param>
+    /// <param name="widthModules">The reserved width in modules, or zero to leave it unchecked.</param>
+    /// <returns>The PNG and the geometry JSON.</returns>
+    public static (byte[] Png, string Geometry) Print(
+        string symbology,
+        string payload,
+        int quietZone,
+        int barHeight,
+        string? errorCorrection,
+        int dpi,
+        double widthMillimetres,
+        double moduleMillimetres,
+        int widthModules)
+    {
+        var status = NativeMethods.BarcodePrint(
+            symbology,
+            payload,
+            quietZone,
+            barHeight,
+            errorCorrection,
+            dpi,
+            widthMillimetres,
+            moduleMillimetres,
+            (uint)widthModules,
+            out var png,
+            out var geometry,
+            out var error);
+
+        NativeCallException.Throw(status, error, $"print '{symbology}'");
+
+        return (NativeCallException.ReadAndFree(png), NativeCallException.ReadAndFreeString(geometry));
+    }
+
     public static DecodeHandle Decode(ReadOnlySpan<byte> png)
     {
         unsafe
@@ -223,7 +264,7 @@ internal sealed class BarcodeNative
     }
 
     /// <summary>The symbologies the native library reports, with whether it can write each one.</summary>
-    public static IReadOnlyList<(string Name, bool CanEncode)> SymbologyCapabilities()
+    public static IReadOnlyList<SymbologyCapability> SymbologyCapabilities()
     {
         var json = Encoding.UTF8.GetString(
             NativeCallException.ReadAndFree(NativeMethods.SymbologyCapabilities()));
@@ -232,13 +273,15 @@ internal sealed class BarcodeNative
             return [];
         }
 
-        var capabilities = new List<(string Name, bool CanEncode)>();
+        var capabilities = new List<SymbologyCapability>();
         using var document = JsonDocument.Parse(json);
         foreach (var element in document.RootElement.EnumerateArray())
         {
-            capabilities.Add((
+            capabilities.Add(new SymbologyCapability(
                 element.GetProperty("name").GetString() ?? string.Empty,
-                element.GetProperty("encode").GetBoolean()));
+                element.GetProperty("encode").GetBoolean(),
+                element.GetProperty("quietZone").GetInt32(),
+                element.GetProperty("minimumModuleMm").GetDouble()));
         }
 
         return capabilities;

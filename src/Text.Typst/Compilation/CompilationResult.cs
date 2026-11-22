@@ -116,6 +116,52 @@ public sealed class CompilationResult : IDisposable
     }
 
     /// <summary>
+    /// Which fonts a PDF export of this document embeds, and what each one costs in the file.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The numbers come from the encoded PDF, so this call encodes the document — a second export
+    /// when the caller already holds the bytes. It is a measurement path, not something to run per
+    /// request.
+    /// </para>
+    /// <para>
+    /// Typst's PDF writer subsets every face and offers no switch to embed whole fonts, so an
+    /// inventory is the actionable half of "control font subsetting": it says how many bytes are
+    /// type, which face dominates, and whether the export did what the caller expected. It does not
+    /// change what <see cref="ExportPdf()"/> produces, and it does not update
+    /// <see cref="LastExport"/> — nothing was exported to the caller.
+    /// </para>
+    /// </remarks>
+    /// <param name="options">
+    /// The PDF options to measure under. Pass the same options as the real export: page ranges and
+    /// standards change which pages, and therefore which fonts, the file needs.
+    /// </param>
+    /// <exception cref="TypstNativeException">
+    /// The document is not paged, or the options are rejected by the compiler.
+    /// </exception>
+    public PdfFontInventory MeasurePdfFonts(PdfExportOptions? options = null)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        var json = BuildExportOptionsJson(page: null, ppi: null, pretty: null, options);
+        string report;
+
+        try
+        {
+            report = Encoding.UTF8.GetString(_native.Export(_handle, "pdf-fonts", json));
+        }
+        catch (NativeCallException exception)
+        {
+            throw NativeErrorTranslator.Translate(exception);
+        }
+
+        var dto = JsonSerializer.Deserialize(report, TypstJsonContext.Default.PdfFontInventoryDto)
+            ?? new PdfFontInventoryDto();
+
+        return new PdfFontInventory(dto);
+    }
+
+    /// <summary>
     /// Exports into <paramref name="destination"/> as the bytes are produced, without
     /// materialising the output in a managed array.
     /// </summary>

@@ -66,6 +66,10 @@ pub fn export(document: &Document, format: &str, options_json: &str) -> Result<V
 
     match format {
         "pdf" => paged(document, |doc| pdf(doc, &options)),
+        // The fonts the PDF carries, read back from the bytes this format encodes. It exists
+        // because `typst-pdf` 0.15.1 exposes no subsetting switch: the measurement is what a
+        // caller can actually ask for.
+        "pdf-fonts" => paged(document, |doc| pdf_fonts(doc, &options)),
         "svg" => paged(document, |doc| svg_page(doc, &options)),
         "svg-merged" => paged(document, |doc| Ok(svg_merged(doc, &options).into_bytes())),
         "png" => paged(document, |doc| png_page(doc, &options)),
@@ -146,6 +150,13 @@ fn pdf(document: &PagedDocument, options: &ExportOptions) -> Result<Vec<u8>, TnE
     typst_pdf::pdf(document, &pdf_options).map_err(|diagnostics| {
         TnError::with_json(TN_ERR_EXPORT, diag::to_json_empty(&diagnostics, "export"))
     })
+}
+
+/// The fonts the PDF would embed, as JSON. The document is encoded and read back, so this costs
+/// one more export than asking for the bytes alone.
+fn pdf_fonts(document: &PagedDocument, options: &ExportOptions) -> Result<Vec<u8>, TnError> {
+    let bytes = pdf(document, options)?;
+    Ok(crate::pdf_fonts::inventory(&bytes).into_bytes())
 }
 
 fn build_pdf_options(options: &ExportOptions) -> Result<PdfOptions, TnError> {

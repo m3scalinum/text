@@ -69,4 +69,31 @@ public static class PdfAConversionCodes
 
     /// <summary>The catalog's <c>/Lang</c> was set from <see cref="PdfAConversionOptions.Language"/>.</summary>
     public const string LanguageSet = "PDFA.LANGUAGE_SET";
+
+    /// <summary>
+    /// PDF/A-4f was asked for and the document carries no embedded file, which the profile requires:
+    /// nothing was written, because a PDF/A-4 rewritten as 4f would be a 4f claim with no file in it.
+    /// </summary>
+    public const string A4fWithoutEmbeddedFile = "PDFA.A4F_WITHOUT_EMBEDDED_FILE";
+
+    /// <summary>
+    /// An embedded file states no <c>/AFRelationship</c>, which PDF/A-4f requires of every embedded
+    /// file. One refusal is reported per file, naming it.
+    /// </summary>
+    public const string A4fAttachmentWithoutRelationship = "PDFA.A4F_ATTACHMENT_WITHOUT_RELATIONSHIP";
+
+    /// <summary>An embedded file states an <c>/AFRelationship</c> this converter does not know.</summary>
+    public const string A4fRelationshipUnknown = "PDFA.A4F_RELATIONSHIP_UNKNOWN";
+
+    /// <summary>The catalog gained the <c>/AF</c> array listing the document's associated files.</summary>
+    public const string A4fAssociatedFiles = "PDFA.A4F_ASSOCIATED_FILES";
+
+    /// <summary>The catalog's <c>/Names /EmbeddedFiles</c> tree was (re)written with every embedded file.</summary>
+    public const string A4fEmbeddedFilesTree = "PDFA.A4F_EMBEDDED_FILES_TREE";
+
+    /// <summary>
+    /// PDF/A-4 was asked for and the document carries embedded files. The base level permits only
+    /// embedded files that are themselves PDF/A, which a rewrite cannot establish.
+    /// </summary>
+    public const string A4WithEmbeddedFiles = "PDFA.A4_WITH_EMBEDDED_FILES";
 }

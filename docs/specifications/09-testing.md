@@ -4,26 +4,26 @@
 
 | Level | Project | Needs natives | Tests | Runtime |
 | --- | --- | --- | --- | --- |
-| Unit (compiler) | `tests/Text.Typst.Tests` | No — fake native | 677 | ~4 s |
-| Unit (signing, conformance, pages, forms, text, encryption, raster) | `tests/Text.Pdf.Tests` | Yes, for the 30 raster and resolver tests — `sharp_text_pdf` | 527 | ~20 s |
+| Unit (compiler) | `tests/Text.Typst.Tests` | No — fake native | 707 | ~4 s |
+| Unit (signing, conformance, pages, forms, text, encryption, raster) | `tests/Text.Pdf.Tests` | Yes, for the 30 raster and resolver tests — `sharp_text_pdf` | 537 | ~20 s |
 | Unit (mcp) | `tests/Text.Mcp.Tests` | No | 95 | ~3 s |
-| Unit (barcodes) | `tests/Text.Barcodes.Tests` | **Yes** — `sharp_text_barcodes` | 133 | ~8 s |
+| Unit (barcodes) | `tests/Text.Barcodes.Tests` | **Yes** — `sharp_text_barcodes` | 146 | ~9 s |
 | Unit (docx) | `tests/Text.Docx.Tests` | **Yes** — `sharp_text_docx` | 53 | ~5 s |
 | Unit (xlsx) | `tests/Text.Xlsx.Tests` | **Yes** — `sharp_text_xlsx` | 68 | ~3 s |
-| Unit (ocr) | `tests/Text.Ocr.Tests` | No — fake native | 137 | ~5 s |
+| Unit (ocr) | `tests/Text.Ocr.Tests` | No — fake native | 169 | ~6 s |
 | Unit (generator) | `tests/Text.Templates.Generator.Tests` | No | 14 | < 5 s |
 | Layouts | `tests/Text.Templates.Tests` | Yes, for the render tests | 111 | ~15 s |
 | Suite (surface and docs) | `tests/Text.Suite.Tests` | No | 7 | < 2 s |
-| Integration | `tests/Text.Typst.Integration.Tests` | **Yes** — `SHARPTYPST_NATIVE_PATH` | 242 | < 3 min |
-| ABI | `native/sharp-typst` (`cargo test`) | — | 12 | < 30 s |
+| Integration | `tests/Text.Typst.Integration.Tests` | **Yes** — `SHARPTYPST_NATIVE_PATH` | 260 | < 3 min |
+| ABI | `native/sharp-typst` (`cargo test`) | — | 14 | < 30 s |
 | Unit (native xlsx) | `native/text-xlsx` (`cargo test --lib`) | — | 36 | < 5 s |
 | Unit (native pdf) | `native/text-pdf` (`cargo test --lib`) | — | 24 | < 5 s |
 | Benchmark | `benchmarks/Text.Typst.Benchmarks` | Yes | 8 scenarios | manual / nightly |
 
-That is 2 064 managed tests in eleven suites, plus the Rust tests of the six crates: the twelve ABI
-tests of `native/sharp-typst`, the fifty-three of `native/text-docx`, the thirty-six of
-`native/text-xlsx`, the fifty-six of `native/text-barcodes` (plus seventeen integration tests), the
-thirty-one of `native/text-ocr` and the twenty-four of `native/text-pdf`.
+That is 2 167 managed tests in eleven suites, plus the Rust tests of the six crates: the fourteen ABI
+tests of `native/sharp-typst`, the fifty-nine of `native/text-docx`, the forty of `native/text-xlsx`,
+the sixty-one of `native/text-barcodes` (plus seventeen integration tests), the fifty-seven of
+`native/text-ocr` and the twenty-four of `native/text-pdf`.
 The benchmark scenarios are separate.
 
 A suite marked *fake native* exercises the layer above the ABI through an `internal` seam, which is
@@ -312,3 +312,62 @@ slice, the same trade the compiler workflow makes for its own `osx` entry.
 `native/artifacts/<rid>/`, keyed on the crate's manifest, lock file and sources, so a managed-only
 pull request restores twenty-four libraries instead of compiling them. The recipe itself lives in
 the workflow, not in the crate, which is why `NATIVE_CACHE_VERSION` is the knob that invalidates it.
+
+## 12. The per-package coverage table
+
+Seven gates over four jobs answer "is this package still above 90 %", and none of them answers "where
+does the suite stand". Reading that meant opening four artifacts and adding the numbers by hand. The
+`coverage table` job of `ci-text.yml` assembles them once per run:
+
+| Package | Measured by | Report |
+| --- | --- | --- |
+| `M3scalinum.Text.Pdf` | `suite` | `coverage-text` → `coverage.xml` |
+| `M3scalinum.Text.Templates` | `templates` | `coverage-templates` → `templates.xml` |
+| `M3scalinum.Text.Mcp` | `mcp` | `coverage-mcp` → `mcp.xml` |
+| `M3scalinum.Text.Barcodes` | `extras` | `coverage-extras` → `extras.xml` |
+| `M3scalinum.Text.Docx` | `extras` | `coverage-extras` → `extras.xml` |
+| `M3scalinum.Text.Ocr` | `extras` | `coverage-extras` → `extras.xml` |
+| `M3scalinum.Text.Xlsx` | `extras` | `coverage-extras` → `extras.xml` |
+
+The other four packed projects get a row too, marked *measured elsewhere*: `M3scalinum.Text.Typst`,
+`.Documents` and `.Typst.DependencyInjection` are gated by the `coverage` job of
+`ci-sharptypst.yml`, which this workflow cannot read — an artifact of another run is not in reach —
+and `M3scalinum.Text.Templates.Generator` is a source generator compiled into the consumer's build,
+so it has no runtime of its own to instrument. Naming them is the point: a table with four rows
+missing is the same blindness it was written to remove.
+
+**Where to find it.** The job writes the table into the run summary (`Step Summary` of the
+`coverage table` job) and uploads it as the `coverage-table` artifact, as markdown and as JSON. The
+JSON is the machine-readable form:
+
+```bash
+gh run download <run-id> -R m3scalinum/text -n coverage-table
+```
+
+**The expected packages come from `src/`, not from the reports.** `tests/coverage-table.py` reads
+every `src/*/*.csproj`, keeps the ones with a `PackageId` and without `IsPackable=false`, and then
+requires each to be either measured by a job here or listed with the place it *is* measured. A
+report can only name packages it already contains, which is the question being asked, so deriving
+the list from the reports would never notice a missing one. Adding a project under `src/` without
+wiring a job or a line in `MEASURED_ELSEWHERE` turns this job red with the package's name.
+
+**The table is a report, not a gate.** Each job keeps its own floor and its own `--require`: a
+package below 90 % turns that job red there, with the package named and the failing suite in the
+log. The aggregation job `needs` those jobs, so it does not run at all when one of them fails — a
+threshold in the table would never fire first, and putting one there would suggest the table is
+where coverage is enforced when the gates are. What the table does fail on is a package with no
+report at all: a job that stopped uploading, a package dropped from a `--require` list, a project
+added to `src/` that no job measures. Those leave every gate green and the package invisible, which
+is exactly the failure the table exists to catch.
+
+**It has to be measured the same way.** `tests/coverage-table.py` imports `production_lines` and
+`assemblies_in` from `tests/coverage-gate.py` by path, so a package's row is the same count its gate
+made: same test-assembly and compiler-generated-class exclusions, same line counting. When a package
+appears in more than one report, the row is read from the report of the job that owns the package and
+from no other: a suite's report lists every assembly it *loaded*, and `M3scalinum.Text.Templates`
+reads 99.8 % in the job that tests it but 60.2 % in `mcp.xml`, where the server's tests only touch
+it. Each artifact is downloaded into a directory named after its job for exactly that reason, and
+the selftest asserts that a foreign figure never wins. Every run also executes
+`tests/coverage-table.py --selftest`, which fabricates Cobertura files in a temporary directory,
+checks the percentages and verdicts, and checks that a package with no report is refused and named.
+The refusal is therefore part of the build, not a claim in this document.

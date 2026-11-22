@@ -10,6 +10,7 @@ mod evaluate;
 mod export;
 mod ffi;
 mod page_text;
+mod pdf_fonts;
 mod semantic;
 mod world;
 
@@ -937,6 +938,46 @@ mod tests {
             "a default world loads no system font"
         );
         assert!(world.font_bytes() > 0, "the embedded fonts have bytes");
+    }
+
+    /// The font inventory is read back out of a PDF this crate encoded: a real document, a real
+    /// subset, and numbers that must agree with the file they came from.
+    #[test]
+    fn the_font_inventory_reads_a_real_export() {
+        let mut world = NetWorld::new(WorldConfig::default()).expect("world");
+        world
+            .add_source("main.typ", "= Hello\n\nBody text, a few words.".to_string())
+            .expect("source");
+        world.set_root("main.typ").expect("root");
+
+        let (document, _diagnostics) =
+            compile_as::<PagedDocument>(&world, Document::Paged).expect("compile");
+
+        let pdf = export::export(&document, "pdf", "").expect("pdf");
+        let report = export::export(&document, "pdf-fonts", "").expect("pdf-fonts");
+        let json: serde_json::Value =
+            serde_json::from_slice(&report).expect("the report is valid JSON");
+
+        assert_eq!(pdf.len() as u64, json["bytes"].as_u64().expect("bytes"));
+        assert!(
+            json["fontBytes"].as_u64().expect("fontBytes") > 0,
+            "a text document embeds at least one font"
+        );
+
+        let fonts = json["fonts"].as_array().expect("fonts");
+        assert!(!fonts.is_empty());
+        assert!(
+            fonts
+                .iter()
+                .all(|font| font["subset"] == serde_json::Value::Bool(true)),
+            "krilla subsets every face it embeds"
+        );
+        assert!(
+            fonts.iter().any(|font| font["family"]
+                .as_str()
+                .is_some_and(|name| name.contains("Libertinus"))),
+            "the document is set in the embedded serif"
+        );
     }
 
     /// The six names are the ABI: the managed decoder reads them by name, and a rename that is not

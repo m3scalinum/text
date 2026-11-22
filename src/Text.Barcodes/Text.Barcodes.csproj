@@ -31,6 +31,16 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!--
+      A document entry point takes a TypstDocument, so this package sits above the document model.
+      The direction is the right one: the model knows nothing about barcodes, and the barcode
+      package only emits the figure the model already understands — no dependency is added to
+      M3scalinum.Text.Documents, and none is added here in the other direction.
+    -->
+    <ProjectReference Include="..\Text.Documents\Text.Documents.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Include="..\..\README.md" Pack="true" PackagePath="/" />
     <None Include="..\..\LICENSE" Pack="true" PackagePath="/" />
     <None Include="..\..\NOTICE" Pack="true" PackagePath="/" />
