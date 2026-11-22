@@ -88,3 +88,10 @@ Not yet published on nuget.org.
   and discovered from a directory so a report can name the weights it used.
 - Ceilings where a received document could cost unbounded work: the PDF XMP packet, a Flate stream's
   decoded size, the XLSX sheet and text counts.
+- Barcodes that know what paper they land on — physical size, quiet zone and a refused undersized
+  module — and a symbol placed in a document as a figure; an eIDAS seal and the qualified-timestamp
+  verdict that says "not evaluated" rather than "qualified" without a trust list; and PDF/A-4f, which
+  carries its files or is refused by name.
+- A font inventory per PDF export, so a caller can see what was embedded and what it costs.
+- `cargo fuzz` over the four format parsers on a weekly cadence, with a crash failing the job and
+  leaving a replayable input behind, and a per-package coverage table published in the run summary.

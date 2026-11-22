@@ -4,23 +4,23 @@
 
 | Level | Project | Needs natives | Tests | Runtime |
 | --- | --- | --- | --- | --- |
-| Unit (compiler) | `tests/Text.Typst.Tests` | No — fake native | 707 | ~4 s |
-| Unit (signing, conformance, pages, forms, text, encryption, raster) | `tests/Text.Pdf.Tests` | Yes, for the 30 raster and resolver tests — `sharp_text_pdf` | 537 | ~20 s |
+| Unit (compiler) | `tests/Text.Typst.Tests` | No — fake native | 713 | ~4 s |
+| Unit (signing, conformance, pages, forms, text, encryption, raster) | `tests/Text.Pdf.Tests` | Yes, for the 30 raster and resolver tests — `sharp_text_pdf` | 571 | ~22 s |
 | Unit (mcp) | `tests/Text.Mcp.Tests` | No | 95 | ~3 s |
-| Unit (barcodes) | `tests/Text.Barcodes.Tests` | **Yes** — `sharp_text_barcodes` | 146 | ~9 s |
+| Unit (barcodes) | `tests/Text.Barcodes.Tests` | **Yes** — `sharp_text_barcodes` | 172 | ~10 s |
 | Unit (docx) | `tests/Text.Docx.Tests` | **Yes** — `sharp_text_docx` | 53 | ~5 s |
 | Unit (xlsx) | `tests/Text.Xlsx.Tests` | **Yes** — `sharp_text_xlsx` | 68 | ~3 s |
 | Unit (ocr) | `tests/Text.Ocr.Tests` | No — fake native | 169 | ~6 s |
 | Unit (generator) | `tests/Text.Templates.Generator.Tests` | No | 14 | < 5 s |
 | Layouts | `tests/Text.Templates.Tests` | Yes, for the render tests | 111 | ~15 s |
 | Suite (surface and docs) | `tests/Text.Suite.Tests` | No | 7 | < 2 s |
-| Integration | `tests/Text.Typst.Integration.Tests` | **Yes** — `SHARPTYPST_NATIVE_PATH` | 260 | < 3 min |
+| Integration | `tests/Text.Typst.Integration.Tests` | **Yes** — `SHARPTYPST_NATIVE_PATH` | 265 | < 3 min |
 | ABI | `native/sharp-typst` (`cargo test`) | — | 14 | < 30 s |
 | Unit (native xlsx) | `native/text-xlsx` (`cargo test --lib`) | — | 36 | < 5 s |
 | Unit (native pdf) | `native/text-pdf` (`cargo test --lib`) | — | 24 | < 5 s |
 | Benchmark | `benchmarks/Text.Typst.Benchmarks` | Yes | 8 scenarios | manual / nightly |
 
-That is 2 167 managed tests in eleven suites, plus the Rust tests of the six crates: the fourteen ABI
+That is 2 238 managed tests in eleven suites, plus the Rust tests of the six crates: the fourteen ABI
 tests of `native/sharp-typst`, the fifty-nine of `native/text-docx`, the forty of `native/text-xlsx`,
 the sixty-one of `native/text-barcodes` (plus seventeen integration tests), the fifty-seven of
 `native/text-ocr` and the twenty-four of `native/text-pdf`.

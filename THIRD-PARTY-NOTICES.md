@@ -1,17 +1,31 @@
-M3scalinum.Text.Typst
-Copyright 2026 m3scalinum
+# Third-party notices
 
-This product includes software developed at Typst GmbH and the Typst
-contributors (https://typst.app), licensed under the Apache License, Version
-2.0. The full text of that license is in the LICENSE file.
+M3scalinum.Text is Apache-2.0. The packages are built on other people's work, and this file is where
+that work is credited: the notices the suite must reproduce, and the copyright line and licence text
+of every crate a shipped native library carries.
 
-The attribution notices that Typst carries for the third-party components it
-embeds are reproduced verbatim below, as required by section 4(d) of the
-Apache License, Version 2.0.
+The licence texts below are reproduced verbatim, byte for byte, as §4(d) of the Apache License 2.0
+requires. They are fenced so that a Markdown renderer keeps their line breaks. The rule that decides
+what may enter the dependency graph at all — licence, traction, last release — is
+[docs/specifications/dependencies.md](docs/specifications/dependencies.md); this file records what
+the graph actually contains.
 
-================================================================================
-Typst NOTICE
-================================================================================
+## Contents
+
+| Section | Covers |
+| --- | --- |
+| [The compiler library](#the-compiler-library) | the notices Typst carries for the components it embeds |
+| [Test fixtures](#test-fixtures-taken-from-other-projects) | bytes taken from another project's test suite |
+| [The native libraries](#the-native-libraries-that-are-not-the-compiler) | the crates behind `Barcodes`, `Ocr`, `Docx`, `Xlsx` and `Pdf` |
+
+## The compiler library
+
+`native/sharp-typst` embeds Typst 0.15.1. This product includes software developed at Typst GmbH and
+the Typst contributors (https://typst.app), under the Apache License, Version 2.0, whose full text is
+in `LICENSE`. The attribution notices Typst carries for the third-party components it embeds are
+reproduced verbatim below, as §4(d) requires.
+
+```text
 Licenses for third party components used by this project can be found below.
 
 ================================================================================
@@ -409,17 +423,18 @@ CONTRIBUTORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS WITH THE
 SOFTWARE.
-================================================================================
+```
 
-================================================================================
-pypdf test resource: resources/encryption/r6-user-password.pdf
-================================================================================
+## Test fixtures taken from other projects
+
+### pypdf — an AES-256 file for the reader
 
 tests/Text.Pdf.Tests/fixtures/encryption/qpdf-r6-user-password.pdf is that file,
 unchanged. It is a one-page document of pypdf's test suite, encrypted with
 256-bit AES by qpdf and committed here as bytes so the reader is tested against
-a producer other than itself. It carries no code and is used by one test.
+a producer other than itself. It carries no code and is used by one test. Its licence text follows.
 
+```text
 Copyright (c) 2006-2008, Mathieu Fenniak
 Some contributions copyright (c) 2007, Ashish Kulkarni <kulkarni.ashish@gmail.com>
 Some contributions copyright (c) 2014, Steve Witham <switham_github@mac-guyver.com>
@@ -449,10 +464,10 @@ INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
 CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 POSSIBILITY OF SUCH DAMAGE.
+```
 
-================================================================================
-The native libraries that are not Typst
-================================================================================
+## The native libraries that are not the compiler
+
 `M3scalinum.Text.Barcodes`, `M3scalinum.Text.Ocr`, `M3scalinum.Text.Docx`, `M3scalinum.Text.Xlsx` and
 `M3scalinum.Text.Pdf` each embed a Rust library of their own rather than the compiler. Every crate
 below is pinned in the `Cargo.lock` beside the library that uses it, and every one is reproduced
@@ -498,6 +513,9 @@ The MIT-licensed components, with the copyright line each package carries:
 * `ocrs` 0.14.0, `rten` 0.28.0, `rten-tensor` 0.28.0 — Copyright Robert Knight
 * `hayro` 0.9.0 — Copyright the Hayro Authors
 
+### MIT
+
+```text
 MIT License
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
@@ -514,6 +532,7 @@ NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPO
 NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES
 OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
 
 Two components of the `M3scalinum.Text.Xlsx` graph carry a licence the paragraphs above do not cover,
 because `encoding_rs` embeds data derived from the WHATWG Encoding Standard and `zlib-rs` is under
@@ -522,6 +541,7 @@ the Zlib licence. Both texts are reproduced verbatim.
 encoding_rs 0.8.35 — https://github.com/hsivonen/encoding_rs — BSD 3-Clause, for the data derived
 from the WHATWG Encoding Standard:
 
+```text
 Copyright © WHATWG (Apple, Google, Mozilla, Microsoft).
 
 Redistribution and use in source and binary forms, with or without
@@ -548,9 +568,12 @@ SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
 CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
 
 zlib-rs 0.6.8 — https://github.com/trifectatechfoundation/zlib-rs — Zlib licence:
 
+
+```text
 (C) 2024 Trifecta Tech Foundation
 
 This software is provided 'as-is', without any express or implied
@@ -570,3 +593,4 @@ freely, subject to the following restrictions:
    misrepresented as being the original software.
 
 3. This notice may not be removed or altered from any source distribution.
+```

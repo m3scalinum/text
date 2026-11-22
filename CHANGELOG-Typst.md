@@ -78,6 +78,11 @@ Not yet published. Embeds Typst 0.15.1.
   severity — and `LastExport` for the size and duration of the export that ran. A value on the
   result, not a process-wide counter: two compilations can run at once, and a shared counter would
   report one call's pages for another's.
+- `CompilationResult.MeasurePdfFonts()`: what a PDF export embeds — every face, its PDF name with the
+  six-letter subset tag, and the bytes it costs — as a `PdfFontInventory`. There is no switch to turn
+  subsetting off, and this is a property of the writer rather than a setting this layer declined to
+  expose: `typst_pdf::PdfOptions` has no font option and `krilla` calls the subsetter for every face
+  unconditionally. The inventory is what makes that measurable instead of invisible.
 - In-process compilation of Typst source through a C ABI over the Rust `typst` crate. No process
   spawn, no binary on `PATH`, no temporary files.
 - Export to PDF, SVG (single page or merged), PNG (single page or merged), HTML, Markdown, plain
