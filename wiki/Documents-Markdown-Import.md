@@ -2,7 +2,8 @@
 
 `TypstDocument.FromMarkdown` turns a Markdown document or fragment into the document model, so a
 README, a changelog or a specification can be typeset without a conversion step outside the library.
-The import is one-way: Markdown in, a document model out, then Typst source.
+`TypstDocument.ToMarkdown` is its inverse: it writes a document — imported or built in C# — back out
+as Markdown, without compiling it.
 
 ```csharp
 using M3scalinum.Text.Documents;
@@ -81,5 +82,36 @@ leaves an undefined reference as literal text — malformed input degrades, it d
 Escaping is done by the markup writer, as everywhere in the model: text with `* _ # $ < > @ [ ]`,
 a link label, an alt text and a table cell all become literal output, never Typst syntax.
 
-The full contract — every construct, every deliberate loss — is section 13 of
+## Writing Markdown back
+
+`ToMarkdown` walks the document model, not a compilation: a document built in C# is exported without
+paging it first. The mapping is the one of
+[06 — Markdown and text export](https://github.com/m3scalinum/text/blob/main/docs/specifications/06-markdown-and-text-export.md),
+applied to the nodes.
+
+```csharp
+var result = document.ToMarkdown();
+
+string markdown = result.Markdown;
+
+foreach (var construct in result.Unrepresentable)
+{
+    // "call: 1", "outline: 1", "raw: 3", …
+}
+```
+
+Anything the model can express and Markdown cannot — raw Typst, `#align`, a footnote, a citation, a
+table of contents, `colspan` — is dropped and counted by construct, the way the import counts what it
+could not hold. The text of a dropped decoration (strikethrough, underline, highlight) is kept; the
+text of a footnote, a citation or a raw block is not.
+
+`FromMarkdown(markdown).ToMarkdown().Markdown` returns the Markdown it started from when that
+Markdown is in the writer's canonical form — `1. ` for every ordered item, one blank line between
+blocks — and exporting the output again returns it unchanged.
+
+## The full contract
+
+The import contract — every construct, every deliberate loss — is section 13 of
 [04 — Document model](https://github.com/m3scalinum/text/blob/main/docs/specifications/04-document-model.md).
+The export contract is section 8 of
+[06 — Markdown and text export](https://github.com/m3scalinum/text/blob/main/docs/specifications/06-markdown-and-text-export.md).
