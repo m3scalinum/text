@@ -11,16 +11,28 @@ Four failures this catches, three of which shipped once:
   referenced project, and nothing else forces the two to agree.
 
 Usage: verify-package.py <package.nupkg> [--native]
+       verify-package.py --selftest
 
-`--native` additionally requires the six RID libraries of a package whose natives a workflow may not
+`--native` additionally requires every RID library of a package whose natives a workflow may not
 have built (`STAGED_NATIVE_PACKAGES`); pass it wherever those libraries exist.
+
+`--selftest` fabricates packages in a temporary directory and asserts this script's own verdicts on
+them, including that a package without its `linux-musl-arm64` library is refused. It is run by the
+`extras` job of `ci-text.yml`, so the requirement below cannot be deleted without CI going red.
 """
 
+import contextlib
+import io
+import os
 import re
 import sys
+import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
 
+# The compiler package's RIDs. It gets no `linux-musl-arm64` build yet: its Cargo.toml vendors
+# OpenSSL for the x86_64 musl triple alone, so the target needs a vendoring change this list
+# would then have one more line for (08 §6, 09 §11).
 RIDS = {
     "win-x64": "sharp_typst.dll",
     "win-arm64": "sharp_typst.dll",
@@ -54,10 +66,11 @@ SATELLITE_ASSEMBLIES = {
     "lib/net11.0/M3scalinum.Text.Xlsx.dll",
 }
 
-# Packages that carry a Rust library of their own rather than the compiler. They ship the same six
-# RIDs the compiler does, `linux-musl-x64` included: Rust cannot emit a cdylib for a musl target, so
-# the CI job builds the staticlib and links it with `musl-gcc`, the compiler's recipe. A missing
-# native job is caught here instead of by a consumer's DllNotFoundException on Alpine.
+# Packages that carry a Rust library of their own rather than the compiler. They ship seven RIDs —
+# the compiler's six plus `linux-musl-arm64`, which the compiler does not have. Neither musl RID can
+# be a cdylib: the CI job builds each crate's staticlib and links it with `musl-gcc`, the compiler's
+# recipe. A missing native job is caught here instead of by a consumer's DllNotFoundException on
+# Alpine, x64 or arm64.
 NATIVE_PACKAGES = {
     "lib/net11.0/M3scalinum.Text.Barcodes.dll": {
         "win-x64": "sharp_text_barcodes.dll",
@@ -65,6 +78,7 @@ NATIVE_PACKAGES = {
         "linux-x64": "libsharp_text_barcodes.so",
         "linux-arm64": "libsharp_text_barcodes.so",
         "linux-musl-x64": "libsharp_text_barcodes.so",
+        "linux-musl-arm64": "libsharp_text_barcodes.so",
         "osx": "libsharp_text_barcodes.dylib",
     },
     "lib/net11.0/M3scalinum.Text.Ocr.dll": {
@@ -73,6 +87,7 @@ NATIVE_PACKAGES = {
         "linux-x64": "libsharp_text_ocr.so",
         "linux-arm64": "libsharp_text_ocr.so",
         "linux-musl-x64": "libsharp_text_ocr.so",
+        "linux-musl-arm64": "libsharp_text_ocr.so",
         "osx": "libsharp_text_ocr.dylib",
     },
     "lib/net11.0/M3scalinum.Text.Docx.dll": {
@@ -81,6 +96,7 @@ NATIVE_PACKAGES = {
         "linux-x64": "libsharp_text_docx.so",
         "linux-arm64": "libsharp_text_docx.so",
         "linux-musl-x64": "libsharp_text_docx.so",
+        "linux-musl-arm64": "libsharp_text_docx.so",
         "osx": "libsharp_text_docx.dylib",
     },
     "lib/net11.0/M3scalinum.Text.Xlsx.dll": {
@@ -89,6 +105,7 @@ NATIVE_PACKAGES = {
         "linux-x64": "libsharp_text_xlsx.so",
         "linux-arm64": "libsharp_text_xlsx.so",
         "linux-musl-x64": "libsharp_text_xlsx.so",
+        "linux-musl-arm64": "libsharp_text_xlsx.so",
         "osx": "libsharp_text_xlsx.dylib",
     },
 }
@@ -105,6 +122,7 @@ STAGED_NATIVE_PACKAGES = {
         "linux-x64": "libsharp_text_pdf.so",
         "linux-arm64": "libsharp_text_pdf.so",
         "linux-musl-x64": "libsharp_text_pdf.so",
+        "linux-musl-arm64": "libsharp_text_pdf.so",
         "osx": "libsharp_text_pdf.dylib",
     },
 }
@@ -221,9 +239,136 @@ def main(path: str, require_native: bool = False) -> int:
     return 0
 
 
+NUSPEC = """<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+  <metadata>
+    <id>M3scalinum.Text.Selftest</id>
+    <version>0.0.1</version>
+    <authors>verify-package.py --selftest</authors>
+    <description>A fabricated package, never published.</description>
+  </metadata>
+</package>
+"""
+
+
+def _fabricate(directory: str, index: int, assembly: str, natives: dict[str, str]) -> str:
+    """Writes the smallest package `main` can judge: one assembly, the licence files, a nuspec."""
+    path = os.path.join(directory, f"selftest-{index}.nupkg")
+    entries = {"Fabricated.nuspec": NUSPEC, assembly: "assembly"}
+    entries.update({required: "licence" for required in REQUIRED_FILES})
+    entries.update(
+        {f"runtimes/{rid}/native/{library}": "library" for rid, library in natives.items()}
+    )
+
+    with zipfile.ZipFile(path, "w") as package:
+        for name, payload in entries.items():
+            package.writestr(name, payload)
+
+    return path
+
+
+def selftest() -> int:
+    """Asserts this script's verdicts on fabricated packages, the refusal of a missing RID included.
+
+    Each case names the message it expects as well as the exit status, so deleting a RID from the
+    tables above turns the case red instead of quietly shrinking what a run checks.
+    """
+    barcodes = NATIVE_PACKAGES["lib/net11.0/M3scalinum.Text.Barcodes.dll"]
+    pdf = STAGED_NATIVE_PACKAGES["lib/net11.0/M3scalinum.Text.Pdf.dll"]
+    barcodes_without_arm64 = {
+        rid: library for rid, library in barcodes.items() if rid != "linux-musl-arm64"
+    }
+    pdf_without_arm64 = {
+        rid: library for rid, library in pdf.items() if rid != "linux-musl-arm64"
+    }
+
+    cases = [
+        (
+            "a native package carrying every RID",
+            "lib/net11.0/M3scalinum.Text.Barcodes.dll",
+            barcodes,
+            False,
+            0,
+            f"ok ({len(barcodes)} RIDs, 4 licence files)",
+        ),
+        (
+            "a native package without its linux-musl-arm64 library",
+            "lib/net11.0/M3scalinum.Text.Barcodes.dll",
+            barcodes_without_arm64,
+            False,
+            1,
+            "missing native asset: runtimes/linux-musl-arm64/native/libsharp_text_barcodes.so",
+        ),
+        (
+            "a staged package with --native carrying every RID",
+            "lib/net11.0/M3scalinum.Text.Pdf.dll",
+            pdf,
+            True,
+            0,
+            f"ok ({len(pdf)} RIDs checked, 4 licence files)",
+        ),
+        (
+            "a staged package with --native and no linux-musl-arm64 library",
+            "lib/net11.0/M3scalinum.Text.Pdf.dll",
+            pdf_without_arm64,
+            True,
+            1,
+            "missing native asset: runtimes/linux-musl-arm64/native/libsharp_text_pdf.so",
+        ),
+        (
+            "a staged package without --native and no linux-musl-arm64 library",
+            "lib/net11.0/M3scalinum.Text.Pdf.dll",
+            pdf_without_arm64,
+            False,
+            0,
+            None,
+        ),
+    ]
+
+    failures = 0
+
+    with tempfile.TemporaryDirectory() as directory:
+        for index, case in enumerate(cases):
+            description, assembly, natives, require_native, expected, message = case
+            path = _fabricate(directory, index, assembly, natives)
+            captured = io.StringIO()
+
+            with contextlib.redirect_stdout(captured), contextlib.redirect_stderr(captured):
+                status = main(path, require_native)
+
+            output = captured.getvalue()
+
+            if status != expected:
+                print(
+                    f"  {description}: expected exit {expected}, got {status}\n{output}",
+                    file=sys.stderr,
+                )
+                failures += 1
+            elif message is not None and message not in output:
+                print(
+                    f"  {description}: expected {message!r} in the output\n{output}",
+                    file=sys.stderr,
+                )
+                failures += 1
+
+    if failures:
+        print(f"selftest: {failures} of {len(cases)} case(s) failed", file=sys.stderr)
+        return 1
+
+    print(f"selftest: {len(cases)} cases passed")
+    return 0
+
+
 if __name__ == "__main__":
     # `--native` asserts that the package carries every RID's native library. It is passed by the jobs
     # that build them, and omitted by a job that packs a package whose Rust build it does not run.
+    if "--selftest" in sys.argv[1:]:
+        if len(sys.argv) != 2:
+            print(__doc__, file=sys.stderr)
+            sys.exit(2)
+
+        sys.exit(selftest())
+
     arguments = [argument for argument in sys.argv[1:] if argument != "--native"]
     require_native = "--native" in sys.argv
 
