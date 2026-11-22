@@ -170,7 +170,7 @@ public sealed class BibliographyTests
     }
 
     [Fact]
-    public void Writes_an_author_date_citation_with_an_ampersand_style_and_join()
+    public void Writes_an_author_date_citation_with_one_two_and_three_authors()
     {
         var markup = TypstDocument.Create()
             .Citation("dupo2024")

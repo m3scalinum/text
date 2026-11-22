@@ -297,7 +297,7 @@ Markup, `tests/Text.Typst.Tests/BibliographyTests.cs` and `IndexTests.cs`:
 | `Rejects_two_entries_with_the_same_key` | duplicate keys |
 | `Numbers_five_citations_in_the_order_they_appear` | `[1]`…`[4]` by first citation |
 | `Gives_the_same_number_to_a_repeated_citation` | one number per key |
-| `Writes_an_author_date_citation_with_an_ampersand_style_and_join` | `(Dupont and Durand, 2024)`, `(Chen et al., 2022)`, prose form |
+| `Writes_an_author_date_citation_with_one_two_and_three_authors` | `(Dupont and Durand, 2024)`, `(Chen et al., 2022)`, prose form |
 | `Sorts_an_author_date_bibliography_by_author_then_year` | Chen, Dupont, Smith, Zola order, no numbers |
 | `Formats_a_book_and_a_proceedings_entry_differently` | the two tails of §3.4 |
 | `Names_the_unknown_key_and_the_keys_that_exist` | `TypstCitationException` message and `AvailableKeys` |
