@@ -384,3 +384,101 @@ respects `nextUpdate`; deciding whether a delegated responder is acceptable; kee
 fresh for as long as the document must be provable; and re-archiving with
 `PdfArchiveTimestamp.Refresh` when the revocation data or the digests age out. None of that is
 visible from the PDF, and none of it can be proven by the PDF.
+
+## 12. eIDAS: the seal and the qualified timestamp
+
+eIDAS knows two acts that are not a person's signature: the electronic seal, which a legal person
+applies, and the qualified timestamp, which a qualified timestamp authority issues. Neither is a new
+file format. A seal is a PAdES signature made with a seal certificate; a qualified timestamp is an
+RFC 3161 token whose authority a trust list says is qualified. What this package adds is the ability
+to produce the first, and the diagnostics that say honestly what can be concluded about either.
+
+**The seal (`PdfSignatureOptions.Kind = PdfSignatureKind.Seal`).** The writer does two things:
+
+- It refuses a certificate whose extended key usage (`2.5.29.37`) does not carry
+  `1.3.6.1.5.5.7.3.36` — `id-kp-documentSigning`, the usage ETSI EN 319 411-1 requires of a document
+  signing certificate. The `PdfSignatureException` names the OID, the friendly name and whether the
+  certificate has no EKU extension at all or one without that usage. There is no fallback: sealing
+  with a certificate issued for something else would produce a file that looks like a seal and is not.
+- It signs the CAdES `signing-time` signed attribute (`1.2.840.113549.1.9.5`) with
+  `PdfSignatureOptions.SignedAt`, the value a validator reports as `claimedSigningTime`. The
+  signature dictionary's `/M` is written from the same instant, so the two claims agree; neither is
+  evidence, and both are just what the signer says.
+
+A person's signature is unchanged: `Kind` defaults to `Person`, no usage is required, no attribute is
+added, and the same inputs still produce the same bytes. A signature read back takes its kind from
+the certificate, never from the PDF: a document signed with a seal certificate reads as a seal even
+if the caller left `Kind` at its default.
+
+**Reading the acts: `PdfSignatureVerifier.ReadEidas`.** The method returns one verdict per signature
+and one per document timestamp:
+
+```csharp
+PdfEidasReport report = PdfSignatureVerifier.ReadEidas(pdf, trustStore, trustList);
+
+foreach (var verdict in report.Signatures)
+{
+    // verdict.Kind                    Person or Seal, from id-kp-documentSigning
+    // verdict.HasSigningTimeAttribute and verdict.SigningTime   the claimed signing time
+    // verdict.HasTimestamp, verdict.TimestampedTime             what the authority attested
+    // verdict.TimestampAuthorityQualification                   Qualified / NotQualified / NotEvaluated
+    // verdict.SignerQualification                               ditto, for the signing certificate
+    // verdict.Level                                             the PAdES level proven by the verifier
+    // verdict.Summary    e.g. "seal, timestamped by a qualified service"
+}
+```
+
+`TrustListSupplied` says whether the qualifications mean anything at all. With no list every
+qualification is `PdfEidasQualification.NotEvaluated`, the explanation says "no trust list was
+supplied", and the summary says "the authority's qualification was not evaluated". This is the one
+rule the reader holds to hardest: **"not evaluated" is never written as "not qualified"**, and
+"qualified" is never written without a list that states it.
+
+When a list is supplied, the reader asks it two separate questions, at the instant each fact is
+anchored to — the timestamped time when the signature is timestamped, the claimed time otherwise,
+and the explanation always says which:
+
+- **Is the timestamp authority a qualified service?** The authority certificate from the token is
+  matched against the services the list declares; only a granted service of type
+  `.../Svctype/TSA` (or `TSA/QC`, `TSA/QI`) that the list marks qualified gives `Qualified`. A
+  matching service that is not marked qualified, a certificate listed under another service type, a
+  withdrawn service, or a certificate the list does not know, each gives `NotQualified` with a
+  sentence naming which of those it was and the date the period was judged at.
+- **Is the signing certificate covered by a qualified signature or seal service?** A seal is looked
+  up as a seal service (`AdESeal`/`AdESealQC`), a person's signature as a signature service
+  (`AdESig`/`AdESigQC`). Coverage means the list's digital identity names this certificate's DER
+  bytes and its granted period contains the instant — the same rule the trust-list reader already
+  applies to every signature.
+
+**What this code proves.** That the CMS verifies over the byte range, that the certificate carries
+`id-kp-documentSigning` for a seal, that the CAdES signing-time attribute is present and readable,
+that a timestamp token verifies and covers the signature value, the PAdES level the verifier can
+establish, and what a supplied trust list states about the two certificates. It proves nothing about
+the list's own signature: the caller reads the list with `PdfLotl.Read`, signs nothing, and should
+check `IssueDateTime`, `IsExpiredAt` and the list's signature the same way any other input is
+checked.
+
+**What requires a real qualified CA and was not tested.** The tests use a self-signed certificate
+with the right EKU and hand-written trust lists carrying that certificate's bytes. That proves the
+mechanism, not the ecosystem. Nothing in this repository has been checked against:
+
+- a real qualified seal certificate issued under an eIDAS scheme, and the qualified seal creation
+  device it lives in;
+- a real national trusted list, its own XAdES signature, its signature-validation certificate and
+  the list-of-lists pointer that authorises it;
+- a real qualified timestamp authority and the qualified certificate its tokens chain to;
+- the certificate policies (`QcCompliance`, `QcSeal`, `QcType`) and the `qcsd` statement that
+  actually distinguish a qualified seal from an advanced one.
+
+Those are the facts an auditor has to verify himself, with the real material, before any claim of
+"qualified" leaves the building. The verdicts here are deliberately narrow: a trust list saying that
+a qualified seal service covers a certificate is reported as exactly that, not as "the seal is
+qualified", because the list says nothing about the device that held the key.
+
+**What an auditor must still check.** That the trust list was current and authentic at the moment
+judged; that the qualified status of the provider had not been withdrawn between signing and
+validation; that the seal certificate's policy identifiers are those of a qualified seal; that the
+revocation evidence in `/DSS` was fresh when it was embedded; and that the validation time used —
+the timestamped time, not the claimed one — is the one the audit report names. A PDF that reads back
+as `seal, timestamped by a qualified service` is a file whose certificate a supplied list covers with
+a qualified timestamp service; it is not a statement that the seal is qualified in law.
