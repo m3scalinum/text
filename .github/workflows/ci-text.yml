@@ -486,11 +486,12 @@ jobs:
           path: native/artifacts
       - run: dotnet restore
       - run: dotnet build -c Release --no-restore
-      - name: Pack the four packages, and the compiler two of them sit on
-        # Docx and Xlsx pin M3scalinum.Text.Typst, which no job of this workflow ships, so the feed
-        # holds the compiler this run builds rather than whatever nuget.org happens to carry.
+      - name: Pack every package under test
+        # The four native packages, plus the rest of the feed: Docx and Xlsx pin the compiler wrapper
+        # and Docx's example converts through `.Documents`, so a feed holding one run's packages is
+        # the only way those dependencies resolve to the build under test rather than to nuget.org.
         run: |
-          for project in Text.Typst Text.Barcodes Text.Ocr Text.Docx Text.Xlsx; do
+          for project in Text.Pdf Text.Templates Text.Mcp Text.Barcodes Text.Ocr Text.Docx Text.Xlsx Text.Typst Text.Documents; do
             dotnet pack "src/$project" -c Release --no-build -o artifacts/packages
           done
           ls -l artifacts/packages
