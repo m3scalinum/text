@@ -19,37 +19,74 @@ permissions:
   contents: read
 
 # Everything in the suite that does not embed the compiler: M3scalinum.Text.Pdf, .Templates, .Mcp,
-# and the three that carry a Rust library of their own — .Barcodes, .Ocr and .Docx. These packages do not version themselves after Typst, they follow TextVersion, so
-# they need their own tag namespace and their own workflow. The three native ones are the reason the
-# `native` job below exists: they ship five RIDs each, built here and packed by `pack`.
+# .Barcodes, .Ocr, .Docx and .Xlsx. These packages do not version themselves after Typst, they follow TextVersion, so
+# they need their own tag namespace and their own workflow. The four native ones are the reason the
+# `native` job below exists: they ship six RIDs each, built here and packed by `pack`.
+
 jobs:
   native:
     name: native (${{ matrix.crate }}, ${{ matrix.rid }})
-    # Five RIDs, not the compiler's six: none of these crates has a hand-linked musl artefact, so
-    # `linux-musl-x64` is deliberately absent and an Alpine consumer gets the resolver's explicit
-    # error instead of a silent one.
+    # Six RIDs, the compiler's set: `linux-musl-x64` is hand-linked from the staticlib with
+    # `musl-gcc` because Rust cannot emit a cdylib for a musl target, and an Alpine consumer — the
+    # default .NET image is musl — gets a library it can load rather than a DllNotFoundException.
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         crate: [text-barcodes, text-ocr, text-docx, text-xlsx]
         include:
-          - { os: windows-latest, rid: win-x64 }
-          - { os: windows-11-arm, rid: win-arm64 }
-          - { os: ubuntu-latest, rid: linux-x64 }
-          - { os: ubuntu-24.04-arm, rid: linux-arm64 }
+          - { os: windows-latest, rid: win-x64, target: "" }
+          - { os: windows-11-arm, rid: win-arm64, target: "" }
+          - { os: ubuntu-latest, rid: linux-x64, target: "" }
+          - { os: ubuntu-24.04-arm, rid: linux-arm64, target: "" }
+          # Cross-compiled on the x64 pool: musl-tools ships an x86_64 host toolchain only.
+          - { os: ubuntu-latest, rid: linux-musl-x64, target: x86_64-unknown-linux-musl }
           # The universal dylib cross-compiles from either macOS host; the Intel pool keeps CI off
           # the arm64 queue GitHub throttles.
-          - { os: macos-15-intel, rid: osx }
+          - { os: macos-15-intel, rid: osx, target: "" }
+    env:
+      CRT_TARGET: ${{ matrix.target != '' && format('--target {0}', matrix.target) || '' }}
+      # None of the four crates vendors a C library, so the musl entry only needs the linker.
+      RUSTFLAGS: ${{ matrix.target != '' && '-C linker=musl-gcc' || '' }}
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: native/${{ matrix.crate }}
+      - name: Install the musl toolchain
+        if: matrix.target != ''
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+          rustup target add ${{ matrix.target }}
       - name: Build (host)
-        if: matrix.rid != 'osx'
+        if: matrix.rid != 'osx' && matrix.target == ''
         run: cargo build --release --manifest-path native/${{ matrix.crate }}/Cargo.toml
+      - name: Build (musl)
+        if: matrix.target != ''
+        shell: bash
+        run: |
+          # The compiler's recipe: the staticlib, every exported entry point forced into the link
+          # through `-Wl,-u`, then stripped.
+          cargo build --release $CRT_TARGET --manifest-path native/${{ matrix.crate }}/Cargo.toml
+          case "${{ matrix.crate }}" in
+            text-barcodes) prefix=bt_ ;;
+            text-ocr)      prefix=to_ ;;
+            text-docx)     prefix=td_ ;;
+            text-xlsx)     prefix=tx_ ;;
+          esac
+          archive=$(ls native/${{ matrix.crate }}/target/${{ matrix.target }}/release/libsharp_text_*.a)
+          library=$(basename "$archive" .a)
+          symbols=$(nm -g --defined-only "$archive" | awk -v p="$prefix" '$2=="T" && index($3,p)==1 {print "-Wl,-u,"$3}')
+          if [ -z "$symbols" ]; then
+            echo "no $prefix entry point in $archive: the ABI would be stripped by the linker" >&2
+            exit 1
+          fi
+          mkdir -p native/${{ matrix.crate }}/target/release
+          musl-gcc -shared -o "native/${{ matrix.crate }}/target/release/$library.so" $symbols "$archive" -lpthread -ldl -lm
+          strip --strip-all "native/${{ matrix.crate }}/target/release/$library.so"
+          ls -la "native/${{ matrix.crate }}/target/release/$library.so"
       - name: Build (universal)
         if: matrix.rid == 'osx'
         run: |

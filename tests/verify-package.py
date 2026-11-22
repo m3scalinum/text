@@ -51,16 +51,17 @@ SATELLITE_ASSEMBLIES = {
     "lib/net11.0/M3scalinum.Text.Xlsx.dll",
 }
 
-# Packages that carry a Rust cdylib of their own rather than the compiler. They ship five RIDs, not
-# the compiler's six: `linux-musl-x64` needs a hand-linked staticlib and is not built for them yet,
-# so an Alpine consumer gets the resolver's explicit error. A missing native job is caught here
-# instead of by a consumer's DllNotFoundException.
+# Packages that carry a Rust library of their own rather than the compiler. They ship the same six
+# RIDs the compiler does, `linux-musl-x64` included: Rust cannot emit a cdylib for a musl target, so
+# the CI job builds the staticlib and links it with `musl-gcc`, the compiler's recipe. A missing
+# native job is caught here instead of by a consumer's DllNotFoundException on Alpine.
 NATIVE_PACKAGES = {
     "lib/net11.0/M3scalinum.Text.Barcodes.dll": {
         "win-x64": "sharp_text_barcodes.dll",
         "win-arm64": "sharp_text_barcodes.dll",
         "linux-x64": "libsharp_text_barcodes.so",
         "linux-arm64": "libsharp_text_barcodes.so",
+        "linux-musl-x64": "libsharp_text_barcodes.so",
         "osx": "libsharp_text_barcodes.dylib",
     },
     "lib/net11.0/M3scalinum.Text.Ocr.dll": {
@@ -68,6 +69,7 @@ NATIVE_PACKAGES = {
         "win-arm64": "sharp_text_ocr.dll",
         "linux-x64": "libsharp_text_ocr.so",
         "linux-arm64": "libsharp_text_ocr.so",
+        "linux-musl-x64": "libsharp_text_ocr.so",
         "osx": "libsharp_text_ocr.dylib",
     },
     "lib/net11.0/M3scalinum.Text.Docx.dll": {
@@ -75,6 +77,7 @@ NATIVE_PACKAGES = {
         "win-arm64": "sharp_text_docx.dll",
         "linux-x64": "libsharp_text_docx.so",
         "linux-arm64": "libsharp_text_docx.so",
+        "linux-musl-x64": "libsharp_text_docx.so",
         "osx": "libsharp_text_docx.dylib",
     },
     "lib/net11.0/M3scalinum.Text.Xlsx.dll": {
@@ -82,6 +85,7 @@ NATIVE_PACKAGES = {
         "win-arm64": "sharp_text_xlsx.dll",
         "linux-x64": "libsharp_text_xlsx.so",
         "linux-arm64": "libsharp_text_xlsx.so",
+        "linux-musl-x64": "libsharp_text_xlsx.so",
         "osx": "libsharp_text_xlsx.dylib",
     },
 }
