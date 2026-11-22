@@ -300,10 +300,10 @@ A consumer can therefore tell which compiler a package carries from its version 
 [14](14-pdf-signature.md)), `.Templates` (the layout pack, [05](05-templates.md)), `.Mcp` (the
 protocol server, [17](17-mcp.md)), and the three that arrived with their own engine: `.Barcodes`
 ([20](20-barcodes.md)), `.Ocr` ([21](21-ocr.md)) and `.Docx` ([22](22-docx.md)) — carry whatever
-version their tag names. `v0.51.2` publishes `0.51.2`, `v1.0.0` publishes `1.0.0`:
+version their tag names. `v0.1.0` publishes `0.1.0`, `v1.0.0` publishes `1.0.0`:
 
 ```
-v0.51.2        the tag
+v0.1.0        the tag
      │
      └── the package version, in full
 ```
@@ -393,7 +393,8 @@ drop the threshold to mean anything.
 | --- | --- | --- |
 | `native` | `ubuntu-latest` | one `cargo build --release` for `linux-x64`, uploaded as `native-linux-x64`. No six-RID matrix: nothing here ships a native asset |
 | `text` | `ubuntu-latest` | restore, build, the `Pdf` and `Mcp` unit suites (neither needs a native library), `dotnet pack` for `M3scalinum.Text.Pdf` |
-| `examples` | `ubuntu-latest` | download the compiler's `linux-x64` native artifact and the fifteen `native-extras` ones, restore, build, `dotnet pack` the nine packages under test into one local feed, then `samples/examples/run.sh` once per package |
+| `examples` | `ubuntu-latest` | download the compiler's `linux-x64` native artifact and the fifteen `native-extras` ones, restore, build, `dotnet pack` the nine packages under test into one local feed, then `samples/examples/run.sh` once per package; the nine `.nupkg` are uploaded for the `sbom` job |
+| `sbom` | `ubuntu-latest` | download the `example-packages` artifact, `.github/sbom/sbom.py generate` then `verify` over those nine packages, then empty each SBOM in turn and fail if `verify` accepts it (§12) |
 
 The `examples` job is the one that proves a `.nupkg` is enough. Every other job in both
 workflows tests a project reference: the assembly is on disk because the build put it there, the
@@ -445,7 +446,7 @@ Two release workflows, one per tag namespace:
 | Workflow | Tag | Packs |
 | --- | --- | --- |
 | `release-sharptypst.yml` | `sharptypst-v0.15.1.42` | the three compiler packages, revision taken from the tag's fourth component |
-| `release-text.yml` | `v0.51.2` | `M3scalinum.Text.Pdf`, `.Templates`, `.Mcp`, `.Barcodes`, `.Ocr` and `.Docx`; the tag is the version, and the core is pinned to the newest published `M3scalinum.Text.Typst` |
+| `release-text.yml` | `v0.1.0` | `M3scalinum.Text.Pdf`, `.Templates`, `.Mcp`, `.Barcodes`, `.Ocr` and `.Docx`; the tag is the version, and the core is pinned to the newest published `M3scalinum.Text.Typst` |
 
 Each validates its tag against its own version property and refuses a tag that does not start with
 it, so `sharptypst-v0.16.0.1` cannot silently publish a suite package, and a bare `v0.16.0.1`
@@ -577,3 +578,140 @@ promise lower than a dependency allows, and a refusal of toolchains that would h
 The proof that a crate compiles at all remains the release workflows, which build each crate for
 real on the five RIDs with the stable toolchain. Those runs demonstrate the crates compile at the
 current stable version; they do not demonstrate the declared floor, and no job here claims to.
+
+## 12. SBOM and build provenance
+
+A package that embeds a typesetting compiler and four Rust `cdylib`s cannot be audited by reading
+its `.nuspec`: the native side is invisible there, and so are the RID-layout assets and the crates
+those assets were built from. Each release therefore attaches one **CycloneDX 1.6 SBOM per
+`.nupkg`** to the release page, and each `.nupkg` and each SBOM carries a **build provenance
+attestation** the workflow signed. Both are produced by the job that packed the package, from the
+package itself.
+
+### 12.1 What the SBOM contains
+
+The file is named `<PackageId>-<Version>.cdx.json` and sits next to the `.nupkg` of the same
+version.
+
+| Part | Content | Where it comes from |
+| --- | --- | --- |
+| `metadata.component` | The package itself: `pkg:nuget/M3scalinum.Text.Docx@0.1.0`, one `m3scalinum:rid` property per RID the package ships, and `m3scalinum:embedded-crates` naming the crates it carries | the `.nuspec` id/version and the `runtimes/` layout |
+| `library` components, `pkg:nuget/…` | Every package the `.nuspec` declares, with the version this run resolved. When `obj/project.assets.json` is on disk — always true in the release `pack` job, which restored and packed there — the restore graph is added too, with `m3scalinum:resolved-from: project.assets.json` | the `.nuspec` dependency groups, then the assets file |
+| `library` components, `pkg:cargo/…` | Every package of the embedded crate's `Cargo.lock`, name and version, with `m3scalinum:embedded-crate` naming which of the five crates pulled it in and `m3scalinum:root` on the crate itself | `native/<crate>/Cargo.lock` |
+| `file` components, managed | Each `lib/<tfm>/<assembly>.dll` with its SHA-256. This is what a package with no dependency and no native asset — `M3scalinum.Text.Documents` — consists of, and the one thing a consumer can compare byte for byte with what they load | the `.nupkg` zip |
+| `file` components, native | Each `runtimes/<rid>/native/<library>`, with its SHA-256 and its RID as a property, so a downloaded native asset can be checked against the SBOM without unpacking anything | the `.nupkg` zip |
+| `platform` components | One per RID, so the RID set is a first-class part of the graph rather than a string in prose | the `runtimes/` layout |
+
+Build-only packages the restore pulls in — `Microsoft.SourceLink.*`, `Microsoft.NET.ILLink.Tasks`,
+`Microsoft.Build.Tasks.Git` — are listed with CycloneDX `scope: "excluded"` and
+`m3scalinum:scope: build-only`, and carry that marking rather than being dropped: an auditor asking
+"was anything compiled into this that is not in the SBOM" gets an answer, not a gap. Project
+references that end up inside the package (`M3scalinum.Text.Documents` inside
+`M3scalinum.Text.Docx`) are listed as `project-reference` with `scope: required`.
+
+The Rust side is the full lock, every target included, because the package ships one binary per RID
+and no `Cargo.lock` is per-RID: filtering by target would claim the `win-x64` binary was built
+without crates that are in the other four.
+
+### 12.2 The tool, and why not an existing one
+
+`.github/sbom/sbom.py` writes and checks the SBOMs. It has three subcommands: `generate`, `verify`
+and `self-test`.
+
+`dotnet CycloneDX` and `cyclonedx-nuget` both read a **project or a solution** and describe the
+managed restore graph. That is the wrong graph twice over here: the native side is a `Cargo.lock`
+no .NET tool parses, and the package's `runtimes/` layout — the RIDs a consumer actually resolves —
+exists only inside the `.nupkg`. Merging a managed SBOM with a hand-built Rust section would be two
+tools, a merge step and a second source of truth. This script reads the artifact instead: the
+`.nuspec` and the zip entries out of the `.nupkg`, and `native/<crate>/Cargo.lock` for each crate
+the layout names. Everything it needs is the Python 3.11 standard library (`zipfile`, `tomllib`,
+`xml.etree`, `hashlib`), which every `ubuntu-latest` runner already has — no `dotnet tool install`,
+no `pip install`, no registry call, so the SBOM a run produces depends on the package and the
+commit, not on a feed.
+
+The map from native library to crate is explicit, `CRATE_BY_LIBRARY` in the script. A package that
+starts shipping a new native library fails `generate` with the library name it could not place
+rather than emitting an SBOM with no Rust section in it.
+
+### 12.3 The gate
+
+`verify` re-reads the `.nupkg` and derives, from the package alone, what the SBOM must contain. The
+job fails when:
+
+- the SBOM has no components;
+- a package that embeds a native library has no `pkg:cargo/` component for that crate;
+- the SBOM's `platform` components are not exactly the RID set the `.nupkg` ships — a missing RID,
+  or one the package does not ship;
+- a dependency the `.nuspec` declares is absent;
+- an assembly the package ships under `lib/` has no `file` component;
+- `metadata.component` names a different package or version than the `.nupkg`;
+- any component lacks a name or a version.
+
+It runs in three places. In both release workflows, in `pack` right after `tests/verify-package.py`,
+so a release stops before publishing rather than attaching a voucher it cannot stand behind; again
+in the `attest` job, on the downloaded artifacts, because those are the files the attestation
+covers. In `ci-text.yml`, the `sbom` job runs `generate` and `verify` over the nine packages the
+`examples` job just packed, then empties each SBOM in turn and fails if `verify` accepts it: a
+verifier that only ever passes proves nothing. `python3 .github/sbom/sbom.py self-test` does the
+same four checks locally against a synthetic package.
+
+What the gate proves is that the SBOM describes this package. What it does not prove is that the
+crate graph is the one in the binary: the SBOM is generated from the committed `Cargo.lock`, and the
+lock is what the release job built from, but nothing re-derives the crate set from the compiled
+`.so`. A stale lock committed alongside a hand-patched binary would pass.
+
+### 12.4 The attestation
+
+The `attest` job, in both release workflows, runs `actions/attest-build-provenance@v4` over
+`artifacts/packages/*.nupkg` and `artifacts/sbom/*.cdx.json`. Its permissions are only `contents:
+read`, `id-token: write` and `attestations: write`; `publish`, and in the compiler workflow `test`,
+are declared as prerequisites, so a run whose attestation failed never reaches nuget.org.
+
+What it proves: the digest of that `.nupkg` — and of that SBOM — was produced by this workflow, in
+this repository, at that commit, on that runner, and the identity in the attestation is GitHub's
+OIDC claim for the run. A file modified after the fact no longer matches its subject digest, so
+`gh attestation verify` fails on it.
+
+What it does not prove: that the package is correct, safe, or free of the bugs the tests miss; that
+the SBOM is complete beyond the checks of §12.3; that the release page's assets were not
+re-uploaded (the attestation covers the digest, not the page); and that a package built outside
+this workflow is authentic — there is no attestation for it at all, which is a different answer from
+a failed check. It also says nothing about reproducibility: two runs produce two attestations for
+two different digests.
+
+GitHub issues attestations only for **public** repositories, or for GitHub Enterprise Cloud. This
+repository is public — `gh repo view m3scalinum/text --json visibility` returns `PUBLIC` — so
+`gh attestation verify` is the intended consumer path. Were it private, the job would fail at the
+attestation step, and the honest fallback would be a CI signature over a key the consumer has to
+obtain; that is not what is implemented.
+
+### 12.5 Verifying as a consumer
+
+```bash
+# The package and its SBOM, from the release page of the version you install.
+gh release download v0.1.0 --repo m3scalinum/text \
+  --pattern 'M3scalinum.Text.Docx.*' --pattern 'M3scalinum.Text.Docx-*.cdx.json'
+
+# Provenance: exits non-zero when the digest is not the one the workflow signed.
+gh attestation verify M3scalinum.Text.Docx.0.1.0.nupkg --repo m3scalinum/text
+
+# The SBOM and the package agree on the native asset, and the RID list is what you expect.
+python3 - M3scalinum.Text.Docx-0.1.0.cdx.json <<'PY'
+import json, sys
+sbom = json.load(open(sys.argv[1], encoding="utf-8"))
+for component in sbom["components"]:
+    if component["type"] == "platform":
+        print("rid", component["name"])
+    if (component.get("purl") or "").startswith("pkg:cargo/"):
+        print("crate", component["name"], component["version"])
+PY
+```
+
+`gh attestation verify` needs a token for this repository, or `--owner` plus an explicit bundle
+path, for a machine that has none.
+
+**Status.** The YAML of both release workflows and of `ci-text.yml` parses; `generate`, `verify` and
+`self-test` were run locally over a real `M3scalinum.Text.Docx` `.nupkg` packed from this tree, and
+`verify` was shown to fail on an emptied SBOM. No release workflow has been executed for this
+section: no attestation has been issued, and `gh attestation verify` has not returned zero on a real
+asset. That part is proven by the first tagged run, and by nothing here.

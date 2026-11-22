@@ -371,11 +371,11 @@ Two trains, two numbers, because they answer different questions.
 | Train | Packages | Version |
 | --- | --- | --- |
 | **Typst** | the four compiler packages | `0.15.1.<revision>` — the version *is* the embedded Typst, plus a build count |
-| **Suite** | `M3scalinum.Text.Pdf`, `.Templates`, `.Mcp`, `.Barcodes`, `.Docx`, `.Xlsx`, `.Ocr` | whatever the tag names: `v0.51.2` publishes `0.51.2` |
+| **Suite** | `M3scalinum.Text.Pdf`, `.Templates`, `.Mcp`, `.Barcodes`, `.Docx`, `.Xlsx`, `.Ocr` | whatever the tag names: `v0.1.0` publishes `0.1.0` |
 
 A signing fix published as `0.15.1.43` would read as a compiler release, and would jump to `0.16.0`
 the day Typst does, for code that contains no compiler at all. So the two trains tag and release
-separately: `sharptypst-v0.15.1.42` and `v0.51.2`.
+separately: `sharptypst-v0.15.1.42` and `v0.1.0`.
 
 ## Supported platforms
 
@@ -415,6 +415,21 @@ dotnet test tests/Text.Typst.Tests -c Release
 Set `SHARPTYPST_NATIVE_PATH` to the built `libsharp_typst` to run the integration tests against it.
 See [Building from Source](https://github.com/m3scalinum/text/wiki/Typst-Building-from-Source)
 for the full sequence, the coverage commands and the packaging checks.
+
+## Verifying a release
+
+Every release attaches a CycloneDX SBOM per `.nupkg`, listing the packages it references, the Rust
+crates its native library was built from with their versions, and the RIDs it ships; each package
+and each SBOM also carries a build provenance attestation signed by the release workflow. Both are
+checked by `gh attestation verify`, which is why the repository is public:
+
+```bash
+gh attestation verify M3scalinum.Text.Docx.0.1.0.nupkg --repo m3scalinum/text
+```
+
+What the SBOM contains, what the attestation proves and what it does not, and the check that the
+two agree, are in
+[08 §12](docs/specifications/08-build-and-packaging.md#12-sbom-and-build-provenance).
 
 ## Project status
 
