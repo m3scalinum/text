@@ -708,19 +708,25 @@ mod tests {
     fn a_hundred_worlds_compile_from_one_scan() {
         let fonts = FontDir::new("hundred");
         let config = fonts.config();
-        let markup = format!(
-            "#set text(font: \"{}\")\n= Title\n\n#lorem(80)",
-            fonts.family
-        );
+
+        // The document changes on every iteration: Typst memoises a compilation by its inputs, and
+        // a repeated one would answer from that cache instead of exercising the layout.
+        let markup = |seed: usize| {
+            format!(
+                "#set text(font: \"{}\")\n= Title {seed}\n\n#lorem({})",
+                fonts.family,
+                seed + 40
+            )
+        };
 
         let template = NetWorld::new(config.clone()).expect("template world");
         let index = Arc::clone(template.host_index().expect("index"));
         let before = index.id();
 
-        for _ in 0..100 {
+        for seed in 0..100 {
             let world = NetWorld::new(config.clone()).expect("world");
             world
-                .add_source("main.typ", markup.clone())
+                .add_source("main.typ", markup(seed))
                 .expect("add_source");
 
             assert!(
@@ -771,13 +777,16 @@ mod tests {
     fn two_thousand_compilations_scan_the_fonts_once() {
         let fonts = FontDir::new("soak");
         let config = fonts.config();
-        let markup = format!(
-            "#set text(font: \"{}\")
-= Title
 
-#lorem(20)",
-            fonts.family
-        );
+        // Every iteration compiles a different document: Typst memoises by inputs, and a repeated
+        // one would be answered from the memo table rather than laid out.
+        let markup = |seed: usize| {
+            format!(
+                "#set text(font: \"{}\")\n= Title {seed}\n\n#lorem({})",
+                fonts.family,
+                seed % 200 + 20
+            )
+        };
 
         // What the old code paid per world: a metadata scan with nothing shared.
         let scan_started = std::time::Instant::now();
@@ -792,10 +801,10 @@ mod tests {
         let started = std::time::Instant::now();
         let mut pages = 0usize;
 
-        for _ in 0..2000 {
+        for seed in 0..2000 {
             let world = NetWorld::new(config.clone()).expect("world");
             world
-                .add_source("main.typ", markup.clone())
+                .add_source("main.typ", markup(seed))
                 .expect("add_source");
 
             let document = typst::compile::<typst_layout::PagedDocument>(&world)
