@@ -60,6 +60,7 @@ file names, to find what you want.
 | --- | --- | --- |
 | 08 | [08-build-and-packaging.md](08-build-and-packaging.md) | Solution layout, MSBuild props, NuGet, CI, the two release trains |
 | 09 | [09-testing.md](09-testing.md) | Every suite and its test count, fixtures, golden files, coverage, matrices |
+| — | [dependencies.md](dependencies.md) | The Rust crate policy: licence, traction, last update and decision per crate, and the check that enforces them |
 
 ## Status
 
