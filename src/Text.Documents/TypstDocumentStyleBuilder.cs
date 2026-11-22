@@ -22,6 +22,7 @@ public sealed class TypstDocumentStyleBuilder
     private readonly TypstHeadingStyle?[] _headings = new TypstHeadingStyle?[HighestHeadingLevel];
     private TypstPageSetup? _page;
     private TypstLanguage? _language;
+    private TypstLanguageTag? _languageTag;
     private bool _headingNumbering;
     private string? _header;
     private string? _footer;
@@ -78,6 +79,24 @@ public sealed class TypstDocumentStyleBuilder
     {
         _ = LanguageCode(language);
         _language = language;
+        _languageTag = null;
+        return this;
+    }
+
+    /// <summary>
+    /// Sets the language the document is written in, with any BCP 47 tag — <c>ja</c>, <c>zh</c>,
+    /// <c>ar</c> — so that Typst hyphenates and breaks lines by that language's rules.
+    /// </summary>
+    /// <param name="language">The tag, for example <see cref="TypstLanguageTag.Japanese"/>.</param>
+    /// <remarks>
+    /// The tag replaces the two-valued <see cref="Language(TypstLanguage)"/> form: a style carries
+    /// one language, and the last call wins. A style that sets neither writes no <c>lang</c> at all.
+    /// </remarks>
+    public TypstDocumentStyleBuilder Language(TypstLanguageTag language)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(language.Code);
+        _languageTag = language;
+        _language = null;
         return this;
     }
 
@@ -158,7 +177,11 @@ public sealed class TypstDocumentStyleBuilder
             arguments.Add("size: " + size);
         }
 
-        if (_language is { } language)
+        if (_languageTag is { } tag)
+        {
+            arguments.Add("lang: " + LinkNode.Quote(tag.Code));
+        }
+        else if (_language is { } language)
         {
             arguments.Add("lang: " + LinkNode.Quote(LanguageCode(language)));
         }

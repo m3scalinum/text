@@ -1050,4 +1050,40 @@ public sealed partial class TypstDocument
             arguments.Add($"{name}: {value}");
         }
     }
+
+    /// <summary>Sets the language Typst reads the document in, as <c>#set text(lang: …)</c>.</summary>
+    /// <param name="language">The language tag, for example <see cref="TypstLanguageTag.Japanese"/>.</param>
+    /// <remarks>
+    /// <see cref="TypstMetadata.Language"/> writes the same rule through the document metadata; this
+    /// one is the explicit form, for a document whose language is not part of its metadata, and it
+    /// is written after every style rule, so it wins over a <see cref="TypstDocumentStyle"/> that
+    /// set a language of its own.
+    /// </remarks>
+    public TypstDocument Language(TypstLanguageTag language)
+        => Set($"text(lang: {LinkNode.Quote(language.Code)})");
+
+    /// <summary>
+    /// Appends a block whose paragraphs take <paramref name="direction"/> as their base direction.
+    /// </summary>
+    /// <param name="direction">The base direction of the block's paragraphs.</param>
+    /// <param name="content">The block's content.</param>
+    /// <remarks>
+    /// <para>
+    /// Emitted as <c>#block[#set text(dir: …) …]</c>. The rule encloses the paragraphs instead of
+    /// sitting in one, because a paragraph resolves <c>dir</c> from its style chain and
+    /// <c>#text(dir: …)</c> inside a left-to-right paragraph is an inline directional embedding, not
+    /// a base direction. See [43 §3](../../docs/specifications/43-cjk-and-bidi.md#3-direction).
+    /// </para>
+    /// <para>
+    /// A document that does not ask for a direction emits nothing: the compiler's default is left to
+    /// right, as it was before this method existed.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentNullException"><paramref name="content"/> is null.</exception>
+    public TypstDocument Direction(TypstDirection direction, TypstContent content)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        _body.Add(new DirectedBlockNode(TypstDirectionToken.Of(direction), content));
+        return this;
+    }
 }
