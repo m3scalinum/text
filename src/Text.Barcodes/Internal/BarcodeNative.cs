@@ -47,6 +47,9 @@ internal sealed class BarcodeNative
     /// <summary>Decode handles the native library holds right now. See <see cref="LiveBarcodeCount"/>.</summary>
     public static int LiveDecodeCount => (int)NativeMethods.DecodeLiveCount();
 
+    /// <summary>Decode-page handles the native library holds right now. See <see cref="LiveBarcodeCount"/>.</summary>
+    public static int LiveDecodePageCount => (int)NativeMethods.DecodePageLiveCount();
+
     public static BarcodeHandle Encode(
         string symbology,
         string payload,
@@ -86,6 +89,83 @@ internal sealed class BarcodeNative
                 return new DecodeHandle(handle);
             }
         }
+    }
+
+    /// <summary>Decodes every barcode in an image, under the caller's two ceilings.</summary>
+    /// <param name="image">The encoded image. PNG is the only encoding the engine reads today.</param>
+    /// <param name="maximumPixels">The largest number of pixels the image may hold.</param>
+    /// <param name="maximumBytes">The largest number of bytes the image may occupy.</param>
+    /// <returns>The page handle. A readable image without a symbol is a page with no symbols.</returns>
+    public static DecodePageHandle DecodeImage(
+        ReadOnlySpan<byte> image, long maximumPixels, long maximumBytes)
+    {
+        unsafe
+        {
+            fixed (byte* data = image)
+            {
+                var handle = NativeMethods.DecodeImage(
+                    data,
+                    (nuint)image.Length,
+                    (ulong)maximumPixels,
+                    (nuint)maximumBytes,
+                    out var error);
+
+                if (handle == IntPtr.Zero)
+                {
+                    NativeCallException.ThrowFromError(error, "decode the image");
+                }
+
+                return new DecodePageHandle(handle);
+            }
+        }
+    }
+
+    /// <summary>Why the page holds no symbol, empty when it holds at least one.</summary>
+    public static string PageFailure(DecodePageHandle page)
+        => ReadString(page, "read the decode failure", NativeMethods.DecodePageError);
+
+    /// <summary>Takes one symbol out of the page as a handle of its own.</summary>
+    public static DecodeHandle PageSymbol(DecodePageHandle page, int index)
+    {
+        var added = false;
+        try
+        {
+            page.DangerousAddRef(ref added);
+            var handle = NativeMethods.DecodePageSymbol(
+                page.DangerousGetHandle(), (uint)index, out var error);
+
+            if (handle == IntPtr.Zero)
+            {
+                NativeCallException.ThrowFromError(error, $"read symbol {index} of the page");
+            }
+
+            return new DecodeHandle(handle);
+        }
+        finally
+        {
+            if (added)
+            {
+                page.DangerousRelease();
+            }
+        }
+    }
+
+    /// <summary>The box around the detected points, or null when the detector reported none.</summary>
+    public static BarcodeBounds? Bounds(DecodeHandle decoded)
+    {
+        var json = ReadString(decoded, "read the decode bounds", NativeMethods.DecodeBox);
+        if (json.Length == 0)
+        {
+            return null;
+        }
+
+        using var document = JsonDocument.Parse(json);
+        var box = document.RootElement;
+        return new BarcodeBounds(
+            box.GetProperty("x").GetSingle(),
+            box.GetProperty("y").GetSingle(),
+            box.GetProperty("width").GetSingle(),
+            box.GetProperty("height").GetSingle());
     }
 
     public static bool Success(DecodeHandle decoded)

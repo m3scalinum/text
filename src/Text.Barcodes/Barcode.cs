@@ -145,6 +145,10 @@ public static class Barcode
     /// comes back with <see cref="DecodeResult.Success"/> false and
     /// <see cref="DecodeResult.Error"/> set, never as an exception.
     /// </returns>
+    /// <remarks>
+    /// This is the single-symbol fast path: one scanner pass, the first symbol it reads. Use
+    /// <see cref="DecodeAll"/> for a page that may carry several.
+    /// </remarks>
     /// <exception cref="ArgumentNullException"><paramref name="png"/> is null.</exception>
     /// <exception cref="BarcodeException"><paramref name="png"/> is empty.</exception>
     /// <exception cref="BarcodeImageException"><paramref name="png"/> is not a PNG this build can
@@ -171,25 +175,93 @@ public static class Barcode
                     symbology: null,
                     format: string.Empty,
                     points: [],
+                    bounds: null,
                     error: BarcodeNative.Failure(decoded));
             }
 
-            var points = BarcodeNative.Points(decoded)
-                .Select(point => new BarcodePoint(point.X, point.Y))
-                .ToArray();
-
-            return new DecodeResult(
-                success: true,
-                text: BarcodeNative.Text(decoded),
-                symbology: BarcodeSymbologyNames.FromAbiName(BarcodeNative.Symbology(decoded)),
-                format: BarcodeNative.Format(decoded),
-                points: points,
-                error: null);
+            return Read(decoded);
         }
         catch (NativeCallException error)
         {
             throw Translate(error, symbology: null);
         }
+    }
+
+    /// <summary>
+    /// Reads every barcode in an image, in the order the engine finds them.
+    /// </summary>
+    /// <param name="image">The encoded image, as PNG bytes. A page rendered by another package goes
+    /// here unchanged: <c>M3scalinum.Text.Pdf.PdfRaster.Render(pdf, page).Bytes</c> is exactly the
+    /// shape this method takes, and rendering the page is the caller's step rather than this
+    /// package's — see the note on the PDF path in Spec 20 §9.</param>
+    /// <param name="options">The pixel and byte ceilings, or <see langword="null"/> for the
+    /// defaults: 64 megapixels and 256 MiB.</param>
+    /// <returns>
+    /// Every symbol the engine found, each with its bounding box, plus the size of the image it
+    /// decoded. An image without a symbol is a page with <see cref="DecodePage.Success"/> false and
+    /// <see cref="DecodePage.Error"/> set, never an exception.
+    /// </returns>
+    /// <exception cref="ArgumentNullException"><paramref name="image"/> is null.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">A ceiling in
+    /// <paramref name="options"/> is outside its accepted range.</exception>
+    /// <exception cref="BarcodeException"><paramref name="image"/> is empty, or past a ceiling
+    /// (<see cref="BarcodeErrorCode.Limit"/>).</exception>
+    /// <exception cref="BarcodeImageException"><paramref name="image"/> is not a PNG this build can
+    /// read.</exception>
+    public static DecodePage DecodeAll(byte[] image, BarcodeDecodeOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+
+        if (image.Length == 0)
+        {
+            throw new BarcodeException(
+                BarcodeErrorCode.InvalidArgument, "the image is empty");
+        }
+
+        options ??= new BarcodeDecodeOptions();
+        options.Validate();
+
+        try
+        {
+            using var page = BarcodeNative.DecodeImage(
+                image, options.MaximumPixels, options.MaximumBytes);
+
+            var count = page.SymbolCount;
+            var symbols = new List<DecodeResult>(count);
+
+            for (var index = 0; index < count; index++)
+            {
+                using var decoded = BarcodeNative.PageSymbol(page, index);
+                symbols.Add(Read(decoded));
+            }
+
+            return new DecodePage(
+                symbols,
+                page.ImageWidth,
+                page.ImageHeight,
+                symbols.Count == 0 ? BarcodeNative.PageFailure(page) : null);
+        }
+        catch (NativeCallException error)
+        {
+            throw Translate(error, symbology: null);
+        }
+    }
+
+    /// <summary>Builds the managed result from one live native handle.</summary>
+    private static DecodeResult Read(DecodeHandle decoded)
+    {
+        var points = BarcodeNative.Points(decoded)
+            .Select(point => new BarcodePoint(point.X, point.Y))
+            .ToArray();
+
+        return new DecodeResult(
+            success: true,
+            text: BarcodeNative.Text(decoded),
+            symbology: BarcodeSymbologyNames.FromAbiName(BarcodeNative.Symbology(decoded)),
+            format: BarcodeNative.Format(decoded),
+            points: points,
+            bounds: BarcodeNative.Bounds(decoded),
+            error: null);
     }
 
     private static void ValidatePayload(string payload)

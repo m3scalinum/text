@@ -32,6 +32,7 @@ use ffi::{
 /// native blocks differently. The handle count is the property this library owns, and it is exact.
 static LIVE_BARCODES: AtomicUsize = AtomicUsize::new(0);
 static LIVE_DECODES: AtomicUsize = AtomicUsize::new(0);
+static LIVE_PAGES: AtomicUsize = AtomicUsize::new(0);
 
 /// One encoded symbol, held open until the caller frees it.
 pub struct BtBarcode {
@@ -43,6 +44,11 @@ pub struct BtDecode {
     inner: decode::Decoded,
 }
 
+/// Every symbol one image held, held open until the caller frees it.
+pub struct BtDecodePage {
+    inner: decode::DecodePage,
+}
+
 impl Drop for BtBarcode {
     fn drop(&mut self) {
         LIVE_BARCODES.fetch_sub(1, Ordering::Relaxed);
@@ -52,6 +58,12 @@ impl Drop for BtBarcode {
 impl Drop for BtDecode {
     fn drop(&mut self) {
         LIVE_DECODES.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
+impl Drop for BtDecodePage {
+    fn drop(&mut self) {
+        LIVE_PAGES.fetch_sub(1, Ordering::Relaxed);
     }
 }
 
@@ -67,6 +79,12 @@ fn decode_handle(inner: decode::Decoded) -> Box<BtDecode> {
     Box::new(BtDecode { inner })
 }
 
+/// The only way a page handle is created. See [`barcode_handle`].
+fn page_handle(inner: decode::DecodePage) -> Box<BtDecodePage> {
+    LIVE_PAGES.fetch_add(1, Ordering::Relaxed);
+    Box::new(BtDecodePage { inner })
+}
+
 /// Number of barcode handles alive right now.
 #[unsafe(no_mangle)]
 pub extern "C" fn bt_barcode_live_count() -> u32 {
@@ -77,6 +95,12 @@ pub extern "C" fn bt_barcode_live_count() -> u32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn bt_decode_live_count() -> u32 {
     LIVE_DECODES.load(Ordering::Relaxed) as u32
+}
+
+/// Number of decode-page handles alive right now.
+#[unsafe(no_mangle)]
+pub extern "C" fn bt_decode_page_live_count() -> u32 {
+    LIVE_PAGES.load(Ordering::Relaxed) as u32
 }
 
 // ---------------------------------------------------------------------------
@@ -584,16 +608,184 @@ pub unsafe extern "C" fn bt_decode_error(
     }
 }
 
+/// Writes the box around the detected points as JSON, `{"x":…,"y":…,"width":…,"height":…}`, into
+/// `out_box`, empty when the detector reported no points.
+///
+/// # Safety
+/// `decoded` must be a live handle and `out_box` a valid pointer to a slot.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bt_decode_box(
+    decoded: *const BtDecode,
+    out_box: *mut BtBuffer,
+    out_error: *mut *mut BtError,
+) -> i32 {
+    unsafe {
+        guard_status(out_error, || {
+            let decoded = decode_ref(decoded)?;
+            let json = decoded
+                .inner
+                .bounds
+                .map(|b| {
+                    format!(
+                        "{{\"x\":{},\"y\":{},\"width\":{},\"height\":{}}}",
+                        b.x, b.y, b.width, b.height
+                    )
+                })
+                .unwrap_or_default();
+            set_buffer(out_box, json.into_bytes())?;
+            Ok(())
+        })
+    }
+}
+
 /// Frees a decode handle. Passing null is allowed.
 ///
 /// # Safety
-/// `decoded` must come from `bt_decode_png` and must not be freed twice.
+/// `decoded` must come from `bt_decode_png`, `bt_decode_image` or `bt_decode_page_symbol`, and must
+/// not be freed twice.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn bt_decode_free(decoded: *mut BtDecode) {
     if decoded.is_null() {
         return;
     }
     drop(unsafe { Box::from_raw(decoded) });
+}
+
+// ---------------------------------------------------------------------------
+// Decoding a whole page
+// ---------------------------------------------------------------------------
+
+/// Decodes every barcode in a PNG and returns an owned page handle.
+///
+/// A one-dimensional symbol, a QR Code and a second QR Code on the same page are three results: the
+/// page is the unit of decoding because a delivery note carries one symbol per line item.
+/// `maximum_pixels` and `maximum_bytes` are the ceilings; zero takes the library default
+/// (64 megapixels and 256 MiB). An image past either ceiling is `BT_ERR_LIMIT`; a readable image
+/// with no symbol is a page handle whose count is zero.
+///
+/// # Safety
+/// `data` must be valid for `len` bytes, or null when `len` is 0.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bt_decode_image(
+    data: *const u8,
+    len: usize,
+    maximum_pixels: u64,
+    maximum_bytes: usize,
+    out_error: *mut *mut BtError,
+) -> *mut BtDecodePage {
+    unsafe {
+        guard_ptr(out_error, || {
+            let bytes = read_bytes(data, len, "image")?;
+            let defaults = decode::DecodeBounds::default();
+            let bounds = decode::DecodeBounds {
+                maximum_pixels: if maximum_pixels == 0 {
+                    defaults.maximum_pixels
+                } else {
+                    maximum_pixels
+                },
+                maximum_bytes: if maximum_bytes == 0 {
+                    defaults.maximum_bytes
+                } else {
+                    maximum_bytes
+                },
+            };
+
+            Ok(page_handle(decode::decode_png_all_within(&bytes, bounds)?))
+        })
+    }
+}
+
+/// How many symbols the page holds. Zero means none was found; `bt_decode_page_error` says why.
+///
+/// # Safety
+/// `page` must be a live handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bt_decode_page_count(page: *const BtDecodePage) -> u32 {
+    unsafe { page_ref(page) }
+        .map(|page| page.inner.symbols.len() as u32)
+        .unwrap_or(0)
+}
+
+/// Width of the decoded image, in pixels. Zero for a null handle.
+///
+/// # Safety
+/// `page` must be a live handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bt_decode_page_width(page: *const BtDecodePage) -> u32 {
+    unsafe { page_ref(page) }
+        .map(|page| page.inner.width)
+        .unwrap_or(0)
+}
+
+/// Height of the decoded image, in pixels. Zero for a null handle.
+///
+/// # Safety
+/// `page` must be a live handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bt_decode_page_height(page: *const BtDecodePage) -> u32 {
+    unsafe { page_ref(page) }
+        .map(|page| page.inner.height)
+        .unwrap_or(0)
+}
+
+/// Writes why the page holds no symbol into `out_message`, empty when it holds at least one.
+///
+/// # Safety
+/// `page` must be a live handle and `out_message` a valid pointer to a slot.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bt_decode_page_error(
+    page: *const BtDecodePage,
+    out_message: *mut BtBuffer,
+    out_error: *mut *mut BtError,
+) -> i32 {
+    unsafe {
+        guard_status(out_error, || {
+            let page = page_ref(page)?;
+            let message = page.inner.error.clone().unwrap_or_default();
+            set_buffer(out_message, message.into_bytes())?;
+            Ok(())
+        })
+    }
+}
+
+/// Takes one symbol out of the page as a decode handle of its own, freed with `bt_decode_free`.
+///
+/// The symbol is copied, so the page can be freed first. `index` past the count is
+/// `BT_ERR_INVALID_ARGUMENT` naming the count rather than a silent null.
+///
+/// # Safety
+/// `page` must be a live handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bt_decode_page_symbol(
+    page: *const BtDecodePage,
+    index: u32,
+    out_error: *mut *mut BtError,
+) -> *mut BtDecode {
+    unsafe {
+        guard_ptr(out_error, || {
+            let page = page_ref(page)?;
+            let symbol = page.inner.symbols.get(index as usize).ok_or_else(|| {
+                BtError::invalid_argument(format!(
+                    "the page holds {} symbols, so index {index} is out of range",
+                    page.inner.symbols.len()
+                ))
+            })?;
+
+            Ok(decode_handle(symbol.clone()))
+        })
+    }
+}
+
+/// Frees a page handle. Passing null is allowed.
+///
+/// # Safety
+/// `page` must come from `bt_decode_image` and must not be freed twice.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bt_decode_page_free(page: *mut BtDecodePage) {
+    if page.is_null() {
+        return;
+    }
+    drop(unsafe { Box::from_raw(page) });
 }
 
 // ---------------------------------------------------------------------------
@@ -618,6 +810,16 @@ unsafe fn decode_ref<'a>(decoded: *const BtDecode) -> Result<&'a BtDecode, BtErr
         ));
     }
     Ok(unsafe { &*decoded })
+}
+
+unsafe fn page_ref<'a>(page: *const BtDecodePage) -> Result<&'a BtDecodePage, BtError> {
+    if page.is_null() {
+        return Err(BtError::new(
+            BT_ERR_INVALID_HANDLE,
+            "the decode page handle is null",
+        ));
+    }
+    Ok(unsafe { &*page })
 }
 
 /// Hands `bytes` to the caller as an owned buffer.
@@ -777,5 +979,87 @@ mod tests {
         assert!(json.contains("\"QRCode\""));
         assert!(json.contains("\"Codabar\""));
         unsafe { buffer.free() };
+    }
+
+    #[test]
+    fn a_page_handle_reports_its_symbols_and_releases_them() {
+        let _guard = HANDLE_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let pages_before = bt_decode_page_live_count();
+        let decodes_before = bt_decode_live_count();
+
+        let name = CString::new("QRCode").unwrap();
+        let payload = CString::new("PAGE HANDLE").unwrap();
+        let mut error = ptr::null_mut();
+
+        let barcode = unsafe {
+            bt_barcode_encode(
+                name.as_ptr(),
+                payload.as_ptr(),
+                -1,
+                -1,
+                ptr::null(),
+                &mut error,
+            )
+        };
+        let mut png = BtBuffer::empty();
+        assert_eq!(
+            unsafe { bt_barcode_png(barcode, 3, &mut png, &mut error) },
+            ffi::BT_OK
+        );
+
+        let page = unsafe { bt_decode_image(png.ptr, png.len, 0, 0, &mut error) };
+        unsafe { png.free() };
+        assert!(!page.is_null(), "decode failed");
+        assert_eq!(bt_decode_page_live_count(), pages_before + 1);
+        assert_eq!(unsafe { bt_decode_page_count(page) }, 1);
+        assert!(unsafe { bt_decode_page_width(page) } > 0);
+        assert!(unsafe { bt_decode_page_height(page) } > 0);
+
+        let symbol = unsafe { bt_decode_page_symbol(page, 0, &mut error) };
+        assert!(!symbol.is_null());
+        assert_eq!(bt_decode_live_count(), decodes_before + 1);
+        assert_eq!(unsafe { bt_decode_success(symbol) }, 1);
+
+        let mut box_json = BtBuffer::empty();
+        assert_eq!(
+            unsafe { bt_decode_box(symbol, &mut box_json, &mut error) },
+            ffi::BT_OK
+        );
+        let json = unsafe { std::slice::from_raw_parts(box_json.ptr, box_json.len) };
+        assert!(
+            std::str::from_utf8(json)
+                .expect("utf-8")
+                .contains("\"width\"")
+        );
+        unsafe { box_json.free() };
+        unsafe { bt_decode_free(symbol) };
+
+        // One past the last symbol is an invalid argument naming the count, never a silent null.
+        let past = unsafe { bt_decode_page_symbol(page, 1, &mut error) };
+        assert!(past.is_null());
+        assert_eq!(
+            unsafe { bt_error_code(error) },
+            ffi::BT_ERR_INVALID_ARGUMENT
+        );
+        unsafe { bt_error_free(error) };
+
+        unsafe { bt_decode_page_free(page) };
+        unsafe { bt_barcode_free(barcode) };
+        assert_eq!(bt_decode_page_live_count(), pages_before);
+        assert_eq!(bt_decode_live_count(), decodes_before);
+    }
+
+    #[test]
+    fn a_null_page_handle_is_reported_without_a_crash() {
+        assert_eq!(unsafe { bt_decode_page_count(ptr::null()) }, 0);
+        assert_eq!(unsafe { bt_decode_page_width(ptr::null()) }, 0);
+
+        let mut error = ptr::null_mut();
+        let symbol = unsafe { bt_decode_page_symbol(ptr::null(), 0, &mut error) };
+        assert!(symbol.is_null());
+        assert_eq!(unsafe { bt_error_code(error) }, ffi::BT_ERR_INVALID_HANDLE);
+        unsafe { bt_error_free(error) };
     }
 }
