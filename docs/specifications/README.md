@@ -34,6 +34,7 @@ file names, to find what you want.
 | 37 | [37-footnotes-and-numbering.md](37-footnotes-and-numbering.md) | `TypstNumberingScope`: footnotes and figures numbered per document or per section, and the rules each writes |
 | 38 | [38-table-pagination.md](38-table-pagination.md) | Table headers repeated across pages, rows kept whole, and what Typst guarantees about the break |
 | 41 | [41-columns-and-margin-notes.md](41-columns-and-margin-notes.md) | `TypstPageSetup.Columns` and the page-level primitive that paginates, the gutter, and `TypstMarginNote` placed level with its marker |
+| 42 | [42-bibliography-and-index.md](42-bibliography-and-index.md) | The BibTeX subset, the numeric and author-date styles, and an index built from marks with the page numbers the layout gave |
 | 43 | [43-cjk-and-bidi.md](43-cjk-and-bidi.md) | CJK line breaking, justification and spacing, the `TypstLanguageTag` that picks the hyphenation dictionary, and the block and run directions that turn Arabic or Hebrew text around |
 
 ## The PDF family
