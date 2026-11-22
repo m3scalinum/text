@@ -15,4 +15,7 @@ internal enum BarcodeStatus
     Decode = 6,
     AbiMismatch = 7,
     Limit = 8,
+
+    /// <summary>The GS1 element string or Digital Link is malformed (Spec 20 §4.5).</summary>
+    Gs1 = 9,
 }

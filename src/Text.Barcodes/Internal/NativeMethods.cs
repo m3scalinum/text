@@ -37,6 +37,22 @@ internal static partial class NativeMethods
     [LibraryImport(LibraryName, EntryPoint = "bt_symbologies")]
     internal static partial NativeBuffer Symbologies();
 
+    [LibraryImport(LibraryName, EntryPoint = "bt_symbology_capabilities")]
+    internal static partial NativeBuffer SymbologyCapabilities();
+
+    [LibraryImport(LibraryName, EntryPoint = "bt_gs1_parse", StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial int Gs1Parse(string raw, out NativeBuffer json, out IntPtr error);
+
+    [LibraryImport(LibraryName, EntryPoint = "bt_gs1_digital_link", StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial int Gs1DigitalLink(
+        string raw, string baseUrl, out NativeBuffer url, out IntPtr error);
+
+    [LibraryImport(LibraryName, EntryPoint = "bt_gs1_from_digital_link", StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial int Gs1FromDigitalLink(string url, out NativeBuffer json, out IntPtr error);
+
+    [LibraryImport(LibraryName, EntryPoint = "bt_gs1_identifiers")]
+    internal static partial NativeBuffer Gs1Identifiers();
+
     [LibraryImport(LibraryName, EntryPoint = "bt_barcode_encode", StringMarshalling = StringMarshalling.Utf8)]
     internal static partial IntPtr BarcodeEncode(
         string symbology,

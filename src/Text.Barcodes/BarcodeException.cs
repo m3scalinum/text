@@ -22,6 +22,11 @@ public enum BarcodeErrorCode
     /// <summary>A hard limit was reached: payload size, raster size.</summary>
     Limit,
 
+    /// <summary>The GS1 data is malformed: an Application Identifier this build does not know, a
+    /// value outside the length the standard gives its identifier, a check digit that does not
+    /// match, or a Digital Link that is not one.</summary>
+    Gs1,
+
     /// <summary>The native library panicked, or does not speak the ABI this assembly was built
     /// against.</summary>
     Native,

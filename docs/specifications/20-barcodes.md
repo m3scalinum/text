@@ -15,20 +15,22 @@ DecodeResult read = Barcode.Decode(png);      // text, symbology, points, succes
 Bytes and strings in, bytes and strings out. The package carries its engine — a Rust `cdylib` over
 `rxing` — per runtime identifier, so nothing else has to be installed.
 
-**In scope.** Ten symbologies in both directions: QR Code, DataMatrix, Aztec, PDF417, Code 128, Code
-39, EAN-13, EAN-8, ITF and Codabar. SVG and PNG rendering from one module matrix. PNG decoding of the
-same ten, plus every other format the engine reads (a UPC-A is reported by name even though this
-package does not write one).
+**In scope.** Nineteen symbologies: fifteen in both directions — QR Code, DataMatrix, Aztec, PDF417,
+Code 128, Code 39, EAN-13, EAN-8, ITF, Codabar, GS1-128, UPC-A, UPC-E, Code 93 and Telepen — and four
+that are read only because the engine has no writer for them: GS1 DataBar Omnidirectional, GS1
+DataBar Expanded, MaxiCode and Micro QR Code. SVG and PNG rendering from one module matrix. PNG
+decoding of the same nineteen. The GS1 side is a data model as well as a symbology: Application
+Identifiers parsed into named fields, the GS1-128 payload form, and the GS1 Digital Link URL (§8).
 
 **Out of scope, deliberately.**
 
 | Not done | Why |
 | --- | --- |
 | `DecodeSvg` | Reading a barcode out of arbitrary SVG means rasterising SVG — a renderer, a font stack and a CSS subset. The vector half of this package is for output; a caller who needs to read a symbol rasterises it where it already has a renderer, or keeps the PNG. |
-| UPC-A, UPC-E, Code 93, Telepen, MaxiCode, RSS/GS1 DataBar | Written by the engine, but each is a distinct specification with its own conformance burden. The set stops where the tests can prove both directions. |
-| Composite, structured-append and GS1 Application Identifier parsing | Faithful GS1 handling is a data model (AI dictionaries, date and measure semantics), not a renderer feature. The payload is encoded as given. |
+| Writing GS1 DataBar, MaxiCode and Micro QR Code | `rxing` 0.9.4 has readers for all four DataBar/MaxiCode/Micro-QR formats and no writer. Read only is the honest shape of that, not a gap to be worked around (§8.5). |
+| Composite, structured-append and multi-symbol detection | A composite symbol is two symbols with a shared data model, and a page of many labels is a different API with a different result shape. `Decode` returns the first symbol it finds. |
+| AI semantics beyond the table | Dates stay `YYMMDD` strings, not `DateTime`s, and the measure identifiers (`310n` net weight…) are not in the table. Parsing them into values is a business model, not a symbology (§8.5). |
 | Drawing text under a one-dimensional symbol | A human-readable line is typography, and this repository already has Typst for that. The bar pattern is all this package emits. |
-| Multi-symbol detection | `Decode` returns the first symbol it finds, which is what an invoice or a label has. Scanning a page of many labels is a different API with a different result shape. |
 | Colour, alpha, quiet-zone artwork | A barcode is black modules on white. Anything else is a claim the reader cannot verify. |
 
 ## 2. The two halves
@@ -48,6 +50,10 @@ handle, a buffer or a status code.
 | `Barcode.Encode(BarcodeSymbology, string, BarcodeOptions?)` | Returns `BarcodeImage`. Throws `BarcodeFormatException` when the payload cannot be represented, `BarcodeException` (`InvalidArgument`) for an empty or NUL-carrying payload and an out-of-range option, `BarcodeException` (`Limit`) past 4 096 bytes. |
 | `Barcode.Decode(byte[] png)` | Returns `DecodeResult`. A readable image without a barcode is `Success == false`; only bytes that are not a PNG are `BarcodeImageException`. |
 | `Barcode.SupportedSymbologies` | The symbologies the loaded native library reports, read from it rather than declared. |
+| `Barcode.CanEncode(BarcodeSymbology)` | Whether this build can write the symbology. `false` for the four read-only ones (§8.1). |
+| `Barcode.ApplicationIdentifiers` | The GS1 Application Identifier table, read from the native library: length, check digit, Digital Link key (§8.2). |
+| `Barcode.EncodeGs1(Gs1Data, BarcodeOptions?)` | Encodes a parsed element string as a GS1-128. |
+| `Gs1Data` | `Parse`, `FromDigitalLink`, `ToDigitalLink`, `Elements`, `Raw`, `HumanReadable` (§8.3, §8.4). |
 | `BarcodeImage` | `Svg`, `Png`, `ModuleWidth`, `ModuleHeight`, `Symbology`, `Payload`, `AspectRatio`. |
 | `DecodeResult` | `Success`, `Text`, `Symbology` (null when the format is outside the enum), `Format` (the engine's spelling), `Points`, `Error`. |
 | `BarcodeOptions` | `Scale` (pixels per module, 1–64, default 4), `QuietZone` (modules per side, default per symbology), `BarHeight` (modules, one-dimensional only, default 40), `ErrorCorrection` (QR Code only). |
@@ -67,6 +73,12 @@ handle, a buffer or a status code.
 | EAN-8 | 5 | 40 | Exactly 8 digits. |
 | ITF | 5 | 40 | Digits, an even number of them. |
 | Codabar | 5 | 40 | Payload includes the start and stop characters (`A`…`B`); a reader returns the digits between them. |
+| GS1-128 | 5 | 40 | A GS1 element string; FNC1 in lead position (§8.3). |
+| UPC-A | 9 | 40 | Exactly 12 digits, check digit included. |
+| UPC-E | 9 | 40 | Exactly 8 digits, number system 0 or 1. At five modules the reader cannot find the symbol its own writer produced. |
+| Code 93 | 5 | 40 | |
+| Telepen | 5 | 40 | ASCII only. |
+| DataBar Omnidirectional, DataBar Expanded, MaxiCode, Micro QR | — | — | Read only: no writer exists in the engine, so there is no default to render. |
 
 ### 3.2 One module per unit
 
@@ -172,6 +184,7 @@ reads the reason from `bt_decode_error`. Only bytes that are not a readable PNG 
 | 6 | `BT_ERR_DECODE` | The bytes are not a PNG this build can read. |
 | 7 | `BT_ERR_ABI_MISMATCH` | Reserved for the load-time handshake. |
 | 8 | `BT_ERR_LIMIT` | Payload or raster size limit. |
+| 9 | `BT_ERR_GS1` | A GS1 element string or Digital Link that is malformed (§8). |
 
 The numbering is a contract: a value never changes meaning.
 
@@ -221,10 +234,16 @@ real engine: every assertion below is a real encode and a real decode, no mock.
 | Aztec at `Scale` 1 | Fails to decode — the boundary is pinned rather than hidden. |
 | Handle soaks | Five thousand encode/decode cycles, five hundred failures and five hundred blank decodes all release their handles; managed memory stays flat. |
 | Environment | The native symbology list equals the enum; the resolver probes `runtimes/<rid>/native/` first. |
+| GS1 round trip | A two-identifier and a three-identifier GS1-128 encode, decode back as `Gs1_128`, and parse into the same elements. |
+| GS1 separators | A variable-length batch number followed by another identifier keeps its field separator: the case that would silently read `LOT-42271231` as one value. |
+| GS1 refusals | An unknown identifier, a GTIN with a wrong check digit, and a value of the wrong length are `BarcodeGs1Exception`, before any symbol exists. |
+| Digital Link | Built from elements and parsed back to them; a relative URL, a URL without a primary key and a URL with a bad GTIN are refused. |
+| New symbologies | UPC-A, UPC-E, Code 93 and Telepen round-trip; DataBar, MaxiCode and Micro QR Code are read-only and say so. |
 
-The Rust crate carries its own unit tests (the FFI primitives, the symbology parser, the SVG run
-lengths, the PNG header) and an integration test that repeats the ten round trips at the library
-level, so a regression is attributable to the half that caused it.
+The Rust crate carries its own unit tests (the FFI primitives, the symbology parser, the GS1 table
+and check digits, the Digital Link, the SVG run lengths, the PNG header) and an integration test that
+repeats the fifteen round trips at the library level, plus the GS1-128 and read-only cases, so a
+regression is attributable to the half that caused it.
 
 ## 7. Packaging
 
@@ -236,3 +255,242 @@ The version follows the suite, not the engine: `SuiteVersion` from the release t
 for an untagged build. The engine version is reported at run time by `BarcodeEnvironment.EngineVersion`
 rather than encoded in the package version, because rxing is an implementation detail a caller should
 not have to care about until something fails to decode.
+
+## 8. GS1: GS1-128, DataBar and the Digital Link
+
+GS1 data is a *string of elements*: an Application Identifier followed by its value, then the next
+one. `01` and a fourteen-digit GTIN, `10` and a batch number, `17` and an expiry date. A symbology
+carries that string; it does not carry the structure, and a caller who receives the string has no way
+to know where one value ends. This section is the structure: the table of identifiers this build
+enforces, the GS1-128 payload form, and the Digital Link URL.
+
+```csharp
+Gs1Data data = Gs1Data.Parse("0109501101530003\u001d10LOT-42");   // raw, ]C1… or (01)… forms
+foreach (Gs1Element element in data.Elements)
+{
+    Console.WriteLine($"{element.Ai} {element.Title}: {element.Value}");
+}
+
+BarcodeImage carton = Barcode.EncodeGs1(data);        // GS1-128, FNC1 in lead position
+string url = data.ToDigitalLink("https://example.com/gs1");
+Gs1Data back = Gs1Data.FromDigitalLink(url);          // the same elements
+```
+
+### 8.1 The symbology set and its direction
+
+`Barcode.SupportedSymbologies` lists all nineteen; `Barcode.CanEncode` says which of them this build
+can write. The two lists differ, and the difference is the engine's, not a choice of this package:
+`rxing` 0.9.4 ships a reader for every format below and a writer for fifteen of them.
+
+| Symbology | ABI name | Write | Read | Notes |
+| --- | --- | --- | --- | --- |
+| QR Code | `QRCode` | ✓ | ✓ | `ErrorCorrection` L/M/Q/H. |
+| DataMatrix | `DataMatrix` | ✓ | ✓ | ECC 200. |
+| Aztec | `Aztec` | ✓ | ✓ | Two pixels per module minimum. |
+| PDF417 | `PDF417` | ✓ | ✓ | |
+| Code 128 | `Code128` | ✓ | ✓ | Full ASCII. |
+| Code 39 | `Code39` | ✓ | ✓ | |
+| EAN-13 | `EAN13` | ✓ | ✓ | Thirteen digits, check digit included. |
+| EAN-8 | `EAN8` | ✓ | ✓ | Eight digits. |
+| ITF | `ITF` | ✓ | ✓ | Digits, an even number of them. |
+| Codabar | `Codabar` | ✓ | ✓ | Start and stop characters are stripped by the reader. |
+| GS1-128 | `GS1-128` | ✓ | ✓ | Code 128 with FNC1; §8.3. |
+| UPC-A | `UPCA` | ✓ | ✓ | Twelve digits; nine modules of quiet zone. |
+| UPC-E | `UPCE` | ✓ | ✓ | Eight digits, number system 0 or 1; nine modules of quiet zone. |
+| Code 93 | `Code93` | ✓ | ✓ | |
+| Telepen | `Telepen` | ✓ | ✓ | ASCII. |
+| GS1 DataBar Omnidirectional | `DataBarOmnidirectional` | — | ✓ | RSS-14. Read only. |
+| GS1 DataBar Expanded | `DataBarExpanded` | — | ✓ | RSS Expanded. Read only. |
+| MaxiCode | `MaxiCode` | — | ✓ | Read only. |
+| Micro QR Code | `MicroQR` | — | ✓ | Includes the rectangular variant. Read only. |
+
+Symbology names are parsed case-insensitively and hyphens, underscores and spaces are not
+significant, so `GS1-128`, `gs1_128` and `GS1 128` all name the same symbology; `DataBar` is accepted
+for `DataBarOmnidirectional`.
+
+An EAN-13 whose first digit is `0` is a UPC-A and is reported as one: it is the same bars, and the
+reader names the smaller format, exactly as ZXing does.
+
+### 8.2 The Application Identifiers
+
+The table below is enforced, not advisory: the parser reads the longest identifier that matches, takes
+a fixed length literally, stops a variable one at the field separator, refuses an identifier that is
+not here, checks the GS1 mod-10 check digit where the standard gives one, and refuses an identifier
+that appears twice.
+
+| AI | Meaning | Length | Value | Check digit | Digital Link key |
+| --- | --- | --- | --- | --- | --- |
+| AI | Meaning | Length | Value | Check digit | Digital Link key |
+| --- | --- | --- | --- | --- | --- |
+| `00` | SSCC | 18 | digits | yes | yes |
+| `01` | GTIN | 14 | digits | yes | yes |
+| `02` | CONTENT | 14 | digits | yes | — |
+| `10` | BATCH/LOT | 1–20 | text | — | — |
+| `11` | PROD DATE | 6 | digits | — | — |
+| `12` | DUE DATE | 6 | digits | — | — |
+| `13` | PACK DATE | 6 | digits | — | — |
+| `15` | BEST BEFORE | 6 | digits | — | — |
+| `16` | SELL BY | 6 | digits | — | — |
+| `17` | USE BY/EXPIRY | 6 | digits | — | — |
+| `20` | VARIANT | 2 | digits | — | — |
+| `21` | SERIAL | 1–20 | text | — | — |
+| `22` | CPV | 1–20 | text | — | — |
+| `30` | VAR. COUNT | 1–8 | text | — | — |
+| `37` | COUNT | 1–8 | text | — | — |
+| `235` | TPI | 1–28 | text | — | — |
+| `240` | ADDITIONAL ID | 1–30 | text | — | — |
+| `241` | CUST. PART NO. | 1–30 | text | — | — |
+| `242` | MTO VARIANT | 6 | digits | — | — |
+| `243` | PACK COMPONENT | 1–20 | text | — | — |
+| `250` | SECONDARY SERIAL | 1–30 | text | — | — |
+| `251` | SOURCE ENTITY | 1–30 | text | — | — |
+| `254` | GLN EXTENSION | 1–20 | text | — | — |
+| `400` | ORDER NUMBER | 1–30 | text | — | — |
+| `401` | GINC | 1–30 | text | — | — |
+| `402` | GSIN | 17 | digits | yes | — |
+| `403` | ROUTE | 1–30 | text | — | — |
+| `410` | SHIP TO GLN | 13 | digits | yes | — |
+| `411` | BILL TO GLN | 13 | digits | yes | — |
+| `412` | PURCHASE FROM GLN | 13 | digits | yes | — |
+| `413` | SHIP FOR GLN | 13 | digits | yes | — |
+| `414` | LOCATION GLN | 13 | digits | yes | — |
+| `415` | INVOICE FROM GLN | 13 | digits | yes | — |
+| `416` | PROD/SERV LOCATION GLN | 13 | digits | yes | — |
+| `417` | PARTY GLN | 13 | digits | yes | — |
+| `420` | POSTAL CODE | 1–20 | text | — | — |
+| `421` | CC WITH ISO COUNTRY | 3–12 | text | — | — |
+| `422` | ORIGIN COUNTRY | 3 | digits | — | — |
+| `423` | INITIAL PROCESS COUNTRY | 3–15 | text | — | — |
+| `424` | PROCESS COUNTRY | 3 | digits | — | — |
+| `426` | FULL PROCESS COUNTRY | 3 | digits | — | — |
+| `7001` | NSN | 13 | digits | yes | — |
+| `7002` | MEAT CUT | 1–30 | text | — | — |
+| `7003` | EXPIRY DATE/TIME | 10 | digits | — | — |
+| `7004` | ACTIVE POTENCY | 1–4 | text | — | — |
+| `7005` | CATCH AREA | 1–12 | text | — | — |
+| `7006` | FIRST FREEZE DATE | 6 | digits | — | — |
+| `7007` | HARVEST DATE | 6–12 | text | — | — |
+| `7008` | AQUATIC SPECIES | 1–3 | text | — | — |
+| `7009` | FISHING GEAR | 1–10 | text | — | — |
+| `7010` | PRODUCTION METHOD | 1–2 | text | — | — |
+| `7020` | REF PROCESSOR | 1–20 | text | — | yes |
+| `7040` | UIC EXTENSION | 4 | digits | — | — |
+| `710` | NHRN PZN | 1–20 | text | — | — |
+| `711` | NHRN CIP | 1–20 | text | — | — |
+| `712` | NHRN CN | 1–20 | text | — | — |
+| `713` | NHRN DRN | 1–20 | text | — | — |
+| `714` | NHRN AIM | 1–20 | text | — | — |
+| `715` | NHRN NDC | 1–20 | text | — | — |
+| `8001` | DIMENSIONS | 14 | digits | — | — |
+| `8002` | CIV | 1–20 | text | — | — |
+| `8003` | GRAI | 14–30 | text | — | — |
+| `8004` | GIAI | 1–30 | text | — | — |
+| `8005` | PRICE PER UNIT | 6 | digits | — | — |
+| `8006` | ITIP | 18 | digits | yes | yes |
+| `8007` | IBAN | 1–34 | text | — | — |
+| `8008` | PROD TIME | 8–12 | text | — | — |
+| `8010` | CPID | 1–30 | text | — | yes |
+| `8011` | CPID SERIAL | 1–12 | text | — | — |
+| `8012` | VERSION | 1–20 | text | — | — |
+| `8013` | GMN | 1–30 | text | — | — |
+| `8017` | GSRN PROVIDER | 18 | digits | yes | yes |
+| `8018` | GSRN RECIPIENT | 18 | digits | yes | yes |
+| `8019` | SRIN | 1–10 | text | — | — |
+| `8020` | REFUND RECEIPT | 25 | digits | — | — |
+| `8026` | ITIP CONTENT | 18 | digits | — | — |
+
+`Barcode.ApplicationIdentifiers` reports the same table at run time — identifier, title, length
+range, whether the value is numeric, whether it carries a check digit, and whether it is a Digital
+Link primary key. The managed and native halves cannot drift apart because there is one table.
+
+**The length rules, precisely.** A fixed-length identifier takes exactly its length. A variable one
+takes everything up to the next field separator (ASCII 29, `GS`), and nothing else bounds it, so a
+value that runs into the next identifier is refused by length rather than silently absorbed: a
+batch number of twenty-one characters fails as `AI 10 (BATCH/LOT) expects 1 to 20 characters`.
+
+**Check digits.** AI `00`, `01`, `02`, `402`, `410`–`417`, `7001`, `8006`, `8017` and `8018`
+carry a GS1 mod-10 check digit in their last character and are verified. A GTIN that fails it is a
+`BarcodeGs1Exception` before any symbol is written.
+
+### 8.3 GS1-128
+
+A GS1-128 is a Code 128 whose first symbol character is FNC1 and whose variable-length values are
+followed by FNC1. The payload this package builds is exactly that:
+
+```
+FNC1 01 09501101530003 FNC1 10 LOT-42        (01 then 10: FNC1 closes the variable value)
+FNC1 01 09501101530003 17 271231             (both fixed: no FNC1 in the middle at all)
+```
+
+`Barcode.EncodeGs1(data)` and `Barcode.Encode(BarcodeSymbology.Gs1_128, …)` both take a GS1 element
+string. Three spellings are accepted, because the same data reaches a caller in all three:
+
+| Form | Example | Where it comes from |
+| --- | --- | --- |
+| Raw | `0109501101530003\u001d10LOT-42` | A reader, or another system's field separator |
+| With a symbol identifier | `]C10109501101530003\u001d10LOT-42` | A reader that names the symbology it read; the `]C1` is dropped |
+| Printed | `(01)09501101530003(10)LOT-42` | A label, a spreadsheet, a person |
+
+**Decoding.** The decoder runs with `AssumeGs1`, so the `]C1` identifier a reader puts in front of a
+GS1-128 is understood, and every FNC1 after the first becomes ASCII 29 in the text. This package then
+strips the `]C1` and reports `DecodeResult.Symbology == BarcodeSymbology.Gs1_128`, so
+`DecodeResult.Text` is the raw element string — `Gs1Data.Parse` reads it directly. A Code 128 that
+carries no FNC1 is untouched: it still decodes as `Code128`.
+
+### 8.4 GS1 Digital Link
+
+The URL form of the same elements: primary keys in the path, everything else in the query.
+
+```
+https://example.com/gs1/01/09501101530003?10=LOT%2042&17=271231
+└──────── base ────────┘└ primary key ┘└────── attributes ──────┘
+```
+
+| Rule | Behaviour |
+| --- | --- |
+| Base | Absolute `http` or `https` URL, no query, no fragment. A path is allowed and prefixes the identifiers (`https://example.com/gs1/01/…`). |
+| Path | One `/{ai}/{value}` pair per primary key, in the order the elements carry them. |
+| Query | `ai=value`, joined with `&`, for every element that is not a primary key. |
+| Primary keys | `00` SSCC, `01` GTIN, `8006` ITIP, `8010` CPID, `8017` GSRN provider, `8018` GSRN recipient. |
+| Escaping | Everything outside the RFC 3986 unreserved set is percent-encoded over UTF-8 (`LOT 42` → `LOT%2042`). |
+| Requires a key | Elements with no primary key cannot become a Digital Link and say so. |
+| Parsing | The pairs start at the first path segment that names a known identifier, so a resolver prefix is allowed; every identifier, length and check digit is validated; a duplicate identifier is refused; a fragment is dropped as presentation. |
+
+An unknown query parameter is a `BarcodeGs1Exception` naming the parameter, not a field silently
+ignored: an identifier the table does not hold is a misunderstanding of the data, and swallowing it
+is how a wrong label reaches a pallet.
+
+### 8.5 What is not supported, and why
+
+| Not supported | Reason |
+| --- | --- |
+| Writing GS1 DataBar Omnidirectional, GS1 DataBar Expanded, MaxiCode and Micro QR Code | `rxing` 0.9.4 has the readers and no writers. Reading works today; writing is refused with `BarcodeUnsupportedException` (`BT_ERR_UNSUPPORTED`), whose message names the symbology and the reason. |
+| `DXFilmEdge` | The engine reads it; it is a film-edge timestamp, not a document barcode, so it is not in the enum. |
+| Composite symbols, structured append, multi-symbol pages | A different data model and a different result shape (§1). |
+| Identifiers outside the table | Including `253` GDTI and `255` GCN (optional suffixes), `310n`–`369n` measures, `723x` protocol identifiers, and the `90`–`99` internal range. An unknown identifier is refused by name, with the list of known ones in the message. |
+| AI semantics | A date is a `YYMMDD` string. Nothing is parsed into `DateTime`, nothing is converted to a decimal, no unit is implied. |
+| Digital Link beyond identification | No `linkType`, no compressed form, no canonical-host rules, and no network: this package builds and parses the URL, it does not resolve it. |
+| GS1 check-digit computation on encode | A key is taken as given and verified. A caller holding twelve digits of a GTIN computes the thirteenth — or uses the value the printer already put on the label. |
+
+### 8.6 The ABI additions
+
+```c
+BtBuffer bt_symbology_capabilities(void);   /* [{"name":"UPCA","encode":true}, …] */
+BtBuffer bt_gs1_identifiers(void);          /* the AI table, with lengths and flags */
+int32_t  bt_gs1_parse(const char *raw, BtBuffer *out_json, BtError **out_error);
+int32_t  bt_gs1_digital_link(const char *raw, const char *base_url,
+                             BtBuffer *out_url, BtError **out_error);
+int32_t  bt_gs1_from_digital_link(const char *url, BtBuffer *out_json, BtError **out_error);
+```
+
+`bt_gs1_parse`, `bt_gs1_from_digital_link` and `bt_gs1_digital_link` return the data as JSON, the
+same shape `bt_decode_points` uses:
+
+```json
+{"raw":"0109501101530003\u001d10LOT-42",
+ "humanReadable":"(01)09501101530003(10)LOT-42",
+ "elements":[{"ai":"01","title":"GTIN","value":"09501101530003","primaryKey":true}]}
+```
+
+Status `9`, `BT_ERR_GS1`, is added for a malformed GS1 element string or Digital Link. The existing
+numbers keep their meanings (§4.5); a new value is an addition, never a reinterpretation.

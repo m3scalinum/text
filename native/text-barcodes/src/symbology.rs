@@ -2,12 +2,16 @@
 //!
 //! The names are the ABI names: they cross the boundary as UTF-8, and they are also the stable
 //! spelling the managed enum parses, so a name here is a compatibility promise.
+//!
+//! Not every name is writable: `rxing` 0.9.4 reads GS1 DataBar, MaxiCode and Micro QR Code but has
+//! no writer for them. [`Symbology::can_encode`] is that fact, and the encode entry point refuses a
+//! read-only symbology by name instead of failing somewhere inside the engine.
 
 use rxing::BarcodeFormat;
 
 use crate::ffi::BtError;
 
-/// A symbology the engine can encode, and therefore decode.
+/// A symbology the engine reads — and writes, when it has a writer for it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Symbology {
     QrCode,
@@ -20,10 +24,24 @@ pub enum Symbology {
     Ean8,
     Itf,
     Codabar,
+    /// Code 128 with FNC1 in lead position: the GS1-128 of the specification.
+    Gs1_128,
+    UpcA,
+    UpcE,
+    Code93,
+    Telepen,
+    /// GS1 DataBar Omnidirectional (RSS-14). Read only.
+    DataBarOmnidirectional,
+    /// GS1 DataBar Expanded (RSS Expanded). Read only.
+    DataBarExpanded,
+    /// MaxiCode. Read only.
+    MaxiCode,
+    /// Micro QR Code, and its rectangular variant. Read only.
+    MicroQr,
 }
 
 /// Every symbology, in the order the documentation lists them.
-pub const ALL: [Symbology; 10] = [
+pub const ALL: [Symbology; 19] = [
     Symbology::QrCode,
     Symbology::DataMatrix,
     Symbology::Aztec,
@@ -34,6 +52,15 @@ pub const ALL: [Symbology; 10] = [
     Symbology::Ean8,
     Symbology::Itf,
     Symbology::Codabar,
+    Symbology::Gs1_128,
+    Symbology::UpcA,
+    Symbology::UpcE,
+    Symbology::Code93,
+    Symbology::Telepen,
+    Symbology::DataBarOmnidirectional,
+    Symbology::DataBarExpanded,
+    Symbology::MaxiCode,
+    Symbology::MicroQr,
 ];
 
 impl Symbology {
@@ -50,15 +77,47 @@ impl Symbology {
             Symbology::Ean8 => "EAN8",
             Symbology::Itf => "ITF",
             Symbology::Codabar => "Codabar",
+            Symbology::Gs1_128 => "GS1-128",
+            Symbology::UpcA => "UPCA",
+            Symbology::UpcE => "UPCE",
+            Symbology::Code93 => "Code93",
+            Symbology::Telepen => "Telepen",
+            Symbology::DataBarOmnidirectional => "DataBarOmnidirectional",
+            Symbology::DataBarExpanded => "DataBarExpanded",
+            Symbology::MaxiCode => "MaxiCode",
+            Symbology::MicroQr => "MicroQR",
+        }
+    }
+
+    /// The other spellings a caller may reasonably use.
+    pub fn aliases(self) -> &'static [&'static str] {
+        match self {
+            Symbology::Gs1_128 => &["GS1128", "GS1 Code 128"],
+            Symbology::UpcA => &["UPC-A"],
+            Symbology::UpcE => &["UPC-E"],
+            Symbology::DataBarOmnidirectional => &["DataBar", "RSS14", "RSS-14"],
+            Symbology::DataBarExpanded => &["RSSExpanded", "RSS-EXPANDED", "DataBar-Expanded"],
+            Symbology::MicroQr => &["MicroQRCode", "Micro-QR"],
+            _ => &[],
         }
     }
 
     /// Parses an ABI name, case-insensitively, and rejects anything else by name.
+    ///
+    /// Hyphens, underscores and spaces carry no meaning in a symbology name, so `GS1-128`,
+    /// `gs1_128` and `GS1 128` are one name — the spelling a caller copies out of a specification
+    /// rarely matches the one a library chose.
     pub fn parse(name: &str) -> Result<Self, BtError> {
-        let wanted = name.trim();
+        let wanted = normalize(name);
         ALL.iter()
             .copied()
-            .find(|candidate| candidate.name().eq_ignore_ascii_case(wanted))
+            .find(|candidate| {
+                normalize(candidate.name()) == wanted
+                    || candidate
+                        .aliases()
+                        .iter()
+                        .any(|alias| normalize(alias) == wanted)
+            })
             .ok_or_else(|| {
                 BtError::unsupported(format!(
                     "unknown symbology '{name}'; supported: {}",
@@ -74,22 +133,50 @@ impl Symbology {
             Symbology::DataMatrix => BarcodeFormat::DATA_MATRIX,
             Symbology::Aztec => BarcodeFormat::AZTEC,
             Symbology::Pdf417 => BarcodeFormat::PDF_417,
-            Symbology::Code128 => BarcodeFormat::CODE_128,
+            Symbology::Code128 | Symbology::Gs1_128 => BarcodeFormat::CODE_128,
             Symbology::Code39 => BarcodeFormat::CODE_39,
             Symbology::Ean13 => BarcodeFormat::EAN_13,
             Symbology::Ean8 => BarcodeFormat::EAN_8,
             Symbology::Itf => BarcodeFormat::ITF,
             Symbology::Codabar => BarcodeFormat::CODABAR,
+            Symbology::UpcA => BarcodeFormat::UPC_A,
+            Symbology::UpcE => BarcodeFormat::UPC_E,
+            Symbology::Code93 => BarcodeFormat::CODE_93,
+            Symbology::Telepen => BarcodeFormat::TELEPEN,
+            Symbology::DataBarOmnidirectional => BarcodeFormat::RSS_14,
+            Symbology::DataBarExpanded => BarcodeFormat::RSS_EXPANDED,
+            Symbology::MaxiCode => BarcodeFormat::MAXICODE,
+            Symbology::MicroQr => BarcodeFormat::MICRO_QR_CODE,
         }
     }
 
     /// The symbology a decoded format maps to, or `None` for a format this package does not
-    /// expose (`UPC_A`, `CODE_93`, `TELEPEN`…). The decoder accepts every format rxing can read;
-    /// naming the ones outside this set is honest about what the managed enum means.
+    /// expose (`DXFilmEdge`, a UPC/EAN extension…).
+    ///
+    /// `CODE_128` maps to plain Code 128: a GS1-128 is recognised from the `]C1` identifier the
+    /// reader puts in front of its text, which the decoder resolves before it gets here.
     pub fn from_format(format: &BarcodeFormat) -> Option<Self> {
+        if *format == BarcodeFormat::RECTANGULAR_MICRO_QR_CODE {
+            return Some(Symbology::MicroQr);
+        }
+
         ALL.iter()
             .copied()
             .find(|candidate| candidate.format() == *format)
+    }
+
+    /// Whether the engine has a writer for this symbology.
+    ///
+    /// `false` is not a gap in this package: it is what `rxing` 0.9.4 provides. GS1 DataBar,
+    /// MaxiCode and Micro QR Code are read-only there, so they are read-only here.
+    pub fn can_encode(self) -> bool {
+        !matches!(
+            self,
+            Symbology::DataBarOmnidirectional
+                | Symbology::DataBarExpanded
+                | Symbology::MaxiCode
+                | Symbology::MicroQr
+        )
     }
 
     /// Quiet zone, in modules, on each side, when the caller does not ask for one.
@@ -99,10 +186,13 @@ impl Symbology {
     /// total `sidesMargin` of at least ten narrow bars, and five each side is that, split evenly.
     pub fn default_quiet_zone(self) -> u32 {
         match self {
-            Symbology::QrCode => 4,
-            Symbology::DataMatrix => 1,
-            Symbology::Aztec => 2,
-            Symbology::Pdf417 => 2,
+            Symbology::QrCode | Symbology::MicroQr => 4,
+            Symbology::DataMatrix | Symbology::MaxiCode => 1,
+            Symbology::Aztec | Symbology::Pdf417 => 2,
+            // UPC-A and UPC-E are specified with nine modules of quiet zone on each side, and the
+            // UPC-E reader genuinely needs them: at five the engine writes a symbol it cannot find
+            // again.
+            Symbology::UpcA | Symbology::UpcE => 9,
             _ => 5,
         }
     }
@@ -117,6 +207,13 @@ impl Symbology {
                 | Symbology::Ean8
                 | Symbology::Itf
                 | Symbology::Codabar
+                | Symbology::Gs1_128
+                | Symbology::UpcA
+                | Symbology::UpcE
+                | Symbology::Code93
+                | Symbology::Telepen
+                | Symbology::DataBarOmnidirectional
+                | Symbology::DataBarExpanded
         )
     }
 
@@ -126,6 +223,14 @@ impl Symbology {
     pub const fn default_bar_height(self) -> u32 {
         40
     }
+}
+
+/// Case folding plus the separators that carry no meaning in a symbology name.
+fn normalize(name: &str) -> String {
+    name.chars()
+        .filter(|c| !matches!(c, '-' | '_' | ' '))
+        .collect::<String>()
+        .to_ascii_uppercase()
 }
 
 #[cfg(test)]
@@ -140,10 +245,25 @@ mod tests {
     }
 
     #[test]
+    fn every_alias_round_trips() {
+        for symbology in ALL {
+            for alias in symbology.aliases() {
+                assert_eq!(Symbology::parse(alias), Ok(symbology), "{alias}");
+            }
+        }
+    }
+
+    #[test]
     fn parsing_ignores_case_and_padding() {
         assert_eq!(Symbology::parse(" qrcode "), Ok(Symbology::QrCode));
         assert_eq!(Symbology::parse("EAN13"), Ok(Symbology::Ean13));
         assert_eq!(Symbology::parse("pdf417"), Ok(Symbology::Pdf417));
+        assert_eq!(Symbology::parse("ean-13"), Ok(Symbology::Ean13));
+        assert_eq!(Symbology::parse("gs1_128"), Ok(Symbology::Gs1_128));
+        assert_eq!(
+            Symbology::parse("DataBar"),
+            Ok(Symbology::DataBarOmnidirectional)
+        );
     }
 
     #[test]
@@ -157,14 +277,49 @@ mod tests {
     #[test]
     fn formats_round_trip_through_the_decoder_mapping() {
         for symbology in ALL {
-            assert_eq!(Symbology::from_format(&symbology.format()), Some(symbology));
+            // GS1-128 shares Code 128's format: the reader names it from the data, not from the
+            // format, so the mapping cannot tell the two apart and is not expected to.
+            if symbology == Symbology::Gs1_128 {
+                continue;
+            }
+
+            assert_eq!(
+                Symbology::from_format(&symbology.format()),
+                Some(symbology),
+                "{}",
+                symbology.name()
+            );
         }
-        assert_eq!(Symbology::from_format(&BarcodeFormat::UPC_A), None);
+
+        assert_eq!(
+            Symbology::from_format(&BarcodeFormat::RECTANGULAR_MICRO_QR_CODE),
+            Some(Symbology::MicroQr)
+        );
+        assert_eq!(Symbology::from_format(&BarcodeFormat::DXFilmEdge), None);
     }
 
     #[test]
     fn one_dimensional_set_matches_the_formats() {
         let one_dimensional = ALL.iter().filter(|s| s.is_one_dimensional()).count();
-        assert_eq!(one_dimensional, 6);
+        assert_eq!(one_dimensional, 13);
+    }
+
+    #[test]
+    fn the_read_only_symbologies_are_the_ones_rxing_cannot_write() {
+        let read_only: Vec<&str> = ALL
+            .iter()
+            .filter(|s| !s.can_encode())
+            .map(|s| s.name())
+            .collect();
+
+        assert_eq!(
+            read_only,
+            [
+                "DataBarOmnidirectional",
+                "DataBarExpanded",
+                "MaxiCode",
+                "MicroQR"
+            ]
+        );
     }
 }
