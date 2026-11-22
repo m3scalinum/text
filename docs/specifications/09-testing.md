@@ -363,8 +363,11 @@ is exactly the failure the table exists to catch.
 **It has to be measured the same way.** `tests/coverage-table.py` imports `production_lines` and
 `assemblies_in` from `tests/coverage-gate.py` by path, so a package's row is the same count its gate
 made: same test-assembly and compiler-generated-class exclusions, same line counting. When a package
-appears in more than one report, the report with the most lines wins — a merged run collected more
-of the assembly than a single suite. Every run also executes
+appears in more than one report, the row is read from the report of the job that owns the package and
+from no other: a suite's report lists every assembly it *loaded*, and `M3scalinum.Text.Templates`
+reads 99.8 % in the job that tests it but 60.2 % in `mcp.xml`, where the server's tests only touch
+it. Each artifact is downloaded into a directory named after its job for exactly that reason, and
+the selftest asserts that a foreign figure never wins. Every run also executes
 `tests/coverage-table.py --selftest`, which fabricates Cobertura files in a temporary directory,
 checks the percentages and verdicts, and checks that a package with no report is refused and named.
 The refusal is therefore part of the build, not a claim in this document.

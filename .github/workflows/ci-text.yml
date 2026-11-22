@@ -665,13 +665,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      # One artifact per job, into a directory named after the job. A suite's report also lists
+      # every assembly it loaded, so the same package shows up in several artifacts at very
+      # different figures; keeping the job's identity in the path is what lets the table read a
+      # package from the job that owns it instead of guessing.
       - uses: actions/download-artifact@v8
-        # The four `coverage-*` artifacts, flattened into one directory: the table finds a package
-        # by the reports that contain it, not by a file name a job had to keep in sync.
         with:
-          pattern: coverage-*
-          merge-multiple: true
-          path: artifacts/coverage
+          name: coverage-text
+          path: artifacts/coverage/suite
+      - uses: actions/download-artifact@v8
+        with:
+          name: coverage-templates
+          path: artifacts/coverage/templates
+      - uses: actions/download-artifact@v8
+        with:
+          name: coverage-mcp
+          path: artifacts/coverage/mcp
+      - uses: actions/download-artifact@v8
+        with:
+          name: coverage-extras
+          path: artifacts/coverage/extras
       - name: Prove the aggregation
         # Fabricated reports in a temp directory, including the missing-package case: the table is
         # exercised on every run rather than trusted because it worked the night it was written.

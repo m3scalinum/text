@@ -22,8 +22,11 @@ Usage:
   coverage-table.py [REPORT_DIR] [--floor 90] [--markdown PATH] [--json PATH]
   coverage-table.py --selftest
 
-REPORT_DIR defaults to `artifacts/coverage`. --markdown and --json write the table; the same
-markdown is always printed on stdout.
+REPORT_DIR defaults to `artifacts/coverage`. It holds one subdirectory per job, named after the job
+(`suite/`, `templates/`, `mcp/`, `extras/`), each with the artifacts that job uploaded — a row is
+read from the report of the job that owns the package, because a suite also reports on every
+assembly it loads. --markdown and --json write the table; the same markdown is always printed on
+stdout.
 """
 
 import argparse
@@ -39,9 +42,12 @@ DEFAULT_FLOOR = 90.0
 DEFAULT_REPORTS = "artifacts/coverage"
 SRC = Path(__file__).resolve().parent.parent / "src"
 
-# Packages this workflow measures. The value is the artifact job whose report carries them, used
-# for the error message when a report goes missing: "no report for X" is only actionable with the
-# job that was supposed to upload it.
+# Packages this workflow measures. The value is the job whose report is the measurement: the
+# reports hold every assembly a suite *loaded*, so the same package appears in several of them at
+# very different figures — `M3scalinum.Text.Templates` reads 99.8 % in `templates.xml` and 60.2 % in
+# `mcp.xml`, where it is a dependency the server's tests only touch. A row therefore comes from the
+# owning job's report and from nowhere else; a "pick the best number" rule would silently publish
+# the friendliest figure instead of the one the gate measured.
 MEASURED_HERE = {
     "M3scalinum.Text.Barcodes": "extras",
     "M3scalinum.Text.Docx": "extras",
@@ -51,6 +57,7 @@ MEASURED_HERE = {
     "M3scalinum.Text.Pdf": "suite",
     "M3scalinum.Text.Templates": "templates",
 }
+
 
 # Packages of `src/` that this workflow packs (the examples and musl jobs) but does not measure:
 # the compiler train's suites run in its own workflow, and an artifact of another run is not
@@ -104,27 +111,28 @@ def report_totals(report: Path, gate) -> dict[str, tuple[int, int]]:
     return totals
 
 
-def collect(reports_dir: Path, gate) -> tuple[dict[str, tuple[int, int]], dict[str, list[str]], list[str]]:
-    """Merges every report: package -> best (covered, total), package -> files, files read.
+def collect(reports_dir: Path, gate) -> tuple[dict[tuple[str, str], tuple[int, int, str]], list[str]]:
+    """Per job, package -> (covered, total, report).
 
-    A package can appear in more than one report (the suite job and the compiler job both build
-    `Text.Pdf`). When it does, the report with the most lines wins: a merged run collected more
-    of the assembly than a single suite, so it is the closer measurement of the same code.
+    `reports_dir` holds one subdirectory per job, named after it (`suite/`, `templates/`, `mcp/`,
+    `extras/`), which is how the job that owns a package is known. Within a job's own directory a
+    package can still appear twice (a collected run plus a merge); the report with the most lines
+    wins there, since both measure the same suite. Across jobs it never merges: `Templates` reads
+    99.8 % in the job that tests it and 60.2 % in `mcp.xml`, where it is a dependency.
     """
-    best: dict[str, tuple[int, int]] = {}
-    sources: dict[str, list[str]] = {}
+    measured: dict[tuple[str, str], tuple[int, int, str]] = {}
     files = []
 
-    for report in sorted(reports_dir.glob("*.xml")):
-        totals = report_totals(report, gate)
-        files.append(report.name)
+    for job_dir in sorted(path for path in reports_dir.iterdir() if path.is_dir()):
+        for report in sorted(job_dir.glob("*.xml")):
+            files.append(f"{job_dir.name}/{report.name}")
 
-        for package, (covered, total) in totals.items():
-            sources.setdefault(package, []).append(report.name)
-            if package not in best or total > best[package][1]:
-                best[package] = (covered, total)
+            for package, (covered, total) in report_totals(report, gate).items():
+                key = (job_dir.name, package)
+                if key not in measured or total > measured[key][1]:
+                    measured[key] = (covered, total, f"{job_dir.name}/{report.name}")
 
-    return best, sources, files
+    return measured, files
 
 
 def build(reports_dir: Path, floor: float, gate) -> tuple[bool, dict]:
@@ -133,13 +141,15 @@ def build(reports_dir: Path, floor: float, gate) -> tuple[bool, dict]:
 
     unaccounted = sorted(set(projects) - set(MEASURED_HERE) - set(MEASURED_ELSEWHERE))
 
-    totals, sources, files = collect(reports_dir, gate)
+    totals, files = collect(reports_dir, gate)
     rows = []
     missing = []
 
     for package in sorted(MEASURED_HERE):
-        if package in totals:
-            covered, total = totals[package]
+        job = MEASURED_HERE[package]
+
+        if (job, package) in totals:
+            covered, total, report = totals[(job, package)]
             percent = covered / total * 100 if total else 0.0
             rows.append(
                 {
@@ -149,8 +159,8 @@ def build(reports_dir: Path, floor: float, gate) -> tuple[bool, dict]:
                     "percent": round(percent, 1),
                     "floor": floor,
                     "verdict": "pass" if percent >= floor else "below floor",
-                    "measured_by": MEASURED_HERE[package],
-                    "reports": sources.get(package, []),
+                    "measured_by": job,
+                    "report": report,
                 }
             )
             continue
@@ -164,8 +174,8 @@ def build(reports_dir: Path, floor: float, gate) -> tuple[bool, dict]:
                 "percent": None,
                 "floor": floor,
                 "verdict": "no report",
-                "measured_by": MEASURED_HERE[package],
-                "reports": [],
+                "measured_by": job,
+                "report": None,
             }
         )
 
@@ -179,7 +189,7 @@ def build(reports_dir: Path, floor: float, gate) -> tuple[bool, dict]:
                 "floor": floor,
                 "verdict": "measured elsewhere",
                 "measured_by": MEASURED_ELSEWHERE[package],
-                "reports": [],
+                "report": None,
             }
         )
 
@@ -259,9 +269,11 @@ def selftest() -> int:
         )
 
     with tempfile.TemporaryDirectory() as tmp:
-        reports = Path(tmp)
-        (reports / "coverage.xml").write_text(cobertura({"M3scalinum.Text.Pdf": (95, 100)}), encoding="utf-8")
-        (reports / "extras.xml").write_text(
+        reports = Path(tmp) / "partial"
+        (reports / "suite").mkdir(parents=True)
+        (reports / "extras").mkdir()
+        (reports / "suite" / "coverage.xml").write_text(cobertura({"M3scalinum.Text.Pdf": (95, 100)}), encoding="utf-8")
+        (reports / "extras" / "extras.xml").write_text(
             cobertura(
                 {
                     "M3scalinum.Text.Barcodes": (80, 100),
@@ -284,18 +296,30 @@ def selftest() -> int:
         assert "**no report**" in markdown(table)
 
         # Every expected package accounted for: a package absent from the reports, not just a
-        # package below its floor, is what the table refuses.
+        # package below its floor, is what the table refuses. `mcp.xml` also carries Templates at
+        # 40 % — the figure a suite that merely loads it would report — and the row must ignore it,
+        # because the job that tests the package is the one that measures it.
         complete = Path(tmp) / "complete"
-        complete.mkdir()
-        (complete / "coverage.xml").write_text(
+
+        for job in ("suite", "templates", "mcp", "extras"):
+            (complete / job).mkdir(parents=True)
+
+        (complete / "suite" / "coverage.xml").write_text(
+            cobertura({"M3scalinum.Text.Pdf": (95, 100)}), encoding="utf-8"
+        )
+        (complete / "templates" / "templates.xml").write_text(
+            cobertura({"M3scalinum.Text.Templates": (100, 100)}), encoding="utf-8"
+        )
+        (complete / "mcp" / "mcp.xml").write_text(
+            cobertura({"M3scalinum.Text.Mcp": (90, 100), "M3scalinum.Text.Templates": (40, 100)}),
+            encoding="utf-8",
+        )
+        (complete / "extras" / "extras.xml").write_text(
             cobertura(
                 {
                     "M3scalinum.Text.Barcodes": (92, 100),
                     "M3scalinum.Text.Docx": (91, 100),
-                    "M3scalinum.Text.Mcp": (90, 100),
                     "M3scalinum.Text.Ocr": (99, 100),
-                    "M3scalinum.Text.Pdf": (95, 100),
-                    "M3scalinum.Text.Templates": (100, 100),
                     "M3scalinum.Text.Xlsx": (93, 100),
                 }
             ),
@@ -303,8 +327,12 @@ def selftest() -> int:
         )
 
         ok, table = build(complete, 90.0, gate)
+        rows = {row["package"]: row for row in table["rows"]}
+
         assert ok, table["missing"]
         assert len(table["rows"]) == len(MEASURED_HERE) + len(MEASURED_ELSEWHERE)
+        assert rows["M3scalinum.Text.Templates"]["percent"] == 100.0, rows["M3scalinum.Text.Templates"]
+        assert rows["M3scalinum.Text.Templates"]["report"] == "templates/templates.xml"
 
     print("selftest ok: aggregation, 90 % verdicts and refusal of a missing report")
     return 0
