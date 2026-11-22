@@ -191,7 +191,8 @@ internal sealed class PdfDss
             {
                 foreach (var response in Ocsp)
                 {
-                    if (response.Answers(certificate, issuer) && response.SignatureVerifies(issuer))
+                    if (response.Answers(certificate, issuer)
+                        && response.SignatureStatus(issuer, Certificates, out _, out _) == PdfRevocationSignatureStatus.Valid)
                     {
                         ocspIssuedAt = response.ProducedAt;
                     }
@@ -234,6 +235,112 @@ internal sealed class PdfDss
         return null;
     }
 
+    /// <summary>
+    /// Every embedded response, with what its signature proved: who signed it, which certificate it
+    /// answers for, and why it was refused when it was.
+    /// </summary>
+    /// <remarks>
+    /// Answers come first, then lists, each in the order the store declares them. An OCSP answer is
+    /// reported once, against the certificate its first single response names; a response that names
+    /// several certificates is one signature over all of them, so the reading is the same for each.
+    /// </remarks>
+    public IReadOnlyList<PdfRevocationSignatureReading> Signatures()
+    {
+        var readings = new List<PdfRevocationSignatureReading>(Ocsp.Count + Crls.Count);
+
+        foreach (var response in Ocsp)
+        {
+            readings.Add(Describe(response));
+        }
+
+        foreach (var crl in Crls)
+        {
+            readings.Add(Describe(crl));
+        }
+
+        return readings;
+    }
+
+    private PdfRevocationSignatureReading Describe(PdfOcspResponse response)
+    {
+        if (response.Entries.Count == 0)
+        {
+            var status = response.SignatureStatus(null, Certificates, out var signer, out var error);
+
+            return new PdfRevocationSignatureReading(
+                PdfRevocationKind.Ocsp, status, null, null, null,
+                signer?.Subject, signer?.SerialNumber, error);
+        }
+
+        var entry = response.Entries[0];
+        var issuer = IssuerNamed(entry);
+        var subject = SubjectNamed(entry);
+        var result = response.SignatureStatus(issuer, Certificates, out var responder, out var reason);
+
+        return new PdfRevocationSignatureReading(
+            PdfRevocationKind.Ocsp,
+            result,
+            subject?.Subject,
+            issuer?.Subject ?? subject?.Issuer,
+            Convert.ToHexString(entry.Serial),
+            responder?.Subject,
+            responder?.SerialNumber,
+            reason);
+    }
+
+    private PdfRevocationSignatureReading Describe(PdfCrl crl)
+    {
+        var authority = Certificates.FirstOrDefault(crl.IssuedBy);
+
+        if (authority is null)
+        {
+            return new PdfRevocationSignatureReading(
+                PdfRevocationKind.Crl,
+                PdfRevocationSignatureStatus.UnexpectedSigner,
+                null,
+                crl.IssuedAs(),
+                null,
+                null,
+                null,
+                $"the list names {crl.IssuedAs()} as its issuer, and the store embeds no certificate of that name");
+        }
+
+        var status = crl.SignatureStatus(authority, out var error);
+
+        return new PdfRevocationSignatureReading(
+            PdfRevocationKind.Crl, status, null, authority.Subject, null,
+            authority.Subject, authority.SerialNumber, error);
+    }
+
+    /// <summary>The embedded certificate whose name or key the answer's identifier hashes to.</summary>
+    private X509Certificate2? IssuerNamed(PdfOcspEntry entry)
+    {
+        foreach (var candidate in Certificates)
+        {
+            if (PdfAsn.Digest(entry.HashAlgorithm, candidate.SubjectName.RawData).AsSpan().SequenceEqual(entry.IssuerNameHash)
+                || PdfAsn.Digest(entry.HashAlgorithm, candidate.PublicKey.EncodedKeyValue.RawData).AsSpan().SequenceEqual(entry.IssuerKeyHash))
+            {
+                return candidate;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>The embedded certificate the answer names by serial and issuer identifier.</summary>
+    private X509Certificate2? SubjectNamed(PdfOcspEntry entry)
+    {
+        foreach (var candidate in Certificates)
+        {
+            if (candidate.SerialNumberBytes.Span.SequenceEqual(entry.Serial))
+            {
+                return candidate;
+            }
+        }
+
+        return null;
+    }
+
     private bool HasGoodStanding(X509Certificate2 subject, X509Certificate2 issuer)
     {
         var serial = subject.SerialNumberBytes.Span;
@@ -248,7 +355,8 @@ internal sealed class PdfDss
 
         foreach (var response in Ocsp)
         {
-            if (response.GivesGoodAnswer(subject, issuer) && response.SignatureVerifies(issuer))
+            if (response.GivesGoodAnswer(subject, issuer)
+                && response.SignatureStatus(issuer, Certificates, out _, out _) == PdfRevocationSignatureStatus.Valid)
             {
                 return true;
             }
