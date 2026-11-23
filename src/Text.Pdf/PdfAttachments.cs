@@ -233,32 +233,29 @@ public static class PdfAttachments
     /// <summary>Points the owner's <c>/EmbeddedFiles</c> at <paramref name="reference"/>.</summary>
     private static string SetEmbeddedFiles(string body, string reference, bool insideNameDictionary)
     {
-        if (Locate(body, "EmbeddedFiles") is { } located)
+        if (PdfIncrementalUpdate.Locate(body, "EmbeddedFiles") is { } located)
         {
-            return Replace(body, located.ValueStart, located.ValueLength, reference);
+            return PdfIncrementalUpdate.Replace(body, located.ValueStart, located.ValueLength, reference);
         }
 
         if (insideNameDictionary)
         {
-            return InsertBeforeClose(body, "/EmbeddedFiles " + reference);
+            return PdfIncrementalUpdate.InsertBeforeClose(body, "/EmbeddedFiles " + reference);
         }
 
-        if (Locate(body, "Names") is { } names)
+        if (PdfIncrementalUpdate.Locate(body, "Names") is { } names)
         {
-            if (IsDictionaryAt(body, names.ValueStart))
+            if (PdfIncrementalUpdate.IsDictionaryAt(body, names.ValueStart))
             {
-                return Replace(body, names.ValueStart + 2, 0, "/EmbeddedFiles " + reference);
+                return PdfIncrementalUpdate.Replace(body, names.ValueStart + 2, 0, "/EmbeddedFiles " + reference);
             }
 
             throw new PdfOperationException(
                 "the document's /Names entry is not a dictionary this writer can update");
         }
 
-        return InsertBeforeClose(body, "/Names<</EmbeddedFiles " + reference + ">>");
+        return PdfIncrementalUpdate.InsertBeforeClose(body, "/Names<</EmbeddedFiles " + reference + ">>");
     }
-
-    private static bool IsDictionaryAt(string body, int start)
-        => start + 1 < body.Length && body[start] == '<' && body[start + 1] == '<';
 
     /// <summary>Reads every attachment of an opened document.</summary>
     private static List<PdfAttachment> Collect(PdfFile file)
@@ -527,24 +524,7 @@ public static class PdfAttachments
     {
         PdfReference reference => Reference(reference.Number),
         null => throw new PdfOperationException("an attachment has no file specification to write"),
-        _ => Serialize(value),
-    };
-
-    /// <summary>Writes a value read from the file back out, so an inline file specification survives an update.</summary>
-    private static string Serialize(PdfValue value) => value switch
-    {
-        PdfReference reference => Reference(reference.Number),
-        PdfDictionary dictionary => "<<"
-            + string.Concat(dictionary.Entries.Select(entry => "/" + entry.Key + " " + Serialize(entry.Value)))
-            + ">>",
-        PdfArray array => "[" + string.Join(" ", array.Items.Select(Serialize)) + "]",
-        PdfString text => "<" + Convert.ToHexString(text.Bytes) + ">",
-        PdfName name => "/" + name.Value,
-        PdfBoolean boolean => boolean.Value ? "true" : "false",
-        PdfNumber number => number.ToString(),
-        PdfNullValue => "null",
-        _ => throw new PdfOperationException(
-            $"an attachment's file specification holds a {value.GetType().Name}, which this writer cannot carry into an update"),
+        _ => PdfIncrementalUpdate.Serialize(value),
     };
 
     private static bool SameSpec(PdfValue left, PdfValue right)
@@ -553,16 +533,16 @@ public static class PdfAttachments
     /// <summary>Adds <paramref name="item"/> to the array at <paramref name="key"/>, or starts one.</summary>
     private static string AppendToArray(string body, string key, string item)
     {
-        if (Locate(body, key) is not { } located)
+        if (PdfIncrementalUpdate.Locate(body, key) is not { } located)
         {
-            return InsertBeforeClose(body, "/" + key + "[" + item + "]");
+            return PdfIncrementalUpdate.InsertBeforeClose(body, "/" + key + "[" + item + "]");
         }
 
         var value = body.Substring(located.ValueStart, located.ValueLength);
         if (!value.StartsWith('['))
         {
             // A producer may write one file specification without an array; the addition wraps it.
-            return Replace(
+            return PdfIncrementalUpdate.Replace(
                 body,
                 located.ValueStart,
                 located.ValueLength,
@@ -571,7 +551,7 @@ public static class PdfAttachments
 
         var inner = value.AsSpan(1, value.Length - 2).Trim();
 
-        return Replace(
+        return PdfIncrementalUpdate.Replace(
             body,
             located.ValueStart,
             located.ValueLength,
@@ -581,7 +561,7 @@ public static class PdfAttachments
     /// <summary>Removes <paramref name="item"/> from the array at <paramref name="key"/>, dropping the key when it empties.</summary>
     private static string RemoveFromArray(string body, string key, string item)
     {
-        if (Locate(body, key) is not { } located)
+        if (PdfIncrementalUpdate.Locate(body, key) is not { } located)
         {
             return body;
         }
@@ -604,7 +584,7 @@ public static class PdfAttachments
                 index++;
             }
 
-            var end = EndOfValue(value, index);
+            var end = PdfIncrementalUpdate.EndOfValue(value, index);
             if (end <= index)
             {
                 break;
@@ -621,14 +601,14 @@ public static class PdfAttachments
 
         if (kept.Count > 0)
         {
-            return Replace(body, located.ValueStart, located.ValueLength, "[" + string.Join(" ", kept) + "]");
+            return PdfIncrementalUpdate.Replace(body, located.ValueStart, located.ValueLength, "[" + string.Join(" ", kept) + "]");
         }
 
         return RemoveEntry(body, located);
     }
 
     /// <summary>Drops an entry and the whitespace that introduced it: an empty array says nothing that no key says.</summary>
-    private static string RemoveEntry(string body, Located located)
+    private static string RemoveEntry(string body, PdfIncrementalUpdate.Located located)
     {
         var start = located.KeyStart;
         while (start > 0 && char.IsWhiteSpace(body[start - 1]))
@@ -636,163 +616,7 @@ public static class PdfAttachments
             start--;
         }
 
-        return Replace(body, start, located.ValueStart + located.ValueLength - start, string.Empty);
-    }
-
-    /// <summary>Where a key and its value sit in a dictionary body.</summary>
-    private readonly record struct Located(int KeyStart, int ValueStart, int ValueLength);
-
-    private static Located? Locate(string body, string key)
-    {
-        var match = Regex.Match(
-            body,
-            "/" + Regex.Escape(key) + @"(?![A-Za-z0-9])\s*",
-            RegexOptions.CultureInvariant);
-
-        if (!match.Success)
-        {
-            return null;
-        }
-
-        var start = match.Index + match.Length;
-        var end = EndOfValue(body, start);
-
-        return end < 0 ? null : new Located(match.Index, start, end - start);
-    }
-
-    /// <summary>The index just past the value that starts at <paramref name="start"/>, or -1.</summary>
-    private static int EndOfValue(string body, int start)
-    {
-        while (start < body.Length && char.IsWhiteSpace(body[start]))
-        {
-            start++;
-        }
-
-        if (start >= body.Length)
-        {
-            return -1;
-        }
-
-        switch (body[start])
-        {
-            case '<' when IsDictionaryAt(body, start):
-                var close = PdfSyntax.CloseDictionary(body, start);
-                return close < 0 ? -1 : close + 2;
-            case '<':
-                var hex = body.IndexOf('>', start);
-                return hex < 0 ? -1 : hex + 1;
-            case '(':
-                return LiteralEnd(body, start);
-            case '[':
-                return ArrayEnd(body, start);
-            case ']' or '>' or ')':
-                return -1;
-            default:
-                var index = start;
-                while (index < body.Length
-                    && !char.IsWhiteSpace(body[index])
-                    && body[index] is not ('<' or '>' or '[' or ']' or '(' or ')' or '/' or '%'))
-                {
-                    index++;
-                }
-
-                // A number followed by "gen R" is one indirect reference, not three values: replacing
-                // the value of a key must take "12 0 R" whole, or the rest is left behind as garbage.
-                if (char.IsAsciiDigit(body[start]))
-                {
-                    var reference = Regex.Match(
-                        body.AsSpan(index).ToString(),
-                        @"^\s+\d+\s+R(?![A-Za-z0-9])",
-                        RegexOptions.CultureInvariant);
-
-                    if (reference.Success)
-                    {
-                        index += reference.Length;
-                    }
-                }
-
-                return index;
-        }
-    }
-
-    private static int LiteralEnd(string body, int start)
-    {
-        var depth = 0;
-
-        for (var index = start; index < body.Length; index++)
-        {
-            var current = body[index];
-
-            if (current == '\\')
-            {
-                index++;
-                continue;
-            }
-
-            if (current == '(')
-            {
-                depth++;
-                continue;
-            }
-
-            if (current == ')' && --depth == 0)
-            {
-                return index + 1;
-            }
-        }
-
-        return -1;
-    }
-
-    private static int ArrayEnd(string body, int start)
-    {
-        var index = start + 1;
-
-        while (index < body.Length)
-        {
-            while (index < body.Length && char.IsWhiteSpace(body[index]))
-            {
-                index++;
-            }
-
-            if (index >= body.Length)
-            {
-                return -1;
-            }
-
-            if (body[index] == ']')
-            {
-                return index + 1;
-            }
-
-            var end = EndOfValue(body, index);
-            if (end <= index)
-            {
-                return -1;
-            }
-
-            index = end;
-        }
-
-        return -1;
-    }
-
-    /// <summary>Replaces <paramref name="length"/> characters at <paramref name="start"/>; a zero length inserts.</summary>
-    private static string Replace(string body, int start, int length, string value)
-        => string.Concat(body.AsSpan(0, start), value, body.AsSpan(start + length));
-
-    /// <summary>Inserts <paramref name="value"/> before the <c>&gt;&gt;</c> that closes the dictionary the body holds.</summary>
-    private static string InsertBeforeClose(string body, string value)
-    {
-        var open = body.IndexOf("<<", StringComparison.Ordinal);
-        var close = open < 0 ? -1 : PdfSyntax.CloseDictionary(body, open);
-
-        if (close < 0)
-        {
-            throw new PdfOperationException("a dictionary of the document is not text this writer can update");
-        }
-
-        return Replace(body, close, 0, value);
+        return PdfIncrementalUpdate.Replace(body, start, located.ValueStart + located.ValueLength - start, string.Empty);
     }
 
     /// <summary>One entry of the name tree: the name a reader shows, and the file specification it points at.</summary>

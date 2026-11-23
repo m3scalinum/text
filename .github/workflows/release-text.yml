@@ -13,14 +13,6 @@ on:
 env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
-  # The five packages that carry a Rust library declare one `runtimes/<rid>/native/` entry per RID
-  # in their csproj, and `linux-musl-arm64` is missing from those lists — the change that added the
-  # RID owned the workflows, the staging and the verifier, not `src/`. These two hooks are how
-  # Microsoft.Common.targets lets a file outside the project add the entry at pack time; the file
-  # conditions every item on the staged library existing. Exported rather than passed on each
-  # command line so the release pack step cannot forget them.
-  CustomAfterMicrosoftCommonTargets: ${{ github.workspace }}/.github/native/linux-musl-arm64.targets
-  CustomAfterMicrosoftCommonCrossTargetingTargets: ${{ github.workspace }}/.github/native/linux-musl-arm64.targets
 
 # Read-only by default; the publish job adds id-token: write for trusted publishing.
 permissions:
@@ -29,12 +21,12 @@ permissions:
 # Everything in the suite that does not embed the compiler: M3scalinum.Text.Pdf, .Templates, .Mcp,
 # .Barcodes, .Ocr, .Docx and .Xlsx. These packages do not version themselves after Typst, they follow TextVersion, so
 # they need their own tag namespace and their own workflow. The five native ones are the reason the
-# `native` job below exists: they ship seven RIDs each, built here and packed by `pack`.
+# `native` job below exists: they ship eight RIDs each, built here and packed by `pack`.
 
 jobs:
   native:
     name: native (${{ matrix.crate }}, ${{ matrix.rid }})
-    # Seven RIDs, one more than the compiler's set: both musl entries are hand-linked from the
+    # Eight RIDs, one more than the compiler's set: both musl entries are hand-linked from the
     # staticlib with `musl-gcc` because Rust cannot emit a cdylib for a musl target, and an Alpine
     # consumer — the default .NET image is musl — gets a library it can load on either architecture
     # rather than a DllNotFoundException.
@@ -53,9 +45,10 @@ jobs:
           # Not a cross-compile: on the arm64 runner `musl-tools` installs an aarch64 musl-gcc, the
           # architecture the target links for, so the recipe above needs no cross linker.
           - { os: ubuntu-24.04-arm, rid: linux-musl-arm64, target: aarch64-unknown-linux-musl }
-          # The universal dylib cross-compiles from either macOS host; the Intel pool keeps CI off
-          # the arm64 queue GitHub throttles.
-          - { os: macos-15-intel, rid: osx, target: "" }
+          # One thin dylib per architecture, each built on its own runner: no cross target, no
+          # `lipo`, and a consumer's build copies out only the slice their machine can load.
+          - { os: macos-15, rid: osx-arm64, target: "" }
+          - { os: macos-15-intel, rid: osx-x64, target: "" }
     env:
       CRT_TARGET: ${{ matrix.target != '' && format('--target {0}', matrix.target) || '' }}
       # None of the five crates vendors a C library, so the musl entry only needs the linker.
@@ -73,7 +66,7 @@ jobs:
           sudo apt-get install -y musl-tools
           rustup target add ${{ matrix.target }}
       - name: Build (host)
-        if: matrix.rid != 'osx' && matrix.target == ''
+        if: matrix.target == ''
         run: cargo build --release --manifest-path native/${{ matrix.crate }}/Cargo.toml
       - name: Build (musl)
         if: matrix.target != ''
@@ -100,14 +93,6 @@ jobs:
           musl-gcc -shared -o "native/${{ matrix.crate }}/target/release/$library.so" $symbols "$archive" -lpthread -ldl -lm
           strip --strip-all "native/${{ matrix.crate }}/target/release/$library.so"
           ls -la "native/${{ matrix.crate }}/target/release/$library.so"
-      - name: Build (universal)
-        if: matrix.rid == 'osx'
-        run: |
-          rustup target add x86_64-apple-darwin aarch64-apple-darwin
-          cargo build --release --manifest-path native/${{ matrix.crate }}/Cargo.toml --target x86_64-apple-darwin
-          cargo build --release --manifest-path native/${{ matrix.crate }}/Cargo.toml --target aarch64-apple-darwin
-          lib="$(basename "$(ls native/${{ matrix.crate }}/target/x86_64-apple-darwin/release/*.dylib)")"
-          lipo -create -output "native/${{ matrix.crate }}/target/release/${lib%%-*}-universal.dylib"             "native/${{ matrix.crate }}/target/x86_64-apple-darwin/release/$lib"             "native/${{ matrix.crate }}/target/aarch64-apple-darwin/release/$lib"
       - name: Stage the library
         shell: bash
         run: |
@@ -225,7 +210,7 @@ jobs:
           dotnet pack src/Text.Xlsx -c Release --no-restore \
             -o artifacts/packages -p:CoreVersion="$core" "${version_args[@]}"
       - name: Verify the packages
-        # `--native`: this job downloads every crate's seven RIDs, so a package that ships without
+        # `--native`: this job downloads every crate's eight RIDs, so a package that ships without
         # one of its libraries is caught here rather than by a consumer's DllNotFoundException.
         run: |
           for package in artifacts/packages/*.nupkg; do

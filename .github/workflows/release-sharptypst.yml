@@ -50,11 +50,14 @@ jobs:
             rid: linux-musl-x64
             lib: libsharp_typst.so
             target: x86_64-unknown-linux-musl
-          # The universal dylib cross-compiles from either macOS host: rustup adds the other target
-          # and lipo joins both slices. Building on the Intel pool keeps the release off the arm64
-          # macOS queue, which GitHub throttles hard enough to drop jobs before a runner is assigned.
+          # One thin dylib per architecture, each a host build on its own runner: no cross target,
+          # no `lipo`, and no x86_64 slice in an Apple-silicon consumer's output.
+          - os: macos-15
+            rid: osx-arm64
+            lib: libsharp_typst.dylib
+            target: ""
           - os: macos-15-intel
-            rid: osx
+            rid: osx-x64
             lib: libsharp_typst.dylib
             target: ""
     env:
@@ -84,7 +87,7 @@ jobs:
       - name: Test
         run: cargo test $CRT_TARGET --manifest-path native/sharp-typst/Cargo.toml
       - name: Build
-        if: matrix.rid != 'osx' && matrix.target == ''
+        if: matrix.target == ''
         run: cargo build --release --manifest-path native/sharp-typst/Cargo.toml
       - name: Build (musl)
         if: matrix.target != ''
@@ -99,18 +102,6 @@ jobs:
             $symbols "$archive" -lpthread -ldl -lm
           strip --strip-all native/sharp-typst/target/release/libsharp_typst.so
           ls -la native/sharp-typst/target/release/libsharp_typst.so
-      - name: Build (universal)
-        if: matrix.rid == 'osx'
-        run: |
-          rustup target add aarch64-apple-darwin x86_64-apple-darwin
-          cargo build --release --manifest-path native/sharp-typst/Cargo.toml --target aarch64-apple-darwin
-          cargo build --release --manifest-path native/sharp-typst/Cargo.toml --target x86_64-apple-darwin
-          mkdir -p native/sharp-typst/target/release
-          lipo -create \
-            native/sharp-typst/target/aarch64-apple-darwin/release/libsharp_typst.dylib \
-            native/sharp-typst/target/x86_64-apple-darwin/release/libsharp_typst.dylib \
-            -output native/sharp-typst/target/release/libsharp_typst.dylib
-          lipo -info native/sharp-typst/target/release/libsharp_typst.dylib
       - uses: actions/upload-artifact@v7
         with:
           name: native-${{ matrix.rid }}
