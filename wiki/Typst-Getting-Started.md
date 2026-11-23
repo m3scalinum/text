@@ -4,10 +4,19 @@
 
 ```bash
 dotnet add package M3scalinum.Text.Typst
+dotnet add package M3scalinum.Text.Typst.Native.WinX64
 ```
 
-The package carries the native library for every supported platform, so there is nothing else to
-install — no Typst binary, no Rust toolchain, no `PATH` entry.
+The first package is the compiler, managed only. The second is the native library for your
+platform — `WinX64`, `WinArm64`, `LinuxX64`, `LinuxArm64`, `LinuxMuslX64`, `OsxArm64` or `OsxX64` —
+and NuGet cannot choose it for you: a dependency is resolved by target framework, never by runtime
+identifier. Afterwards there is nothing else to install — no Typst binary, no Rust toolchain, no
+`PATH` entry.
+
+If the satellite is missing, the first compile throws `TypstNativeLibraryNotFoundException`, naming
+the package your RID needs, the paths that were searched and `SHARPTYPST_NATIVE_PATH` for a library
+you built yourself. It is a `DllNotFoundException`, so a host that already catches that type keeps
+working.
 
 > The package is not on nuget.org yet. Until the release workflow has produced the native assets,
 > build it from source: see [Building from Source](Typst-Building-from-Source).

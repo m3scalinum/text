@@ -4,6 +4,12 @@
 # here would prove nothing: the item exists to catch a package that is missing an assembly, a
 # dependency or a native library.
 #
+# `M3scalinum.Text.Typst` is managed only: the native compiler ships in a per-RID satellite package
+# (`M3scalinum.Text.Typst.Native.WinX64` and its six siblings, Spec 08 §6). This script restores the
+# satellite for the RID the example runs on, so the two lines a consumer writes are the two lines
+# the examples exercise — and a feed without that satellite fails here rather than at the first
+# compile of a package nobody can use.
+#
 # usage: run.sh <example> <package id> <version> <feed directory> [--build-only | --self-contained <rid>]
 #
 #   <example>          directory name under this one, holding Program.cs (and fixtures/)
@@ -32,6 +38,72 @@ mode=${5:-}
 
 here=$(cd "$(dirname "$0")" && pwd)
 
+# The RID this example runs on: the one `--self-contained` names, or this host's own.
+host_rid() {
+    local rid=""
+
+    if command -v dotnet >/dev/null 2>&1; then
+        rid=$(dotnet --info 2>/dev/null | awk -F': *' '/^ *RID:/ { print $2; exit }')
+    fi
+
+    if [ -z "$rid" ]; then
+        local machine
+        machine=$(uname -m)
+        machine=${machine/x86_64/x64}
+        machine=${machine/aarch64/arm64}
+
+        case "$(uname -s)" in
+            MINGW*|MSYS*|CYGWIN*) rid="win-$machine" ;;
+            Darwin) rid="osx-$machine" ;;
+            *) rid="linux-$machine" ;;
+        esac
+    fi
+
+    # A framework-dependent runtime reports the portable RID on Alpine, where the glibc satellite
+    # cannot be loaded. The libc decides, exactly as `NativeLibraryResolver` decides it at load.
+    if [ "${rid#linux-}" != "$rid" ] && [ "${rid#linux-musl-}" = "$rid" ]; then
+        if [ -f /etc/alpine-release ] || [ -e /lib/ld-musl-x86_64.so.1 ] || [ -e /lib/ld-musl-aarch64.so.1 ]; then
+            rid="linux-musl-${rid#linux-}"
+        fi
+    fi
+
+    printf '%s' "$rid"
+}
+
+# The satellite package a package's native library ships in, for a RID. Only the compiler wrapper is
+# split by RID (Spec 08 §6); every other package carries its natives in the same .nupkg and this
+# prints nothing.
+satellite_package() {
+    local id=$1 rid=$2
+
+    case "$id" in
+        M3scalinum.Text.Typst) ;;
+        *) return 0 ;;
+    esac
+
+    case "$rid" in
+        win-x64) echo M3scalinum.Text.Typst.Native.WinX64 ;;
+        win-arm64) echo M3scalinum.Text.Typst.Native.WinArm64 ;;
+        linux-x64) echo M3scalinum.Text.Typst.Native.LinuxX64 ;;
+        linux-arm64) echo M3scalinum.Text.Typst.Native.LinuxArm64 ;;
+        linux-musl-x64) echo M3scalinum.Text.Typst.Native.LinuxMuslX64 ;;
+        osx-arm64) echo M3scalinum.Text.Typst.Native.OsxArm64 ;;
+        osx-x64) echo M3scalinum.Text.Typst.Native.OsxX64 ;;
+        *)
+            echo "no native package is published for $rid: the compiler wrapper has satellites for" \
+                 "win-x64, win-arm64, linux-x64, linux-arm64, linux-musl-x64, osx-arm64 and osx-x64" >&2
+            return 1
+            ;;
+    esac
+}
+
+rid=${6:-}
+if [ -z "$rid" ]; then
+    rid=$(host_rid)
+fi
+
+satellite=$(satellite_package "$package" "$rid")
+
 # The generated project is written outside the repository, so it inherits neither
 # Directory.Build.props nor the central package versions. The path is converted for the native
 # `dotnet` on Windows, which cannot open an MSYS `/tmp/...` path.
@@ -48,6 +120,15 @@ if [ ! -f "$feed/$package.$version.nupkg" ]; then
     exit 1
 fi
 
+if [ -n "$satellite" ] && [ ! -f "$feed/$satellite.$version.nupkg" ]; then
+    # The package under test is here and the library it needs is not: a green run would prove
+    # nothing, because the example would fail at its first compile with a message about a feed.
+    echo "the feed $feed holds no $satellite.$version.nupkg: pack" \
+         "src/Text.Typst.Native.Package -p:NativeRid=$rid alongside the other packages" \
+         "(tools/pack-typst-packages.py packs the set)" >&2
+    exit 1
+fi
+
 rm -rf "$work"
 mkdir -p "$work"
 cp -R "$here/$example/." "$work/"
@@ -57,6 +138,13 @@ rm -f "$work/README.md"
 # Directory.Build.props, its central package management, or any ProjectReference. A fresh package
 # cache per run keeps a package left over from an earlier build from standing in for this one.
 export NUGET_PACKAGES="$work/.nuget"
+
+# The satellite is a second PackageReference, the way a consumer writes it: NuGet cannot choose it
+# from the RID, so the project has to name it (Spec 08 §6).
+satellite_reference=""
+if [ -n "$satellite" ]; then
+    satellite_reference="    <PackageReference Include=\"$satellite\" Version=\"$version\" />"
+fi
 
 cat > "$work/Example.csproj" <<EOF
 <Project Sdk="Microsoft.NET.Sdk">
@@ -72,6 +160,7 @@ cat > "$work/Example.csproj" <<EOF
 
   <ItemGroup>
     <PackageReference Include="$package" Version="$version" />
+${satellite_reference}
   </ItemGroup>
 
   <ItemGroup>
@@ -81,7 +170,7 @@ cat > "$work/Example.csproj" <<EOF
 </Project>
 EOF
 
-echo "== $example: $package $version from $feed"
+echo "== $example: $package $version from $feed (RID $rid${satellite:+, plus $satellite})"
 
 # The sources are a file rather than `--source` arguments: a local folder and nuget.org, the first
 # for the package under test and the second for its published dependencies. The `<clear/>` keeps a

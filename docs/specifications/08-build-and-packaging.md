@@ -35,6 +35,7 @@ M3scalinum.Text.Typst/
 │   ├── M3scalinum.Text.Documents/              (the document model, no compiler)
 │   ├── M3scalinum.Text.Typst.DependencyInjection/  (AddTypst, options, validation)
 │   ├── M3scalinum.Text.Typst.Native/           (P/Invoke, internal)
+│   ├── M3scalinum.Text.Typst.Native.Package/   (the per-RID satellites, one project, §6.3)
 │   └── M3scalinum.Text.Templates.Generator/  (Roslyn generator, netstandard2.0)
 ├── tests/
 │   ├── M3scalinum.Text.Typst.Tests/
@@ -204,182 +205,248 @@ dotnet build -p:BuildNative=true
 
 ## 6. Native asset packaging
 
-`src/Text.Typst/M3scalinum.Text.Typst.csproj` packs the natives under the standard `runtimes/<rid>/native/`
-layout, so no `buildTransitive` targets are needed:
+`M3scalinum.Text.Typst` carries no native library. The compiler ships as one package per runtime
+identifier, and a consumer installs two packages — the compiler, then the satellite for the machine
+they run on:
+
+```bash
+dotnet add package M3scalinum.Text.Typst
+dotnet add package M3scalinum.Text.Typst.Native.WinX64
+```
+
+| RID | Satellite package | Library inside it |
+| --- | --- | --- |
+| `win-x64` | `M3scalinum.Text.Typst.Native.WinX64` | `runtimes/win-x64/native/sharp_typst.dll` |
+| `win-arm64` | `M3scalinum.Text.Typst.Native.WinArm64` | `runtimes/win-arm64/native/sharp_typst.dll` |
+| `linux-x64` | `M3scalinum.Text.Typst.Native.LinuxX64` | `runtimes/linux-x64/native/libsharp_typst.so` |
+| `linux-arm64` | `M3scalinum.Text.Typst.Native.LinuxArm64` | `runtimes/linux-arm64/native/libsharp_typst.so` |
+| `linux-musl-x64` | `M3scalinum.Text.Typst.Native.LinuxMuslX64` | `runtimes/linux-musl-x64/native/libsharp_typst.so` |
+| `osx-arm64` | `M3scalinum.Text.Typst.Native.OsxArm64` | `runtimes/osx-arm64/native/libsharp_typst.dylib` |
+| `osx-x64` | `M3scalinum.Text.Typst.Native.OsxX64` | `runtimes/osx-x64/native/libsharp_typst.dylib` |
+
+Each satellite is a package of one binary: `lib/<tfm>/_._` for the four target frameworks the
+compiler supports and nothing else, so it cannot shadow an assembly; the licence files; and a
+dependency on `M3scalinum.Text.Typst` at the exact version, so installing the satellite alone is a
+complete install and the two versions can never disagree.
+
+There is no `linux-musl-arm64` satellite. `Cargo.toml` vendors OpenSSL for `x86_64-unknown-linux-musl`
+alone, so `typst-kit`'s downloader has no vendored TLS for the aarch64 musl triple and the target is
+not built at all (09 §11). An Alpine arm64 consumer has no package to install, and the load error
+says so by naming the RIDs that exist.
+
+### 6.1 Why one package became eight
+
+NuGet 3 has no partial download: a package is one immutable zip behind one URL, a restore fetches the
+whole file, and the RID decides only which entries are copied out of it afterwards. Measured on
+`M3scalinum.Text.Typst.0.15.1.217.nupkg`, the single package that carried every native:
+
+| RID | downloads | its build copies out | paid for, unusable |
+| --- | ---: | ---: | ---: |
+| `win-x64` | 168.32 MB | 22.80 MB | 145.52 MB (86.5 %) |
+| `linux-musl-x64` | 168.32 MB | 33.69 MB | 134.63 MB (80.0 %) |
+| `osx-arm64` | 168.32 MB | 21.64 MB | 146.68 MB (87.2 %) |
+
+Six of the seven libraries a `win-x64` consumer downloads cannot be loaded on their machine, and no
+restore can avoid them. Nothing about the RID is known to the client when dependencies are resolved —
+dependency groups in a `.nuspec` are keyed by target framework and never by RID, and a
+`PackageReference` is unconditional — so the package graph cannot express "fetch the Alpine build if
+this is Alpine", and a package that carries all seven has to be as large as all seven.
+
+The split is a change to the install story, not to the packaging alone, and it ships with the
+documentation of it: `README.md`, `wiki/Typst-Getting-Started.md` and `samples/examples/run.sh` all
+show the two lines, and the examples restore the satellite for the RID they run on, so the recipe a
+consumer reads is the recipe CI exercises.
+
+**Rejected — a meta-package per platform family** (`M3scalinum.Text.Typst.Native.Windows` depending on
+both Windows satellites). It halves the number of ids to remember and doubles the download for the
+half of the users who picked the wrong architecture: an x64 host would fetch the arm64 library, which
+is what the split exists to stop. It also adds an id to every release that carries no binary of its own.
+
+**Rejected — publishing the satellites *alongside* a package that still carries every native.** The
+download does not move, and eight versions have to stay in lockstep.
+
+### 6.2 What a consumer downloads, measured
+
+`tools/package-size.py` reads a packed `.nupkg` and reports every entry's compressed size, so the
+figures below are the files a feed serves and not an estimate. `--split` models the layout: a consumer
+fetches the packages that carry their RID or no native at all, and never the satellites for the other
+six RIDs.
+
+```bash
+# The whole set, modelled per RID.
+python tools/pack-typst-packages.py --output out
+python tools/package-size.py out/*.nupkg --split
+
+# One profile: what a win-x64 project restores.
+python tools/package-size.py out/M3scalinum.Text.Typst.0.15.1.nupkg \
+    out/M3scalinum.Text.Documents.0.15.1.nupkg \
+    out/M3scalinum.Text.Typst.Native.WinX64.0.15.1.nupkg
+```
+
+| Package | Compressed |
+| --- | ---: |
+| `M3scalinum.Text.Typst` (managed only: 4 TFMs, nuspec, licences, readme) | 0.49 MB |
+| `M3scalinum.Text.Documents` (the compiler's only dependency) | 0.60 MB |
+| `M3scalinum.Text.Typst.Native.WinX64` | 22.38 MB |
+| `M3scalinum.Text.Typst.Native.WinArm64` | 21.31 MB |
+| `M3scalinum.Text.Typst.Native.LinuxX64` | 23.46 MB |
+| `M3scalinum.Text.Typst.Native.LinuxArm64` | 23.00 MB |
+| `M3scalinum.Text.Typst.Native.LinuxMuslX64` | 33.28 MB |
+| `M3scalinum.Text.Typst.Native.OsxArm64` | 20.87 MB |
+| `M3scalinum.Text.Typst.Native.OsxX64` | 23.33 MB |
+| **the whole set, nine packages** | **168.72 MB** |
+
+The set weighs what the single package weighed, because nothing was compressed differently — the
+natives are the same files, separated. What changes is the number under one consumer:
+
+| RID | before: downloads | after: downloads | saved |
+| --- | ---: | ---: | ---: |
+| `win-x64` | 168.54 MB | **23.47 MB** | 145.07 MB (86.1 %) |
+| `win-arm64` | 168.54 MB | 22.40 MB | 146.14 MB (86.7 %) |
+| `linux-x64` | 168.54 MB | 24.55 MB | 143.99 MB (85.4 %) |
+| `linux-arm64` | 168.54 MB | 24.09 MB | 144.45 MB (85.7 %) |
+| `linux-musl-x64` | 168.54 MB | **34.36 MB** | 134.18 MB (79.6 %) |
+| `osx-arm64` | 168.54 MB | **21.96 MB** | 146.58 MB (87.0 %) |
+| `osx-x64` | 168.54 MB | 24.42 MB | 144.12 MB (85.5 %) |
+
+Both columns include `M3scalinum.Text.Documents` (0.60 MB). The targets were 22.80 MB (`win-x64`) and
+33.69 MB (`linux-musl-x64`) for the compiler package alone — native plus 0.44 MB of shared cost. The
+two-package install adds `Text.Documents`, which the single package pulled in as a dependency all
+along: 22.35 (the library) + 0.49 (the managed package) + 0.60 (`Text.Documents`) + 0.03 (a
+satellite's own licence files) = 23.47 MB.
+
+A consumer who installs the compiler and stops there downloads 1.09 MB and gets the load error of
+§6.4 at the first compile — not a document.
+
+**How these figures were obtained.** No CI artifact was reachable from the workstation that packed
+them, so the seven `sharp_typst` binaries in these packages are placeholders: incompressible random
+bytes of the compressed size the real entry has on the feed — 22.35, 21.28, 23.43, 22.97 and
+33.24 MB, with the two macOS thin slices sharing that universal file's 44.59 MB. Random bytes do not
+deflate, so each packed entry weighs what the placeholder weighs and the download column is the real
+one to within a few kilobytes: the same exercise on the single package reproduces 167.94 MB against
+the artifact's 168.32 MB, and a `win-x64` copy of 22.84 MB against 22.80 MB. The raw sizes a build
+copies out of those files are the artifact's own — 49.61 MB for `win-x64`, 73.79 MB for the musl
+library — and do not come from a placeholder. The first release that packs this layout re-measures
+with the artifacts and replaces the table.
+
+### 6.3 One project, seven packages
+
+`src/Text.Typst.Native.Package` is a single csproj parameterised by `NativeRid`. It selects the
+library, the `runtimes/<rid>/native/` path and the package id suffix, and `dotnet pack` runs once per
+RID:
 
 ```xml
 <PropertyGroup>
-  <IsPackable>true</IsPackable>
-  <PackageId>M3scalinum.Text.Typst</PackageId>
-  <IsAotCompatible>true</IsAotCompatible>
+  <NativeRid Condition="'$(NativeRid)' == ''">$(RuntimeIdentifier)</NativeRid>
+  <NativeLibrary Condition="'$(NativeRid)' == 'win-x64'">sharp_typst.dll</NativeLibrary>
+  <NativePackageSuffix Condition="'$(NativeRid)' == 'win-x64'">WinX64</NativePackageSuffix>
+  <PackageId Condition="'$(NativeLibrary)' != ''">M3scalinum.Text.Typst.Native.$(NativePackageSuffix)</PackageId>
+  <IncludeBuildOutput>false</IncludeBuildOutput>
 </PropertyGroup>
 
 <ItemGroup>
-  <None Include="$(NativeArtifactsDir)/win-x64/sharp_typst.dll"
-        Pack="true" PackagePath="runtimes/win-x64/native/" Visible="false"
-        Condition="Exists('$(NativeArtifactsDir)/win-x64/sharp_typst.dll')" />
-  <None Include="$(NativeArtifactsDir)/linux-x64/libsharp_typst.so"
-        Pack="true" PackagePath="runtimes/linux-x64/native/" Visible="false"
-        Condition="Exists('$(NativeArtifactsDir)/linux-x64/libsharp_typst.so')" />
-  <None Include="$(NativeArtifactsDir)/osx-arm64/libsharp_typst.dylib"
-        Pack="true" PackagePath="runtimes/osx-arm64/native/" Visible="false"
-        Condition="Exists('$(NativeArtifactsDir)/osx-arm64/libsharp_typst.dylib')" />
-  <None Include="$(NativeArtifactsDir)/osx-x64/libsharp_typst.dylib"
-        Pack="true" PackagePath="runtimes/osx-x64/native/" Visible="false"
-        Condition="Exists('$(NativeArtifactsDir)/osx-x64/libsharp_typst.dylib')" />
-  <None Include="../../THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="/" />
-  <None Include="../../README.md" Pack="true" PackagePath="/" />
+  <None Include="$(NativeArtifactsDir)/$(NativeRid)/$(NativeLibrary)"
+        Pack="true" PackagePath="runtimes/$(NativeRid)/native/" Visible="false"
+        Condition="Exists('$(NativeArtifactsDir)/$(NativeRid)/$(NativeLibrary)')" />
 </ItemGroup>
 ```
 
-(The file lists all seven RIDs; three are shown here — §6.3 tabulates the sets. Each entry is
-conditioned on the artifact's
-existence, so a pack on a machine that built no natives still produces a package — and
-`tests/verify-package.py` is what turns that package red instead of a consumer.)
+Seven copied csproj files would restate the same seven RIDs, the same `Exists(...)` conditions, the
+same licence items and the same `_._` placeholders, and would drift on the first file added or
+renamed. The set is written once and read three times: the csproj's suffix table,
+`tools/pack-typst-packages.py` (the RID list, and a check that every expected package id was packed)
+and `tests/verify-package.py` (the same ids, by the same rule).
 
-`$(NativeArtifactsDir)` defaults to `native/artifacts/` and is overridden in CI to the directory
-where the matrix jobs dropped their binaries.
+The artifact side is unchanged: the same file names, the same `runtimes/<rid>/native/` layout and the
+same `Exists(...)` condition under which the single package packed each one. A pack on a machine that
+built no natives still produces a satellite, and `tests/verify-package.py` refuses it instead of a
+consumer. `dotnet pack` without `NativeRid` packs nothing: a build of the solution must not fail, and
+there is no package to name.
 
-### 6.1 What the package weighs, measured
-
-`tools/package-size.py` reads a packed `.nupkg` and reports every entry's compressed size, so the
-figures below are the file the feed serves and not an estimate:
-
-```bash
-# One `pack` job's output: one table per package, then what each RID costs.
-python3 tools/package-size.py artifacts/packages/
-
-# A split layout, compared with the single package it would replace.
-python3 tools/package-size.py artifacts/packages/M3scalinum.Text.Typst*.nupkg
-```
-
-They are from
-`M3scalinum.Text.Typst.0.15.1.217.nupkg`, the artifact of the `pack` job of `ci-sharptypst` run
-45024810474. That artifact predates the macOS split: its single `osx` entry is the universal dylib,
-and §6.3 measures what replacing it with two thin files changes. Every other figure below is
-unaffected:
-
-| Entry | Compressed | Share |
-| --- | ---: | ---: |
-| `runtimes/osx/native/libsharp_typst.dylib` | 44.59 MB | 26.5 % |
-| `runtimes/linux-musl-x64/native/libsharp_typst.so` | 33.24 MB | 19.7 % |
-| `runtimes/linux-x64/native/libsharp_typst.so` | 23.43 MB | 13.9 % |
-| `runtimes/linux-arm64/native/libsharp_typst.so` | 22.97 MB | 13.6 % |
-| `runtimes/win-x64/native/sharp_typst.dll` | 22.35 MB | 13.3 % |
-| `runtimes/win-arm64/native/sharp_typst.dll` | 21.28 MB | 12.6 % |
-| `lib/` (4 TFMs), nuspec, licences, readme — 26 entries | 0.44 MB | 0.3 % |
-| **`M3scalinum.Text.Typst.0.15.1.217.nupkg`** | **168.32 MB** | |
-
-The six natives of that artifact are 167.87 MB: 99.7 % of what a consumer downloads is binaries, and
-five of the six are binaries no build on their machine can load. The split adds a seventh entry
-without adding weight to the transfer — see §6.3.
-
-### 6.2 What a consumer downloads, per RID
-
-NuGet 3 has no partial download. A package is one immutable zip behind one URL, a restore fetches
-the whole file, and the RID decides only which entries are copied out of it afterwards. Measured, on
-a project that references the package above:
-
-- `dotnet restore` puts 168.32 MB in the global packages folder, plus 0.43 MB for
-  `M3scalinum.Text.Documents`, whatever RID the project is later built for;
-- `dotnet build -r win-x64` copies one native out of it — `sharp_typst.dll`, 49.61 MB raw, at the
-  root of the output;
-- the same build **without** `-r` copies all six, 379.20 MB raw under `runtimes/`, because a
-  RID-agnostic build has no basis to choose. A `publish` without a RID carries the same 379 MB.
-  (That artifact carries one universal macOS dylib. With the split of §6.3 the same build copies
-  seven native files instead of six, of the same total size.)
-
-| RID | downloads | copies out | paid for, unusable |
-| --- | ---: | ---: | ---: |
-| `win-x64` | 168.32 MB | 22.80 MB | 145.52 MB (86.5 %) |
-| `win-arm64` | 168.32 MB | 21.72 MB | 146.59 MB (87.1 %) |
-| `linux-x64` | 168.32 MB | 23.88 MB | 144.44 MB (85.8 %) |
-| `linux-arm64` | 168.32 MB | 23.41 MB | 144.90 MB (86.1 %) |
-| `linux-musl-x64` | 168.32 MB | 33.69 MB | 134.63 MB (80.0 %) |
-| `osx` | 168.32 MB | 45.03 MB | 123.28 MB (73.2 %) |
-
-"Copies out" is the RID's own native plus the shared 0.44 MB; it is what that consumer's build
-actually uses of the file.
-
-**Decision — one package with six RIDs, and the price of it.** §6.2 makes the price exact: a `win-x64`
-consumer downloads 168.32 MB and their build copies out 22.80 MB of it, so 86.5 % of the transfer is
-five binaries their machine cannot load. A per-RID split — `M3scalinum.Text.Typst` carrying managed
-code only, one `M3scalinum.Text.Typst.Native.<rid>` per RID — would take that consumer to 22.80 MB and
-a musl consumer to 33.69 MB, for one extra line in the project file. It is rejected anyway, for
-reasons that are not about bytes:
-
-- NuGet cannot pick the satellite for the consumer. Dependencies are grouped per target framework and
-  never per RID, no client downloads part of a package, and nothing in a project file says which
-  native it needs before the RID is set. So a split package set is a two-line install by construction.
-- The install every consumer is taught is one line: `README.md`, `wiki/Typst-Getting-Started.md` and
-  `samples/examples/run.sh` all show `dotnet add package M3scalinum.Text.Typst` alone. After a split
-  that command installs an assembly that throws `DllNotFoundException` at the first compile, on a
-  path that names the glibc asset — a failure at run time where there used to be none at all, and one
-  the compiler cannot see.
-- Those three files are outside a packaging change, so the split and the documentation of it cannot
-  ship in the same release. Shipping half of it — a package that no longer works as documented, for a
-  saving users cannot find — is a worse trade than the download it saves.
-
-So the split is not a packaging detail to be decided here: it is a change to the install story, and it
-is worth doing only with the quickstart, the samples and the six satellites in one release.
-`tools/package-size.py` is what the decision is re-checked against, and 22.80 MB (`win-x64`) /
-33.69 MB (`linux-musl-x64`) are the numbers a split would have to deliver. What this section settles
-is the other half of the question: the package does **not** lose a quarter of its weight today, and
-the reason is that the only lever large enough to do it — 86.5 % for `win-x64` — is a change to how
-the package is installed, not to how it is packed.
-
-Rejected — publishing the satellites *alongside* a package that still carries every native: that keeps
-the download unchanged and adds six versions to keep in lockstep.
-
-**Decision — `linux-musl-x64` ships in the main package.** NuGet resolves `linux-musl-x64` to the
-`linux-x64` asset, so an Alpine or chiseled-musl container silently gets a glibc binary and fails at
-load; the artifact has to exist. Rust cannot emit a `cdylib` for a musl target — it drops the crate
-type with a warning and produces only the `staticlib` — so the shared object is linked by hand:
+Packing is one command:
 
 ```bash
-cargo build --release --target x86_64-unknown-linux-musl
-symbols=$(nm -g --defined-only target/x86_64-unknown-linux-musl/release/libsharp_typst.a \
-  | awk '$2=="T" && $3 ~ /^tn_/ {print "-Wl,-u,"$3}')
-musl-gcc -shared -o libsharp_typst.so $symbols libsharp_typst.a -lpthread -ldl -lm
-strip --strip-all libsharp_typst.so
+python tools/pack-typst-packages.py --output out --revision 42
 ```
 
-The `-u` flags are what keep the `tn_*` entry points: nothing in the archive references them, so a
-plain link would produce an empty library. The result is 73.79 MB of library, 33.24 MB on the wire —
-19.7 % of the package, and 24.6 % of the 135.08 MB the package would weigh without it. That is a real
-cost for every consumer, Windows and macOS included, and it is the largest single asset after the
-universal macOS dylib. A satellite `M3scalinum.Text.Typst.Native.LinuxMusl` package was rejected
-twice over: it reaches only 19.7 % of the package — under the quarter this was measured against —
-and it makes the Alpine install the worst of the six, since NuGet would no longer fetch it on its own,
-and the package that is easy to forget is the one without which the application cannot start on musl.
-Without it the resolver finds the glibc build and fails with a `DllNotFoundException` that names
-nothing useful. The asset sits under `runtimes/linux-musl-x64/native/`, which `NativeLibraryResolver`
-probes first on a musl host (Spec 02 §9).
+It packs `Text.Documents`, the managed compiler and the seven satellites, and fails when the nine
+files it expected are not the nine it wrote.
 
-**Measured — compressing the asset instead, and why it is rejected.** The alternative to a split is to
-ship the library compressed and unpack it on arrival. `xz -6` on the musl library gives 23.53 MB
-against the 33.24 MB the `.nupkg` zip already achieves: 9.71 MB, 5.8 % of the package, for a
-`runtimes/` subtree that no longer holds the library itself. The resolver would then have to unpack
-73.79 MB into a writable cache before the first compile — and a chiseled or hardened Alpine container,
-which is the reason the musl build exists, is the one place that cache may not exist. Applied to all
-six natives the same ratio lands at 113.84 MB of package — 32.4 % less than 168.32 MB, so the option
-does reach a quarter; it is the cache, not the ratio, that disqualifies it.
+### 6.4 The resolution rule, and the error when no satellite is installed
 
-`typst-kit`'s downloader links OpenSSL, which no musl host provides, so `Cargo.toml` vendors it for
-that triple alone; every other target keeps the system library.
+NuGet resolves dependencies per target framework. There is no RID-conditional dependency, no
+`runtimes/` entry that pulls a package in, and no client that downloads part of a package; the RID
+becomes relevant only when a build or a publish lays assets into an output directory. So the
+resolution rule is about the project file, and it has one line per package:
 
-**Decision — the five native packages ship `linux-musl-arm64`.** `linux-musl-x64` alone left the
-other architecture open: NuGet resolves `linux-musl-arm64` to `linux-arm64` without a word, so an
-Alpine arm64 image — a Graviton node, or an Apple Silicon host running Docker — loaded a glibc
-library and failed with the very `DllNotFoundException` the x64 RID was added to remove.
-`M3scalinum.Text.Barcodes`, `.Ocr`, `.Docx`, `.Xlsx` and `.Pdf` now carry
+- the project references `M3scalinum.Text.Typst` and one satellite for the machine it runs or
+  publishes for;
+- a project that publishes for several RIDs references several satellites — that is the only way to
+  get both `runtimes/linux-x64/` and `runtimes/win-x64/` into separate publish outputs, and each one
+  costs its own download;
+- the satellite already depends on the compiler, so
+  `dotnet add package M3scalinum.Text.Typst.Native.WinX64` alone installs both. Adding the compiler
+  first is what keeps the project file readable and what `dotnet list package` shows first.
+
+**With no satellite, the load fails with a message that names the package.** `NativeLibraryResolver`
+probes `runtimes/<rid>/native/`, then `runtimes/<portable-rid>/native/`, then `runtimes/<os>/native/`,
+then the application directory, then the loader's own search path (`LD_LIBRARY_PATH`, a system
+install), and finally throws `TypstNativeLibraryNotFoundException`:
+
+```
+The native Typst library is not installed for this process (RID win-x64).
+
+M3scalinum.Text.Typst carries the managed compiler only: the native library lives in a package of its own,
+and this project does not reference the one for this runtime.
+
+    dotnet add package M3scalinum.Text.Typst.Native.WinX64
+
+Probed:
+  C:\app\runtimes\win-x64\native\sharp_typst.dll
+  C:\app\runtimes\win\native\sharp_typst.dll
+  C:\app\sharp_typst.dll
+
+Set SHARPTYPST_NATIVE_PATH to the full path of a library you built yourself (cargo build --release in
+native/sharp-typst) to load that instead.
+```
+
+The type derives from `DllNotFoundException`, so a host that already catches that keeps working; what
+changed is that the message also names the RID, the package that installs it and the paths searched. A
+bare `DllNotFoundException` would leave the reader to work out the packaging from a file name.
+`SHARPTYPST_NATIVE_PATH` still wins over the probing order, and when it points at a file that does not
+exist the message says so.
+
+**Measured — the two installs.** A console project with `M3scalinum.Text.Typst 0.15.1` and nothing else
+restores 1.09 MB, compiles, and throws `TypstNativeLibraryNotFoundException` with the text above at its
+first call. The same project with `M3scalinum.Text.Typst.Native.WinX64` added restores 23.47 MB and
+loads the library from `runtimes/win-x64/native/` in its own output directory.
+
+### 6.5 The RID set of the packages that are not the compiler
+
+The five format packages carry a Rust library of their own, and each still ships **eight** RIDs in one
+package: the compiler's seven plus `linux-musl-arm64`, which the compiler does not have.
+
+| Package | RIDs | Count |
+| --- | --- | ---: |
+| `M3scalinum.Text.Typst` (the satellites) | `win-x64`, `win-arm64`, `linux-x64`, `linux-arm64`, `linux-musl-x64`, `osx-arm64`, `osx-x64` | 7 |
+| `M3scalinum.Text.Barcodes`, `.Ocr`, `.Docx`, `.Xlsx`, `.Pdf` | the seven above, plus `linux-musl-arm64` | 8 |
+
+Those five are not split: each one's library is a few megabytes and its consumers use the one binary
+their RID needs, so the download a `win-x64` consumer pays for is a fraction of the compiler's. A split
+there would repeat the two-line install for packages that are usually pulled in transitively.
+
+**The five native packages ship `linux-musl-arm64`.** `linux-musl-x64` alone left the other
+architecture open: NuGet resolves `linux-musl-arm64` to `linux-arm64` without a word, so an Alpine
+arm64 image — a Graviton node, or an Apple Silicon host running Docker — loaded a glibc library and
+failed with the very `DllNotFoundException` the x64 RID was added to remove.
+`M3scalinum.Text.Barcodes`, `.Ocr`, `.Docx`, `.Xlsx` and `.Pdf` carry
 `runtimes/linux-musl-arm64/native/libsharp_text_*.so` as a seventh RID, built by the same
 `native (${{ matrix.crate }}, ${{ matrix.rid }})` matrix entry and demanded by
 `tests/verify-package.py` like the other six.
 
 **The linker, and why the arm64 pool builds it.** The entry runs on `ubuntu-24.04-arm` with
-`musl-tools`, whose `musl-gcc` there *is* an aarch64 musl compiler: the runner and the target share
-an architecture, so `--target aarch64-unknown-linux-musl` needs no cross toolchain and no
+`musl-tools`, whose `musl-gcc` there *is* an aarch64 musl compiler: the runner and the target share an
+architecture, so `--target aarch64-unknown-linux-musl` needs no cross toolchain and no
 `[target.aarch64-unknown-linux-musl]` linker block in any crate. Cross-compiling from the x64 pool
 would have meant `aarch64-linux-musl-cross` plus a cargo configuration per crate for a target that
 has a native runner; the repository already builds `linux-arm64` there, and this entry follows that
@@ -397,39 +464,7 @@ job on the arm64 pool, `musl (Alpine arm64)`, publishes the five examples self-c
 consumer downloads the extra arm64 slice whether they need it or not — the same trade the x64 musl
 entry made, and the `.nupkg` sizes the release job publishes are where the delta is measured.
 
-**Where the seventh RID is declared.** In the csproj, like the other six. When the RID was first
-added it was not: `src/` was outside that change, so `.github/native/linux-musl-arm64.targets`
-injected the missing `<None>` item at pack time through the two hooks `Microsoft.Common.targets`
-exposes — `CustomAfterMicrosoftCommonTargets` for the inner single-target build and
-`CustomAfterMicrosoftCommonCrossTargetingTargets` for the outer multi-targeting one — which
-`ci-text.yml` and `release-text.yml` exported as environment variables. A `dotnet pack` run by hand
-therefore produced a six-RID package and said nothing about it, while the same command in CI produced
-seven. The five csproj files now carry the line themselves, the two exports are gone and the file is
-deleted (below, §6.3). `tests/verify-package.py --selftest` — run by the `extras` job — fails if the
-requirement is deleted from the verifier's own tables.
-
-**What `linux-musl-arm64` does not cover.** The compiler package has no such asset:
-`M3scalinum.Text.Typst` vendors OpenSSL for `x86_64-unknown-linux-musl` alone, so `typst-kit`'s
-downloader has no vendored TLS for the arm64 musl triple and the target is not built at all; an
-Alpine arm64 consumer of the compiler still gets `DllNotFoundException`, which is a `Cargo.toml`
-change of its own. macOS no longer ships a universal `osx` dylib either: `runtimes/osx-arm64/` and
-`runtimes/osx-x64/` hold one thin file each, built on its own runner, so an Apple-silicon consumer's
-build copies out the arm64 file rather than a fat one whose other half they cannot load (§6.3,
-Spec 09 §11).
-
-**Decision — `M3scalinum.Text.Typst.Native` is merged, not published.** Every type in that assembly is
-`internal`, so it is an implementation detail. The project reference carries `PrivateAssets="all"`
-and the assembly is added to the package through `TargetsForTfmSpecificBuildOutput`, so the
-`.nuspec` has no dependencies and a consumer installs exactly one package. Rejected: publishing it
-as a second package, which would expose nothing and add a version to keep in lockstep.
-
-### 6.3 The final RID set, and what the macOS split weighs
-
-Two layout changes end here, and both are visible in the csproj files rather than in a file beside
-them.
-
-**`linux-musl-arm64` is declared, not injected.** The five format packages list it as an eighth RID,
-in the same form as the seventh:
+**Where the seventh RID is declared.** In the five csproj files, in the same form as the seventh:
 
 ```xml
 <None Include="$(NativeArtifactsDir)\linux-musl-arm64\libsharp_text_barcodes.so"
@@ -437,23 +472,47 @@ in the same form as the seventh:
       Condition="Exists('$(NativeArtifactsDir)\linux-musl-arm64\libsharp_text_barcodes.so')" />
 ```
 
-`.github/native/linux-musl-arm64.targets` and the two `CustomAfterMicrosoftCommon*Targets` exports of
-`ci-text.yml` and `release-text.yml` are gone. A `dotnet pack` on a workstation now produces exactly
-what the one in CI does, from the same input: seven RIDs for the compiler package, eight for each of
-the five that carry a library of their own.
+When the RID was first added it was not: that change was outside `src/`, so
+`.github/native/linux-musl-arm64.targets` injected the missing `<None>` item at pack time through the
+two hooks `Microsoft.Common.targets` exposes — `CustomAfterMicrosoftCommonTargets` for the inner
+single-target build and `CustomAfterMicrosoftCommonCrossTargetingTargets` for the outer
+multi-targeting one — which `ci-text.yml` and `release-text.yml` exported as environment variables. A
+`dotnet pack` run by hand there therefore produced a six-RID package and said nothing about it, while
+the same command in CI produced seven. The five csproj files carry the line themselves, the two exports
+are gone and the file is deleted. `tests/verify-package.py --selftest` — run by the `extras` job —
+fails if either requirement is deleted from the verifier's own tables.
 
-| Package | RIDs | Count |
-| --- | --- | ---: |
-| `M3scalinum.Text.Typst` | `win-x64`, `win-arm64`, `linux-x64`, `linux-arm64`, `linux-musl-x64`, `osx-arm64`, `osx-x64` | 7 |
-| `M3scalinum.Text.Barcodes`, `.Ocr`, `.Docx`, `.Xlsx`, `.Pdf` | the seven above, plus `linux-musl-arm64` | 8 |
+**What `linux-musl-arm64` does not cover.** The compiler has no such satellite, for the OpenSSL reason
+above: an Alpine arm64 consumer has nothing to install, and the load error names the seven RIDs that
+exist instead of a glibc library that would fail one call later.
 
-**macOS is two thin dylibs, not one universal one.** `runtimes/osx/native/libsharp_typst.dylib` is
-replaced by `runtimes/osx-arm64/native/libsharp_typst.dylib` and
-`runtimes/osx-x64/native/libsharp_typst.dylib`, and the same for the five `libsharp_text_*` files.
-The resolver already probes `runtimes/<rid>/` before `runtimes/osx/` (Spec 02 §9), so an arm64 Mac
-finds its own file first and the `osx` fallback is simply never reached. `lipo` is no longer in any
-workflow, and each architecture is built and tested on its own runner: `macos-15` for `osx-arm64`,
-`macos-15-intel` for `osx-x64`.
+**The musl library is linked by hand.** Rust cannot emit a `cdylib` for a musl target — it drops the
+crate type with a warning and produces only the `staticlib` — so the shared object is linked from the
+archive, which is why the `LinuxMuslX64` satellite is the largest of the seven:
+
+```bash
+cargo build --release --target x86_64-unknown-linux-musl
+symbols=$(nm -g --defined-only target/x86_64-unknown-linux-musl/release/libsharp_typst.a \
+  | awk '$2=="T" && $3 ~ /^tn_/ {print "-Wl,-u,"$3}')
+musl-gcc -shared -o libsharp_typst.so $symbols libsharp_typst.a -lpthread -ldl -lm
+strip --strip-all libsharp_typst.so
+```
+
+The `-u` flags are what keep the `tn_*` entry points: nothing in the archive references them, so a
+plain link would produce an empty library. The result is 73.79 MB of library, 33.24 MB on the wire.
+Its asset sits under `runtimes/linux-musl-x64/native/`, which `NativeLibraryResolver` probes first on a
+musl host (Spec 02 §9): NuGet's RID graph resolves `linux-musl-x64` to the `linux-x64` asset, so the
+glibc build would be found first and fail to load.
+
+### 6.6 macOS: two thin dylibs, not one universal one
+
+`runtimes/osx/native/libsharp_typst.dylib` is replaced by
+`runtimes/osx-arm64/native/libsharp_typst.dylib` and `runtimes/osx-x64/native/libsharp_typst.dylib`, and
+the same for the five `libsharp_text_*` files. The resolver probes `runtimes/<rid>/` before
+`runtimes/osx/` (Spec 02 §9), so an arm64 Mac finds its own file first and the `osx` fallback is
+simply never reached; it stays in the probing order for an application that lays a universal dylib
+beside its executable. `lipo` is no longer in any workflow, and each architecture is built and tested
+on its own runner: `macos-15` for `osx-arm64`, `macos-15-intel` for `osx-x64`.
 
 | | before: one universal dylib | after: two thin dylibs |
 | --- | ---: | ---: |
@@ -462,22 +521,61 @@ workflow, and each architecture is built and tested on its own runner: `macos-15
 | raw bytes an `osx-x64` consumer's build copies out | 45.03 MB | 23.8 MB |
 | raw bytes copied that the machine cannot load | 23.8 MB | none |
 
-The download does not shrink, and the table says so: NuGet fetches the whole `.nupkg` whatever RID the
-project is built for, and two deflate streams weigh 0.4 KB more than one. What shrinks is the file
-that lands in an ARM Mac's build output — the x86_64 half is no longer copied, signed or archived —
-and the same in reverse on Intel.
+Two deflate streams weigh 0.4 KB more than one, and the download is now a satellite either way. What
+changes is the file that lands in an ARM Mac's build output — the x86_64 half is no longer copied,
+signed or archived — and the same in reverse on Intel.
 
 **How those figures were obtained.** The universal column is the `osx` entry of
-`M3scalinum.Text.Typst.0.15.1.217.nupkg` (§6.1), 44.59 MB deflated and 45.03 MB raw. The split
-columns are that file's two Mach-O slices, because `lipo` concatenates thin images and nothing else:
-an arm64 consumer copies the arm64 share of 45.03 MB and no longer the rest. The share was measured
-rather than assumed — on a real universal dylib (`libSkiaSharp.dylib` 3.116.1, 15,217,856 bytes) the
-fat header splits into 7,156,928 bytes of arm64 (47.0 %) and 8,030,464 bytes of x86_64 (52.8 %) —
-and the package-level cost was checked by zipping the same universal file both ways: one entry of
-7,136,315 compressed bytes against two of 3,355,012 and 3,781,544, 397 bytes apart. The exact figures
-for `libsharp_typst` and the five `libsharp_text_*` come out of `tools/package-size.py` on the first
+`M3scalinum.Text.Typst.0.15.1.217.nupkg`, 44.59 MB deflated and 45.03 MB raw. The split columns are
+that file's two Mach-O slices, because `lipo` concatenates thin images and nothing else: an arm64
+consumer copies the arm64 share of 45.03 MB and no longer the rest. The share was measured rather than
+assumed — on a real universal dylib (`libSkiaSharp.dylib` 3.116.1, 15,217,856 bytes) the fat header
+splits into 7,156,928 bytes of arm64 (47.0 %) and 8,030,464 bytes of x86_64 (52.8 %) — and the
+package-level cost was checked by zipping the same universal file both ways: one entry of 7,136,315
+compressed bytes against two of 3,355,012 and 3,781,544, 397 bytes apart. The exact figures for
+`libsharp_typst` and the five `libsharp_text_*` come out of `tools/package-size.py` on the first
 release that packs the split; the ratio decides only how the 45.03 MB is shared, not whether half of
 it stops being copied.
+
+### 6.7 Alternatives measured and rejected
+
+**Compressing the library and unpacking it on arrival.** `xz -6` on the musl library gives 23.53 MB
+against the 33.24 MB the `.nupkg` zip already achieves: 9.71 MB, 5.8 % of what the compiler package
+weighed, for a `runtimes/` subtree that no longer holds the library itself. The resolver would then
+have to unpack 73.79 MB into a writable cache before the first compile — and a chiseled or hardened
+Alpine container, which is the reason the musl build exists, is the one place that cache may not
+exist. Applied to all six natives the same ratio lands at 113.84 MB of package — 32.4 % less than
+168.32 MB, so the option does reach a quarter; it is the cache, not the ratio, that disqualifies it.
+The split reaches 86.1 % for `win-x64` without unpacking anything.
+
+**Publishing `M3scalinum.Text.Typst.Native` as a package.** Every type in that assembly is `internal`,
+so it is an implementation detail — with one exception, the exception type below. The project
+reference carries `PrivateAssets="all"` and the assembly is added to the managed package through
+`TargetsForTfmSpecificBuildOutput`, so a consumer installs the compiler and one satellite, and nothing
+else. Publishing it would expose nothing and add a version to keep in lockstep.
+`tests/verify-package.py` fails a package that depends on it.
+
+`TypstNativeLibraryNotFoundException` is the one public type in that assembly, and it is public because
+a host catches it: the resolution rule of §6.4 has a failure mode of its own, and a type a caller cannot
+name is not a contract.
+
+### 6.8 What only a published tag proves
+
+Everything above is measured from `.nupkg` files, and everything below needs `nuget.org` to answer:
+
+- that a restore of `M3scalinum.Text.Typst` plus one satellite resolves for `net8.0`, `net9.0`,
+  `net10.0` and `net11.0` on a clean cache, and that the satellite's `lib/<tfm>/_._` is enough for
+  every one of them;
+- that all eight packages are in the feed together — the release job pushes them in one run with
+  `--skip-duplicate`, which publishes them all but not atomically;
+- that `dotnet publish -r linux-musl-x64 --self-contained` lays the musl library into the output of a
+  container whose base does not carry it;
+- the provenance side: the SBOM and the attestation of each satellite, which the release job generates
+  and attests per package, and which no local pack can vouch for.
+
+The `pack` job packs the set and verifies it as a set — a missing satellite is a `NU1101` in a
+consumer's restore and nothing in this repository — so the first tag is what turns those four
+statements into facts.
 
 ## 7. Versioning and releases
 
@@ -592,7 +690,7 @@ nine packages that do not.
 | `aot` | `ubuntu-latest` | publish `samples/Text.Typst.Samples` with `PublishAot=true` and run it |
 | `benchmarks` | `ubuntu-latest` | `--check benchmarks/baseline.json`, 1.5× gate on the minimum |
 | `coverage` | `ubuntu-latest` | `dotnet-coverage` over the four suites, merge, `tests/coverage-gate.py` fails below 90 % of production lines |
-| `pack` | `ubuntu-latest` | download all seven native artifacts, `dotnet pack -c Release` for the three compiler packages, `tests/verify-package.py` on each, upload `.nupkg`/`.snupkg` |
+| `pack` | `ubuntu-latest` | download all seven native artifacts, `dotnet pack -c Release` for the managed compiler and its seven satellites (`tools/pack-typst-packages.py`), `tests/verify-package.py` on the set, upload `.nupkg`/`.snupkg` |
 
 The coverage job stays here rather than moving with the packages it partially measures: it is the
 only run where all four suites execute together, and a gate over half the assemblies would have to
@@ -650,13 +748,13 @@ macOS ships two thin dylibs and builds each on its own runner: `osx-arm64` on `m
 `osx-x64` on `macos-15-intel`. There is no cross target and no `lipo` — each job is a host build, and
 each integration leg downloads the artifact for the architecture it runs on, so both slices are
 executed rather than the fat file's x86_64 half alone. The universal file cost every Apple-silicon
-consumer an x86_64 copy they could not load; §6.3 measures what removing it recovers.
+consumer an x86_64 copy they could not load; §6.6 measures what removing it recovers.
 
 Two release workflows, one per tag namespace:
 
 | Workflow | Tag | Packs |
 | --- | --- | --- |
-| `release-sharptypst.yml` | `sharptypst-v0.15.1.42` | the three compiler packages, revision taken from the tag's fourth component |
+| `release-sharptypst.yml` | `sharptypst-v0.15.1.42` | the managed compiler, its seven per-RID satellites and the two satellite packages, revision taken from the tag's fourth component |
 | `release-text.yml` | `v0.1.0` | `M3scalinum.Text.Pdf`, `.Templates`, `.Mcp`, `.Barcodes`, `.Ocr` and `.Docx`; the tag is the version, and the core is pinned to the newest published `M3scalinum.Text.Typst` |
 
 Each validates its tag against its own version property and refuses a tag that does not start with
@@ -668,7 +766,7 @@ library, and packs the rest from those artifacts. A manual
 number for the revision.
 
 `publish` needs both `pack` and `test`, so a tag cannot ship a build that was never exercised. The
-`pack` job runs `tests/verify-package.py` on every package before uploading it, and `publish` pushes
+`pack` job runs `tests/verify-package.py` on the whole set before uploading it, and `publish` pushes
 the `.snupkg` symbol packages alongside the `.nupkg` ones.
 
 Publishing uses nuget.org trusted publishing rather than a stored API key. The `publish` job holds
@@ -707,7 +805,8 @@ Rules:
 | `cargo test --manifest-path native/sharp-typst/Cargo.toml` | ABI and exporter tests |
 | `dotnet test -p:BuildNative=true` | Full build including Cargo, then all tests |
 | `dotnet run --project samples/Text.Typst.Samples` | Generates the sample outputs into `artifacts/samples/` |
-| `samples/examples/run.sh <example> <package> <version> <feed>` | Compiles and runs one example against a packed package; `--build-only` stops after the compile |
+| `samples/examples/run.sh <example> <package> <version> <feed>` | Compiles and runs one example against a packed package; `--build-only` stops after the compile, and an example of `M3scalinum.Text.Typst` restores the satellite for its RID |
+| `python3 tools/pack-typst-packages.py --output out` | Packs `Text.Documents`, the managed compiler and the seven satellites (§6.3) |
 | `python3 tools/bench-compare.py run --a <rev> --b <rev>` | Alternates the benchmark between two revisions and reports a verdict with a measured noise floor (§13) |
 
 ## 10. Third-party notices

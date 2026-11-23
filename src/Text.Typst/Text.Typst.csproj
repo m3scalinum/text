@@ -40,39 +40,15 @@
   </ItemGroup>
 
   <!--
-    Natives are packed under the standard runtimes/<rid>/native/ layout, so no
-    buildTransitive targets are needed. The files are produced by the CI matrix.
+    No native library is packed here. NuGet fetches a package whole and picks assets by RID only
+    after the download, so a package carrying seven libraries charges every consumer for six they
+    cannot load (Spec 08 §6). The libraries ship in the per-RID satellites this package's consumer
+    adds next to it — `M3scalinum.Text.Typst.Native.WinX64` and its six siblings, packed by
+    `src/Text.Typst.Native.Package`.
+
+    Nothing replaces this item group at pack time: a satellite whose native is missing is caught by
+    `tests/verify-package.py`, and a consumer who installs no satellite is caught at load by
+    `NativeLibraryResolver`, which names the package they are missing.
   -->
-  <ItemGroup>
-    <None Include="$(NativeArtifactsDir)\win-x64\sharp_typst.dll"
-          Pack="true" PackagePath="runtimes/win-x64/native/" Visible="false"
-          Condition="Exists('$(NativeArtifactsDir)\win-x64\sharp_typst.dll')" />
-    <None Include="$(NativeArtifactsDir)\win-arm64\sharp_typst.dll"
-          Pack="true" PackagePath="runtimes/win-arm64/native/" Visible="false"
-          Condition="Exists('$(NativeArtifactsDir)\win-arm64\sharp_typst.dll')" />
-    <None Include="$(NativeArtifactsDir)\linux-x64\libsharp_typst.so"
-          Pack="true" PackagePath="runtimes/linux-x64/native/" Visible="false"
-          Condition="Exists('$(NativeArtifactsDir)\linux-x64\libsharp_typst.so')" />
-    <None Include="$(NativeArtifactsDir)\linux-arm64\libsharp_typst.so"
-          Pack="true" PackagePath="runtimes/linux-arm64/native/" Visible="false"
-          Condition="Exists('$(NativeArtifactsDir)\linux-arm64\libsharp_typst.so')" />
-    <!--
-      The musl build is linked by hand from the staticlib (Rust cannot emit a cdylib for musl) and
-      weighs ~75 MB. It ships here rather than in a satellite package: NuGet downloads the whole
-      .nupkg, so a separate package would only move the cost onto the Alpine users who must
-      discover it, and the resolver already probes runtimes/linux-musl-x64/ first on a musl host.
-    -->
-    <None Include="$(NativeArtifactsDir)\linux-musl-x64\libsharp_typst.so"
-          Pack="true" PackagePath="runtimes/linux-musl-x64/native/" Visible="false"
-          Condition="Exists('$(NativeArtifactsDir)\linux-musl-x64\libsharp_typst.so')" />
-    <!-- One thin dylib per architecture: a universal binary would copy an x86_64 slice into every
-         Apple-silicon consumer's output, and an arm64 slice into every Intel one. -->
-    <None Include="$(NativeArtifactsDir)\osx-arm64\libsharp_typst.dylib"
-          Pack="true" PackagePath="runtimes/osx-arm64/native/" Visible="false"
-          Condition="Exists('$(NativeArtifactsDir)\osx-arm64\libsharp_typst.dylib')" />
-    <None Include="$(NativeArtifactsDir)\osx-x64\libsharp_typst.dylib"
-          Pack="true" PackagePath="runtimes/osx-x64/native/" Visible="false"
-          Condition="Exists('$(NativeArtifactsDir)\osx-x64\libsharp_typst.dylib')" />
-  </ItemGroup>
 
 </Project>

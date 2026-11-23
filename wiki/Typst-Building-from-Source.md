@@ -65,35 +65,42 @@ fails the build below 90 % of production lines. The merged report is uploaded as
 ## Package
 
 ```bash
-dotnet pack src/Text.Typst -c Release -o out -p:BuildRevision=42
-dotnet pack src/Text.Typst.DependencyInjection -c Release -o out -p:BuildRevision=42
-dotnet pack src/Text.Templates.Generator -c Release -o out -p:BuildRevision=42
+python tools/pack-typst-packages.py --output out --revision 42
 ```
 
-Three packages:
+That is the whole package set: the managed compiler, its `M3scalinum.Text.Documents` dependency and
+the seven per-RID satellites. One `dotnet pack` per satellite, from one project parameterised by
+`-p:NativeRid=<rid>` — the same file names, the same `runtimes/<rid>/native/` layout and the same
+`Exists(...)` conditions the single package used to carry.
 
 | Package | Contents |
 | --- | --- |
-| `M3scalinum.Text.Typst` | The managed library, the native library for every RID, `LICENSE`, `NOTICE`, `THIRD-PARTY-NOTICES.md`. |
+| `M3scalinum.Text.Typst` | The managed library only, plus `LICENSE`, `NOTICE`, `THIRD-PARTY-NOTICES.md`. ~0.5 MB. |
+| `M3scalinum.Text.Typst.Native.WinX64` (and six siblings) | One native library under `runtimes/<rid>/native/`, the licence files, and a dependency on `M3scalinum.Text.Typst` at the exact version. |
 | `M3scalinum.Text.Typst.DependencyInjection` | `AddTypst()`, options, validation. Depends on `M3scalinum.Text.Typst` at the exact version. |
 | `M3scalinum.Text.Templates.Generator` | A Roslyn analyzer. No `lib/`, only `analyzers/` and `build/`. |
 
-macOS is two thin dylibs, `runtimes/osx-arm64/native/` and `runtimes/osx-x64/native/`, each built on
-its own runner; there is no universal `osx` file and no `lipo` step. An Apple-silicon consumer's build
-output contains only the arm64 file, and an Intel one only the x86_64 file.
+The satellites are `WinX64`, `WinArm64`, `LinuxX64`, `LinuxArm64`, `LinuxMuslX64`, `OsxArm64` and
+`OsxX64`; `--list` prints the set. The split exists because NuGet fetches a package whole and picks
+assets by RID only afterwards: one package carrying all seven libraries costs every consumer 168 MB
+to use 23. macOS is two thin dylibs, `runtimes/osx-arm64/native/` and `runtimes/osx-x64/native/`,
+each built on its own runner; there is no universal `osx` file and no `lipo` step.
 
-`M3scalinum.Text.Typst.Native` is **not** published: its types are internal and it is merged into `M3scalinum.Text.Typst`
-through `TargetsForTfmSpecificBuildOutput`, so a consumer installs one package.
+`M3scalinum.Text.Typst.Native` — the assembly, not the satellite packages — is **not** published:
+its types are internal and it is merged into `M3scalinum.Text.Typst` through
+`TargetsForTfmSpecificBuildOutput`.
 
-Before publishing, verify a package:
+Before publishing, verify the set:
 
 ```bash
-python3 tests/verify-package.py out/M3scalinum.Text.Typst.0.15.1.42.nupkg
+python3 tests/verify-package.py out/*.nupkg
 ```
 
-It fails when a RID has no native library, when the package depends on the unpublished
-`M3scalinum.Text.Typst.Native`, or when a licence file is missing. The `pack` job of `ci-sharptypst.yml` runs it on every
-package it builds.
+It fails when the managed package carries a native library again, when a satellite has the wrong RID,
+no library or an assembly, when a satellite pins another core version, when the set is missing one of
+the seven, or when the package depends on the unpublished `M3scalinum.Text.Typst.Native` or lacks a
+licence file. A single path still checks that one package, which is what the `pack` job of
+`ci-sharptypst.yml` does.
 
 ## Versioning
 
@@ -104,6 +111,7 @@ distinguishes two builds of the same compiler. The release workflow tags the ful
 ## Current state of the package
 
 The native libraries are produced by the `native` job of `ci-sharptypst.yml` and
-`release-sharptypst.yml`; a locally packed
-`.nupkg` contains **no** `runtimes/` entry and is not installable by a third party. Until a release
+`release-sharptypst.yml`. A satellite packed on a workstation without them contains no
+`runtimes/` entry — the `Exists(...)` condition makes that a package, not an error — and
+`tests/verify-package.py` is what refuses it. Until a release
 has been published, build from source and set `SHARPTYPST_NATIVE_PATH`.

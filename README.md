@@ -48,6 +48,7 @@ byte[] pdf = TypstCompiler.CompileToPdf("""
 | Package | What it does | Depends on |
 | --- | --- | --- |
 | `M3scalinum.Text.Typst` | Compiles Typst in-process. PDF, SVG, PNG, HTML, Markdown, plain text, bundles | — |
+| `M3scalinum.Text.Typst.Native.*` | The native Typst compiler, one package per RID: `WinX64`, `WinArm64`, `LinuxX64`, `LinuxArm64`, `LinuxMuslX64`, `OsxArm64`, `OsxX64`. Add the one for your platform next to `M3scalinum.Text.Typst` | Typst |
 | `M3scalinum.Text.Documents` | The document model: typed content, inline styles, tables with merged cells, figures, references, a reusable document style, page setup, HTML and Markdown in and out | — |
 | `M3scalinum.Text.Typst.DependencyInjection` | `AddTypst` for `Microsoft.Extensions.DependencyInjection` | Typst |
 | `M3scalinum.Text.Templates.Generator` | Roslyn generator: a `template.toml` becomes a typed options record | — |
@@ -68,8 +69,15 @@ rest release on their own schedule — a signing fix must not read as a compiler
 Hosts the Typst compiler **in-process** behind a managed .NET API.
 
 ```bash
-dotnet add package M3scalinum.Text.Typst
+dotnet add package M3scalinum.Text.Typst                        # the compiler, managed only
+dotnet add package M3scalinum.Text.Typst.Native.WinX64          # plus the native library for your RID
 ```
+
+The second line is the platform you run on: `WinX64`, `WinArm64`, `LinuxX64`, `LinuxArm64`,
+`LinuxMuslX64`, `OsxArm64` or `OsxX64`. NuGet cannot pick it for you — a dependency is chosen by
+target framework, never by runtime identifier — so a package that carried all seven libraries would
+make every consumer download 168 MB to use 23. Install without one and the first compile throws
+`TypstNativeLibraryNotFoundException`, which names the package your RID needs.
 
 ### Why
 
@@ -77,8 +85,8 @@ dotnet add package M3scalinum.Text.Typst
   spawned, nothing is written to a temporary directory, nothing has to be installed on the host.
 - **Deterministic.** The clock is fixed by default, so identical inputs produce byte-identical output —
   safe for caching, content addressing and reproducible builds.
-- **Self-contained.** The native library for every supported platform ships inside the NuGet package.
-  A consumer needs no Rust toolchain and no `PATH` entry.
+- **Self-contained.** The native library for your platform is a NuGet package too. A consumer needs no
+  Rust toolchain and no `PATH` entry.
 
 ### Quick start
 
