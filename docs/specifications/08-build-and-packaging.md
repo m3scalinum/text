@@ -1099,3 +1099,93 @@ and it buys nothing for a delta between two revisions on one machine — the A/B
 cancels the host, because both sides run on it within seconds of each other. Keep the container for
 the case the A/B cannot cover: reproducing a CI disagreement on a developer's desk, where the
 question is "does this number also happen on the runner's glibc", not "did this change regress".
+
+## 14. A package mirror in CI and in an image
+
+§2.3 of [03](03-compilation.md#23-packages) makes a compile offline by default; §15 of the same
+document describes what a package mirror is and what its manifest proves. This section is the other
+half: where the mirror is *built*, so that a compile ever only reads one.
+
+**Decision — the mirror is filled at build time, never at run time.** A container that fetches
+packages on first request moves the network into the request path: cold starts depend on a
+third-party registry, a registry outage becomes an application outage, and two replicas can run
+different bytes of the same package. Filling the mirror in the image build (or in the CI job that
+produces the artifact) moves all of that to a step whose failure is a red build.
+
+### 14.1 Filling it in CI
+
+`tools/typst-mirror.py` is standard library only, so the step needs nothing beyond the Python that
+the runner already has:
+
+```yaml
+- name: Fill the package mirror
+  run: |
+    python3 tools/typst-mirror.py --mirror "$RUNNER_TEMP/typst-mirror" \
+        --package @preview/cetz:0.3.1 \
+        --package @preview/tablex:0.0.8
+
+- name: Verify the package mirror
+  run: python3 tools/typst-mirror.py --mirror "$RUNNER_TEMP/typst-mirror" --verify
+```
+
+Two habits make that step cheap and its result worth caching:
+
+- **Cache the mirror on the package list, not on the source.** The key is the list of specs the
+  build asks for; a source change that does not touch an import must not re-download anything.
+  `--package` is idempotent — a package already in the mirror is left alone unless `--force` is
+  passed — so restoring a cache and re-running the step costs one directory listing per package.
+- **Upload the mirror as an artifact and let the deploy consume it,** rather than re-filling in each
+  environment. One job fetches; every later job verifies. The manifest travels with the packages,
+  which is what makes the two impossible to separate by accident.
+
+`--verify` is the gate that makes the artifact trustworthy afterwards: it exits `1` on a file whose
+digest changed, on a file that is present but unlisted, and on a package directory the manifest does
+not describe. Run it once in the job that builds the mirror and once in the job that consumes it —
+the second run is what catches an artifact that was truncated in transit.
+
+Sizes are small enough that none of this needs a decision: `@preview/cetz:0.3.1` is 39 files and
+280 839 bytes, manifest included, which is smaller than most test fixtures in this repository.
+
+### 14.2 In a container image
+
+Fill in the builder stage, copy the result into the final image, and let the application point at it:
+
+```dockerfile
+FROM mcr.microsoft.com/dotnet/sdk:11.0 AS mirror
+WORKDIR /src
+COPY tools/typst-mirror.py tools/
+RUN python3 tools/typst-mirror.py --mirror /opt/typst-mirror \
+        --package @preview/cetz:0.3.1 && \
+    python3 tools/typst-mirror.py --mirror /opt/typst-mirror --verify
+
+FROM mcr.microsoft.com/dotnet/runtime:11.0
+COPY --from=mirror /opt/typst-mirror /opt/typst-mirror
+```
+
+```csharp
+using var world = new TypstWorldBuilder()
+    .WithPackages(packages => packages.MirrorDirectory = "/opt/typst-mirror")
+    .AddSource("main.typ", markup)
+    .Build();
+```
+
+The image layer is immutable in the sense that matters: the bytes were frozen when the image was
+built, the manifest was written at the same moment, and the digest of the image is the digest of
+both. That is the property a writable cache volume does not have — and the reason a mirror on a
+volume should be verified again in the process that reads it, or mounted read-only.
+
+Nothing is downloaded at start. A package the image does not hold fails the world with the package
+and the mirror named ([03 §15.3](03-compilation.md#153-the-cache-only-mode)), which is a deployment
+error that shows up on the first request instead of on the first package a user happens to import.
+
+### 14.3 What the mirror does not fix
+
+- **It does not pin versions.** A document that imports `@preview/cetz:0.3.1` still names the
+  version; the mirror only decides which bytes that version is. §7's versioning rules cover the
+  rest.
+- **It does not authenticate the packages.** The digests prove integrity against the manifest, and a
+  mirror that can rewrite a package can rewrite the manifest — see [03 §15.4](03-compilation.md#154-what-it-proves-and-what-it-does-not).
+  A signature over `mirror.json`, or an image digest, is what closes that gap.
+- **It is not a substitute for `deny.toml`.** That gate covers the crates and packages this
+  repository depends on; a Typst package a *document* imports is a runtime input, and the mirror is
+  where its contents are fixed.
