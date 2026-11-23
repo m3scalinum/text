@@ -659,10 +659,12 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
     }
     message.extend_from_slice(&bit_len.to_be_bytes());
 
-    for chunk in message.chunks_exact(64) {
+    // The padding above guarantees a whole number of 64-byte blocks, each a whole number of words:
+    // the compiler checks that, so the remainders are empty by construction.
+    for chunk in message.as_chunks::<64>().0 {
         let mut schedule = [0u32; 64];
-        for (index, word) in chunk.chunks_exact(4).enumerate() {
-            schedule[index] = u32::from_be_bytes([word[0], word[1], word[2], word[3]]);
+        for (index, word) in chunk.as_chunks::<4>().0.iter().enumerate() {
+            schedule[index] = u32::from_be_bytes(*word);
         }
         for index in 16..64 {
             let low = schedule[index - 15];
