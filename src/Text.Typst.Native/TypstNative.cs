@@ -256,6 +256,14 @@ internal sealed class TypstNative : ITypstNative
             return NativeCallException.ReadAndFree(output);
         });
 
+    public byte[] FontFaces(TypstWorldHandle world)
+        => WithHandle(world, pointer =>
+        {
+            var status = NativeMethods.WorldFontFaces(pointer, out var output, out var error);
+            NativeCallException.ThrowIfFailed(status, error, "read font faces");
+            return NativeCallException.ReadAndFree(output);
+        });
+
     public TypstWorldHandle CloneWorld(TypstWorldHandle world)
         => WithHandle(world, pointer =>
         {

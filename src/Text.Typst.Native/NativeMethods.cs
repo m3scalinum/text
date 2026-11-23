@@ -132,6 +132,18 @@ internal static partial class NativeMethods
     internal static partial int WorldFontFamilies(
         IntPtr world, out NativeBuffer output, out IntPtr error);
 
+    /// <summary>
+    /// Every face the world resolves, as a JSON array carrying each face's axes (Spec 03 §17).
+    /// </summary>
+    /// <remarks>
+    /// Added inside ABI revision 2 like <c>tn_document_page_fingerprints</c>: no existing symbol
+    /// changed, so the revision did not move. A native library built before it is missing the
+    /// export, which is the one case the managed layer cannot detect before the call.
+    /// </remarks>
+    [LibraryImport(LibraryName, EntryPoint = "tn_world_font_faces")]
+    internal static partial int WorldFontFaces(
+        IntPtr world, out NativeBuffer output, out IntPtr error);
+
     [LibraryImport(LibraryName, EntryPoint = "tn_world_clone")]
     internal static partial int WorldClone(
         IntPtr world, out IntPtr clone, out IntPtr error);

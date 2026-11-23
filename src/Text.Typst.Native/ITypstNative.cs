@@ -42,6 +42,12 @@ internal interface ITypstNative
 
     byte[] FontFamilies(TypstWorldHandle world);
 
+    /// <summary>
+    /// Every face the world resolves, as the JSON array <c>tn_world_font_faces</c> returns:
+    /// family, default weight and width, style, whether the face is variable, and its axes.
+    /// </summary>
+    byte[] FontFaces(TypstWorldHandle world);
+
     TypstWorldHandle CloneWorld(TypstWorldHandle world);
 
     string GetDiagnostics(TypstDocumentHandle document);

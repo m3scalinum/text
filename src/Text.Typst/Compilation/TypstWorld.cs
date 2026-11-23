@@ -67,6 +67,58 @@ public sealed class TypstWorld : IDisposable
         }
     }
 
+    /// <summary>
+    /// Every face this world can resolve, in family order, with the variation axes each carries.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The set is the embedded faces plus whatever <c>AddFont</c>, <c>AddFontDirectory</c> or
+    /// <c>AddSystemFonts</c> contributed — the same faces <see cref="FontCount"/> counts.
+    /// </para>
+    /// <para>
+    /// Read it before trusting an intermediate weight. A face whose <see cref="TypstFontFace.Axes"/>
+    /// carries <c>wght</c> interpolates <c>#set text(weight: 350)</c> to 350; a static face carries no
+    /// axis and the compiler serves the nearest cut, so 350 renders as 400 and nothing in the layout
+    /// says so. Metadata only — no font is parsed beyond the scan the world already did.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<TypstFontFace> Fonts
+    {
+        get
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+
+            try
+            {
+                var json = Encoding.UTF8.GetString(_native.FontFaces(_handle));
+                var faces = System.Text.Json.JsonSerializer.Deserialize(json, TypstJsonContext.Default.TypstFontFaceDtoArray)
+                    ?? [];
+
+                return Array.ConvertAll(faces, ToFace);
+            }
+            catch (NativeCallException exception)
+            {
+                throw NativeErrorTranslator.Translate(exception);
+            }
+        }
+    }
+
+    /// <summary>Turns one face payload into its public shape.</summary>
+    private static TypstFontFace ToFace(TypstFontFaceDto face)
+        => new(
+            face.Family ?? string.Empty,
+            face.Weight,
+            face.Stretch,
+            face.Style ?? string.Empty,
+            face.Variable,
+            Array.ConvertAll(
+                face.Axes?.ToArray() ?? [],
+                axis => new TypstFontAxis(
+                    axis.Tag ?? string.Empty,
+                    axis.Min,
+                    axis.Max,
+                    axis.Default)));
+
     internal TypstWorldHandle Handle => _handle;
 
     /// <summary>

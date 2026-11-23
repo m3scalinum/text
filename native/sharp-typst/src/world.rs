@@ -8,10 +8,11 @@ use std::collections::{HashMap, HashSet};
 use std::io::Read;
 use std::sync::{Arc, OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
+use serde::Serialize;
 use typst::diag::{FileError, FileResult};
 use typst::foundations::{Bytes, Datetime, Duration};
 use typst::syntax::{DiagSpan, FileId, RootedPath, Source, VirtualPath, VirtualRoot};
-use typst::text::{Font, FontBook};
+use typst::text::{Font, FontBook, FontFlags, FontStyle};
 use typst::utils::LazyHash;
 use typst::{Feature, Features, Library, LibraryExt, World, WorldExt};
 use typst_kit::downloader::{Downloader, SystemDownloader};
@@ -80,6 +81,42 @@ fn build_packages(config: &PackagesConfig) -> SystemPackages {
     };
 
     SystemPackages::from_parts(data, cache, universe)
+}
+
+/// One face a world can resolve, with the variation axes it carries.
+///
+/// The distinction this exposes is the one that decides whether `#set text(weight: 350)` does
+/// anything: a face with a `wght` axis interpolates to 350, a static face has no axis and the
+/// compiler serves the nearest cut instead.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct FontFaceInfo {
+    /// The family name Typst resolves against.
+    pub family: String,
+    /// The weight of the default instance, 100-900.
+    pub weight: u16,
+    /// The width of the default instance, as a percentage of normal — `100.0` is normal.
+    pub stretch: f32,
+    /// `normal`, `italic` or `oblique`.
+    pub style: &'static str,
+    /// Whether the face carries an `fvar` table, and therefore axes that can be interpolated.
+    pub variable: bool,
+    /// Every axis the face carries, sorted by tag. Empty for a static face.
+    pub axes: Vec<FontAxisInfo>,
+}
+
+/// One variation axis of a face: its tag, and the range the font allows.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct FontAxisInfo {
+    /// The OpenType tag, e.g. `wght`, `wdth`, `opsz` or a custom one.
+    pub tag: String,
+    /// The smallest value the face accepts.
+    pub min: f32,
+    /// The largest value the face accepts.
+    pub max: f32,
+    /// The value the face was designed around, used when nothing asks for another one.
+    pub default: f32,
 }
 
 pub struct NetWorld {
@@ -253,6 +290,53 @@ impl NetWorld {
         families.sort();
         families.dedup();
         families
+    }
+
+    /// Every face this world can resolve, in family order, with the variation axes each carries.
+    ///
+    /// Metadata only: nothing is parsed, so this is cheap even for a host font set of several
+    /// hundred faces. A caller uses it to find out whether a weight is reachable before asking the
+    /// layout for it — a variable face advertises a `wght` range and interpolates inside it; a
+    /// static family carries no axes at all and serves the nearest cut instead.
+    pub fn font_faces(&self) -> Vec<FontFaceInfo> {
+        let mut faces = Vec::new();
+
+        for (_, ids) in self.book.families() {
+            for id in ids {
+                let Some(info) = self.book.info(id) else {
+                    continue;
+                };
+
+                let style = match info.variant.style {
+                    FontStyle::Normal => "normal",
+                    FontStyle::Italic => "italic",
+                    FontStyle::Oblique => "oblique",
+                };
+
+                let mut axes: Vec<FontAxisInfo> = info
+                    .axes
+                    .iter()
+                    .map(|axis| FontAxisInfo {
+                        tag: axis.tag.to_string(),
+                        min: axis.min.0,
+                        max: axis.max.0,
+                        default: axis.default.0,
+                    })
+                    .collect();
+                axes.sort_by(|left, right| left.tag.cmp(&right.tag));
+
+                faces.push(FontFaceInfo {
+                    family: info.family.clone(),
+                    weight: info.variant.weight.to_number(),
+                    stretch: info.variant.stretch.to_ratio().get() as f32 * 100.0,
+                    style,
+                    variable: info.flags.contains(FontFlags::VARIABLE),
+                    axes,
+                });
+            }
+        }
+
+        faces
     }
 
     pub fn add_source(&self, path: &str, text: String) -> Result<(), TnError> {
@@ -765,6 +849,42 @@ mod tests {
 
         assert_ne!(first.id(), second.id(), "a refresh world rescans");
         assert!(Arc::ptr_eq(second, third), "the rebuild replaces the entry");
+    }
+
+    #[test]
+    fn the_face_list_carries_every_face_and_no_axis_for_a_static_font() {
+        // The inventory is what tells a caller whether `#set text(weight: 350)` can interpolate. The
+        // fonts embedded in the binary are static, so every face they contribute must report an empty
+        // axis list — and the list must still cover every face the world counts, or a caller would
+        // read a family's absence as "no weight axis".
+        let world = NetWorld::new(WorldConfig::default()).expect("world");
+        let faces = world.font_faces();
+
+        assert_eq!(faces.len(), world.font_count(), "one entry per face");
+        assert!(
+            faces
+                .iter()
+                .all(|face| !face.variable && face.axes.is_empty()),
+            "the embedded faces are static"
+        );
+        assert!(
+            faces
+                .iter()
+                .all(|face| (100..=900).contains(&face.weight) && face.stretch > 0.0),
+            "every face reports a weight in 100-900 and a positive width"
+        );
+        assert!(
+            faces
+                .iter()
+                .all(|face| matches!(face.style, "normal" | "italic" | "oblique")),
+            "every face reports one of the three styles"
+        );
+        assert!(
+            faces
+                .iter()
+                .all(|face| world.font_families().contains(&face.family)),
+            "every face belongs to a family the world resolves"
+        );
     }
 
     /// The measurement behind the item: two thousand compilations, one scan.
