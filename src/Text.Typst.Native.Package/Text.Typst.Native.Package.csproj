@@ -1,0 +1,106 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    One project, seven packages: the per-RID satellites that carry the native compiler, separated
+    from `M3scalinum.Text.Typst` so a consumer downloads the library their machine can load and not
+    the other six (Spec 08 §6).
+
+    The RID is a property, not a project. `NativeRid` selects both the library the package carries
+    and the suffix of its package id, and `dotnet pack` runs once per RID
+    (`tools/pack-typst-packages.py`, and the `pack` job of release-sharptypst.yml). Seven copied
+    csproj files would each restate the same seven RIDs, the same `Exists(...)` conditions and the
+    same licence items, and would drift on the first file added or renamed.
+
+    Nothing managed is packed here: the file is the native library, so `IncludeBuildOutput` is off
+    and `lib/<tfm>/_._` says "this package has no assembly" to NuGet — which is also what makes it
+    installable on every target framework the managed package supports.
+  -->
+  <PropertyGroup>
+    <!-- `-p:RuntimeIdentifier=<rid>` also works; `NativeRid` wins when both are given. -->
+    <NativeRid Condition="'$(NativeRid)' == ''">$(RuntimeIdentifier)</NativeRid>
+
+    <NativeLibrary Condition="'$(NativeRid)' == 'win-x64'">sharp_typst.dll</NativeLibrary>
+    <NativeLibrary Condition="'$(NativeRid)' == 'win-arm64'">sharp_typst.dll</NativeLibrary>
+    <NativeLibrary Condition="'$(NativeRid)' == 'linux-x64'">libsharp_typst.so</NativeLibrary>
+    <NativeLibrary Condition="'$(NativeRid)' == 'linux-arm64'">libsharp_typst.so</NativeLibrary>
+    <NativeLibrary Condition="'$(NativeRid)' == 'linux-musl-x64'">libsharp_typst.so</NativeLibrary>
+    <NativeLibrary Condition="'$(NativeRid)' == 'osx-arm64'">libsharp_typst.dylib</NativeLibrary>
+    <NativeLibrary Condition="'$(NativeRid)' == 'osx-x64'">libsharp_typst.dylib</NativeLibrary>
+
+    <NativePackageSuffix Condition="'$(NativeRid)' == 'win-x64'">WinX64</NativePackageSuffix>
+    <NativePackageSuffix Condition="'$(NativeRid)' == 'win-arm64'">WinArm64</NativePackageSuffix>
+    <NativePackageSuffix Condition="'$(NativeRid)' == 'linux-x64'">LinuxX64</NativePackageSuffix>
+    <NativePackageSuffix Condition="'$(NativeRid)' == 'linux-arm64'">LinuxArm64</NativePackageSuffix>
+    <NativePackageSuffix Condition="'$(NativeRid)' == 'linux-musl-x64'">LinuxMuslX64</NativePackageSuffix>
+    <NativePackageSuffix Condition="'$(NativeRid)' == 'osx-arm64'">OsxArm64</NativePackageSuffix>
+    <NativePackageSuffix Condition="'$(NativeRid)' == 'osx-x64'">OsxX64</NativePackageSuffix>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- A build of the solution packs nothing: without a RID there is no package to name. -->
+    <IsPackable Condition="'$(NativeLibrary)' != ''">true</IsPackable>
+    <PackageId Condition="'$(NativeLibrary)' != ''">M3scalinum.Text.Typst.Native.$(NativePackageSuffix)</PackageId>
+    <Description Condition="'$(NativeLibrary)' != ''">The native Typst compiler for $(NativeRid), for M3scalinum.Text.Typst. Reference this package on $(NativeRid) hosts; the managed package alone carries no native library.</Description>
+    <PackageTags>typst;pdf;typesetting;documents;native;$(NativeRid)</PackageTags>
+
+    <!-- The package is one binary: an empty assembly and a symbol package would only add bytes. -->
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <IncludeSymbols>false</IncludeSymbols>
+
+    <TargetFrameworks>net8.0;net9.0;net10.0;net11.0</TargetFrameworks>
+    <TargetFramework />
+    <SuppressTfmSupportBuildWarnings>true</SuppressTfmSupportBuildWarnings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      The package a consumer adds after the managed one. Depending on it means the satellite alone is
+      a complete install, and that the two versions can never disagree: a project reference pins the
+      exact version the satellite was packed against (Spec 08 §6).
+    -->
+    <ProjectReference Include="..\Text.Typst\Text.Typst.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- `lib/<tfm>/_._`: "no assembly, and none is missing" (the placeholder meta-packages use). -->
+    <None Include="_._" Pack="true" PackagePath="lib/net8.0/" Visible="false" />
+    <None Include="_._" Pack="true" PackagePath="lib/net9.0/" Visible="false" />
+    <None Include="_._" Pack="true" PackagePath="lib/net10.0/" Visible="false" />
+    <None Include="_._" Pack="true" PackagePath="lib/net11.0/" Visible="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      The same file names, the same `runtimes/<rid>/native/` layout and the same `Exists(...)`
+      condition `M3scalinum.Text.Typst` used for its seven entries: a pack on a machine that built no
+      natives still produces a package, and `tests/verify-package.py` is what turns it red instead of
+      a consumer.
+    -->
+    <None Include="$(NativeArtifactsDir)/$(NativeRid)/$(NativeLibrary)"
+          Pack="true" PackagePath="runtimes/$(NativeRid)/native/" Visible="false"
+          Condition="Exists('$(NativeArtifactsDir)/$(NativeRid)/$(NativeLibrary)')" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="/" />
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="/" />
+    <None Include="..\..\NOTICE" Pack="true" PackagePath="/" />
+    <None Include="..\..\THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="/" Condition="Exists('..\..\THIRD-PARTY-NOTICES.md')" />
+  </ItemGroup>
+
+  <!--
+    A pack has to name a RID: without one there is no library, no suffix and no package. An unknown
+    RID would otherwise produce a package named `M3scalinum.Text.Typst.Native.` with no native in it,
+    which is worse than a failed pack — so it is an error, and a plain `dotnet pack` on a solution
+    says what to pass instead of silently doing nothing.
+  -->
+  <Target Name="RequireKnownNativeRid" BeforeTargets="Pack" Condition="'$(NativeRid)' != '' and '$(NativePackageSuffix)' == ''">
+    <Error Text="Unknown NativeRid '$(NativeRid)'. Pass one of: win-x64, win-arm64, linux-x64, linux-arm64, linux-musl-x64, osx-arm64, osx-x64 (for example -p:NativeRid=win-x64)." />
+  </Target>
+
+  <Target Name="SayNoNativeRid" BeforeTargets="Pack" Condition="'$(NativeRid)' == ''">
+    <Message Importance="high"
+             Text="Text.Typst.Native.Package packs nothing without a RID: pass -p:NativeRid=win-x64 (tools/pack-typst-packages.py packs the set)." />
+  </Target>
+
+</Project>
