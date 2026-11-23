@@ -10,6 +10,7 @@ mod evaluate;
 mod export;
 mod ffi;
 mod fonts;
+mod packages;
 mod page_text;
 mod pdf_fonts;
 mod semantic;

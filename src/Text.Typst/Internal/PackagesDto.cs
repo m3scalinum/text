@@ -9,4 +9,6 @@ internal sealed class PackagesDto
     public bool Download { get; set; }
 
     public string? Registry { get; set; }
+
+    public string? Mirror { get; set; }
 }

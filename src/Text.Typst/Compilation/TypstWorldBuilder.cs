@@ -183,6 +183,14 @@ public sealed class TypstWorldBuilder
     /// <summary>Creates the world and registers everything collected so far.</summary>
     public TypstWorld Build()
     {
+        // A mirror is checked here, before the native world exists: a package the document imports
+        // and the mirror does not hold fails with the mirror named, which is the difference between
+        // "check the import" and "fill the mirror".
+        if (_packages.MirrorDirectory is { } mirror)
+        {
+            TypstPackageMirror.EnsureSatisfied(mirror, _sources.Values);
+        }
+
         var config = new WorldConfigDto
         {
             Clock = _systemClock
@@ -211,6 +219,7 @@ public sealed class TypstWorldBuilder
                 DataDir = _packages.DataDirectory,
                 Download = _packages.AllowDownload,
                 Registry = _packages.Registry,
+                Mirror = _packages.MirrorDirectory,
             },
             Fonts = new FontsDto
             {

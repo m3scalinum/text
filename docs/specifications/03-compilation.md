@@ -117,6 +117,7 @@ using var world = new TypstWorldBuilder()
 | `DataDirectory` | system data | Where local packages are read from |
 | `AllowDownload` | `false` | Whether a missing package may be fetched |
 | `Registry` | `https://packages.typst.org` | Registry base URL; must be http(s) |
+| `MirrorDirectory` | `null` | A verified, cache-only mirror; the only package source (§15) |
 
 **Decision — offline by default.** A compile is a pure function of its inputs; a network call
 inside it would make latency, failure modes and reproducibility depend on the host's connectivity.
@@ -126,6 +127,11 @@ diagnostic rather than a network error.
 
 The cache layout is Typst's own — `<cache>/<namespace>/<name>/<version>/` — so a directory populated
 by the `typst` CLI works unchanged, and vice versa.
+
+A cache is silent about what changed in it. A deployment that has to answer that question ships a
+mirror instead: the same layout plus a `mirror.json` of SHA-256 digests, verified before a world
+exists. §15 covers the script that fills it, the cache-only mode, and what a digest does and does not
+prove.
 
 ### 2.4 Fonts
 
@@ -809,3 +815,152 @@ host that wants that paid before the first request pre-warms (§14.5).
 No symbol was added. `system`, `directories`, `refresh`, `cache` and `cacheDir` travel in the world
 config JSON that `tn_world_create` already takes, so a host that predates this change sends the same
 payload it always did and gets the shared index; a host that wants a refresh sets one boolean.
+
+## 15. Package mirrors
+
+A mirror is a directory of `@namespace/name:version` packages plus a `mirror.json` that lists every
+file of every package with its SHA-256 and its size. A world configured with one resolves packages
+only from it, and verifies the manifest before it exists.
+
+**Decision — the failures of a cache are silent, so the mirror is loud.** §2.3 already makes a
+compile offline: with `AllowDownload` false a missing package fails instead of reaching the network.
+That leaves the other half of the problem. A cache is a directory somebody else can write to, and
+the compiler reads whatever it finds there: a file edited in place is served without a word, a
+package dropped into the tree is resolved as if it had been fetched. In a deployment that ships a
+cache — a container image, a build artifact, an air-gapped host — nobody can tell afterwards which
+bytes were compiled. A manifest makes an edit loud and an unlisted file louder.
+
+### 15.1 What a mirror is
+
+```text
+/opt/typst-mirror/
+├── mirror.json
+└── preview/
+    └── cetz/
+        └── 0.3.1/
+            ├── typst.toml
+            ├── lib.typ
+            └── ...
+```
+
+The package layout is Typst's own (`<namespace>/<name>/<version>/`), so a directory the `typst` CLI
+populated is already a mirror — it only needs the manifest. The manifest names every package it
+covers, and every file inside them:
+
+```json
+{
+  "format": 1,
+  "generatedBy": "typst-mirror/1 (+https://github.com/m3scalinum/text)",
+  "packages": {
+    "@preview/cetz:0.3.1": [
+      { "path": "lib.typ", "sha256": "9b5b…", "size": 4123 },
+      { "path": "typst.toml", "sha256": "7a10…", "size": 402 }
+    ]
+  }
+}
+```
+
+Paths are relative to the package directory and use forward slashes. `format` is checked: a manifest
+of a format this build does not read is refused rather than guessed at.
+
+### 15.2 Filling and verifying a mirror
+
+`tools/typst-mirror.py` writes and checks the manifest. It is standard library only, so it runs in a
+build image with nothing installed but Python:
+
+```bash
+# From the registry. Repeatable; the manifest covers everything the mirror then holds.
+python3 tools/typst-mirror.py --mirror /opt/typst-mirror \
+    --package @preview/cetz:0.3.1 \
+    --package @preview/tablex:0.0.8
+
+# From a directory a `typst` CLI already populated, for an air-gapped job.
+python3 tools/typst-mirror.py --mirror /opt/typst-mirror --source ~/.cache/typst/packages \
+    --package @preview/cetz:0.3.1
+
+# Check a mirror against its manifest, changing nothing.
+python3 tools/typst-mirror.py --mirror /opt/typst-mirror --verify
+```
+
+`--verify` exits `0` when every file matches, `1` when it refuses one, and `2` when the request
+itself is wrong (no manifest, a package the registry does not serve). A refusal names the package,
+the file and the mirror:
+
+```text
+refused: package `@preview/cetz:0.3.1` in the mirror at `/opt/typst-mirror` has a `lib.typ` whose
+SHA-256 is 3f1c…, and the manifest records 9b5b…
+```
+
+`fill` unpacks into a staging directory inside the mirror and moves the result into place, so an
+interrupted download never leaves a half-populated package that the manifest would then describe.
+
+### 15.3 The cache-only mode
+
+```csharp
+using var world = new TypstWorldBuilder()
+    .WithPackages(packages => packages.MirrorDirectory = "/opt/typst-mirror")
+    .AddSource("main.typ", """
+        #import "@preview/cetz:0.3.1": canvas, draw
+
+        #canvas({ draw.circle((0, 0), radius: 1) })
+        """)
+    .Build();
+```
+
+| Setting | JSON | Effect |
+| --- | --- | --- |
+| `MirrorDirectory` | `packages.mirror` | The mirror is the only package source |
+| — | `packages.cacheDir`, `packages.dataDir` | Set to the mirror by the native layer; a different value is refused |
+| `AllowDownload` | `packages.download` | Must stay `false`; `true` with a mirror is an `ArgumentException` |
+
+Setting a mirror switches the world to cache-only, and it does so in the strict sense: the mirror
+becomes **both** package directories, so the system data directory — where the host's own local
+packages live — cannot satisfy an import that the mirror does not hold. The manifest is then read
+and verified in `WorldConfig::parse`, before any world exists. A mirror that does not match it never
+becomes a world.
+
+Three refusals, each naming what an operator has to fix:
+
+| Situation | Message |
+| --- | --- |
+| A file's bytes are not the ones recorded | ``… has a `lib.typ` whose SHA-256 is 3f1c…, and the manifest records 9b5b…`` |
+| A file is present but unlisted | ``… holds `extra.typ`, which mirror.json does not list`` |
+| A package is present but unlisted | ``the mirror at `…` holds package `@preview/other:1.0.0`, which mirror.json does not list`` |
+| A listed package or file is absent | ``package `@preview/cetz:0.3.1` is missing `lib.typ` …`` |
+| A package the document imports is not in the mirror | ``package `@preview/absent:9.9.9` is not in the package mirror at …; add it with tools/typst-mirror.py`` |
+
+Every one of them names the package, the file where there is one, and the mirror — which is what
+turns "the build is red" into "re-fetch this".
+
+The last one is the one a compile hits in practice, and it is the reason the managed layer keeps a
+preflight of its own. Verification can only speak about what the manifest lists; a package the
+document imports and the mirror never held is invisible to it, and the compiler's own diagnostic
+(`package not found (searched for @preview/absent:9.9.9)`) names the package but not the mirror —
+which reads like a typo in the import. `TypstWorldBuilder.Build` therefore checks the registered
+sources for `@namespace/name:version` literals and fails with the mirror and the command that fills
+it. That preflight is a scan, not a parser: a spec built at run time still reaches the compiler, and
+from then on the message is the compiler's.
+
+Unlisted files and unlisted packages are refused for the same reason as a wrong digest: resolution
+walks the mirror's directories, so a file or a package that verification never saw is a file or a
+package a compilation can still read.
+
+### 15.4 What it proves, and what it does not
+
+A verified mirror proves **integrity**: the bytes a world will read are the bytes this manifest
+describes. It does not prove **authenticity**: a mirror that can rewrite `lib.typ` can rewrite
+`mirror.json` in the same motion, and the result verifies cleanly. The manifest is only as trustworthy
+as the path it arrived by, so the deployment has to supply that trust elsewhere — a signed image, a
+release artifact pinned by digest, a read-only layer, or a signature over `mirror.json` of its own.
+
+Two narrower limits are worth stating rather than discovering:
+
+- **The check happens when the world is created, not when each file is read.** A file changed between
+  `Build()` and the compilation that reads it is served with the digest that was checked earlier. Mount
+  the mirror read-only, or verify it again before the build, if the process outlives the check.
+- **The manifest is not a lock file.** It does not enumerate the versions a document may request; it
+  describes what the mirror holds. Pinning is §11's job, and the two compose: a pinned import plus a
+  verified mirror is a compile that cannot silently change either branch.
+
+Verification costs one walk and one SHA-256 per file per world creation. Build one world and clone it
+(§9) rather than building one per request; a clone shares the resolution and pays nothing.
