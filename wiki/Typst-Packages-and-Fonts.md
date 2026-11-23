@@ -27,6 +27,7 @@ using var world = new TypstWorldBuilder()
 | `DataDirectory` | Where packages are read from. |
 | `AllowDownload` | Whether a missing package may be fetched. **Off by default.** |
 | `Registry` | The registry base URL. |
+| `MirrorDirectory` | A verified, cache-only mirror: the only package source. See [Compiling](Typst-Compiling#a-verified-package-mirror). |
 
 **Offline by default.** A compile that silently reaches the network is not reproducible, so
 `AllowDownload` is opt-in. With it off, a missing package fails with a clear message instead of a
@@ -34,6 +35,11 @@ timeout.
 
 The cache layout is `<cache>/<namespace>/<name>/<version>/`, identical to the CLI, so the two share
 their downloads.
+
+A cache is a directory somebody else can write to, so a deployment that cannot trust it points
+`MirrorDirectory` at a directory with a `mirror.json` of SHA-256 digests. That makes the world
+cache-only, and every file it reads is verified against the manifest before a compilation starts.
+`tools/typst-mirror.py` fills and checks such a directory.
 
 ## Fonts
 

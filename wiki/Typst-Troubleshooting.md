@@ -69,6 +69,12 @@ On Alpine or another musl image the package carries the musl build under
 first, then falls back to the portable RID. A Docker build that copies only `runtimes/linux-x64/`
 produces a glibc binary that fails to load on musl.
 
+macOS ships two thin dylibs rather than one universal file — `runtimes/osx-arm64/native/` and
+`runtimes/osx-x64/native/`, each built on its own runner. The resolver probes the RID of the running
+process, so an Apple-silicon host resolves `osx-arm64` first and an Intel host `osx-x64`; there is no
+`lipo` step and no fat header to inspect. A copy of the build output that carries only one of the two
+directories fails on the other architecture.
+
 ## The output is not byte-identical between runs
 
 Check, in order: the clock (`WithFixedClock` is the default — did something call `WithSystemClock`?),
