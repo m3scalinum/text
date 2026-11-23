@@ -119,3 +119,18 @@ Not yet published on nuget.org.
   the package, so Graviton and Apple Silicon containers stop meeting `DllNotFoundException`. The package
   weights are measured and published: 168.32 MiB per download, 86.5 % of it unusable on win-x64, with the
   split costed and the reason it is not done yet written down.
+- A scanned PDF becomes searchable: an invisible text layer written as an incremental update, with a Type0
+  font and `/ToUnicode`, so the text is selectable in a reader and extractable by `PdfText` while the
+  bytes already signed stay a prefix of the file. Rendering gained a JPEG at a chosen quality, 8× smaller
+  than the PNG on a scanned page at 150 DPI.
+- MathML in and out of the document model, with the elements outside the supported set refused by name; and
+  a semantic diff between two documents — typed changes with their path in the tree, where one changed
+  price produces exactly one entry.
+- `@preview` packages can be served from a verified mirror: a `mirror.json` of SHA-256 digests checked
+  before a world exists, and no network path at all. It proves integrity, not authenticity, and the
+  specification says so.
+- macOS ships two thin libraries (`osx-arm64`, `osx-x64`) instead of a universal one, and `linux-musl-arm64`
+  is declared in the projects rather than injected into the build from a file in `.github/`.
+- Editing a document and compiling it again costs less than starting over, and the caller learns which pages
+  moved instead of guessing: `CompileChanged` compares per-page fingerprints of what the page draws, not of
+  its source bytes, so a changed sentence marks one page and not the whole document.

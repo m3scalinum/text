@@ -50,7 +50,8 @@
 - [ ] linux-x64
 - [ ] linux-arm64
 - [ ] linux-musl-x64 (Alpine)
-- [ ] osx
+- [ ] osx-arm64
+- [ ] osx-x64
 
 ## Notes for the reviewer
 
