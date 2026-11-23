@@ -17,7 +17,12 @@ This script answers both from the packed file, without a feed, a restore or a ne
 Pass several packages to model a split layout: the shared cost is then summed across them, so a
 satellite package set can be compared with the single package it would replace.
 
-Usage: package-size.py <package.nupkg|directory>... [--top N] [--json]
+`--split` models what a consumer of a satellite layout downloads: a package that carries their RID
+(or no native at all) is fetched whole, a package that carries only other RIDs is not fetched at
+all. Without it every package passed is assumed to be downloaded, which is the right model for one
+package and the wrong one for a set.
+
+Usage: package-size.py <package.nupkg|directory>... [--top N] [--split] [--json]
 
 Sizes are bytes divided by 10^6 (MB) in the table and by 2^20 (MiB) in the total line, so a number
 here can be compared with `ls -l`, `du` and a browser's download dialog without a conversion.
@@ -99,7 +104,7 @@ def read(path: Path) -> Package:
     return package
 
 
-def report(packages: list[Package], top: int) -> None:
+def report(packages: list[Package], top: int, split: bool) -> None:
     shared_total = sum(package.shared for package in packages)
     natives_total = sum(sum(package.natives.values()) for package in packages)
     grand_total = shared_total + natives_total
@@ -127,19 +132,30 @@ def report(packages: list[Package], top: int) -> None:
     print(f"{'RID':<16}{'downloads':>12}{'copies':>12}{'unreachable':>14}")
 
     for rid in rids:
-        native = sum(package.natives.get(rid, 0) for package in packages)
-        copies = shared_total + native
+        # In a split layout a consumer restores only the packages that carry their RID or no native
+        # at all; the satellites for the other RIDs are never fetched.
+        fetched = [
+            package for package in packages
+            if not split or not package.natives or rid in package.natives
+        ]
+        downloaded = sum(package.total for package in fetched)
+        shared = sum(package.shared for package in fetched)
+        native = sum(package.natives.get(rid, 0) for package in fetched)
+        copies = shared + native
+        unreachable = downloaded - copies
 
         print(
-            f"{rid:<16}{mb(grand_total):>10.2f} MB{mb(copies):>10.2f} MB"
-            f"{mb(grand_total - copies):>11.2f} MB  ({100 * (grand_total - copies) / grand_total:.1f}%)"
+            f"{rid:<16}{mb(downloaded):>10.2f} MB{mb(copies):>10.2f} MB"
+            f"{mb(unreachable):>11.2f} MB  ({100 * unreachable / downloaded:.1f}%)"
         )
 
+    layout = "split: one satellite plus the packages without natives" if split else "every package fetched"
+
     print(f"\n{'total':<16}{mb(grand_total):>10.2f} MB   shared {mb(shared_total):.2f} MB, "
-          f"natives {mb(natives_total):.2f} MB, {len(packages)} package(s)")
+          f"natives {mb(natives_total):.2f} MB, {len(packages)} package(s) — {layout}")
 
 
-def main(paths: list[str], top: int, as_json: bool) -> int:
+def main(paths: list[str], top: int, split: bool, as_json: bool) -> int:
     files: list[Path] = []
 
     for argument in paths:
@@ -177,7 +193,7 @@ def main(paths: list[str], top: int, as_json: bool) -> int:
             indent=2,
         ))
     else:
-        report(packages, top)
+        report(packages, top, split)
 
     return 0
 
@@ -186,7 +202,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("paths", nargs="+", help="a .nupkg, or a directory of them")
     parser.add_argument("--top", type=int, default=10, help="entries to list per package (default 10)")
+    parser.add_argument(
+        "--split",
+        action="store_true",
+        help="model a satellite layout: a consumer fetches the packages carrying their RID, not the other RIDs'",
+    )
     parser.add_argument("--json", action="store_true", help="machine-readable output")
     arguments = parser.parse_args()
 
-    sys.exit(main(arguments.paths, arguments.top, arguments.json))
+    sys.exit(main(arguments.paths, arguments.top, arguments.split, arguments.json))
