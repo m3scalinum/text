@@ -862,7 +862,9 @@ mod tests {
 
         assert_eq!(faces.len(), world.font_count(), "one entry per face");
         assert!(
-            faces.iter().all(|face| !face.variable && face.axes.is_empty()),
+            faces
+                .iter()
+                .all(|face| !face.variable && face.axes.is_empty()),
             "the embedded faces are static"
         );
         assert!(
