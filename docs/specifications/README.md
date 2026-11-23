@@ -37,6 +37,7 @@ file names, to find what you want.
 | 42 | [42-bibliography-and-index.md](42-bibliography-and-index.md) | The BibTeX subset, the numeric and author-date styles, and an index built from marks with the page numbers the layout gave |
 | 43 | [43-cjk-and-bidi.md](43-cjk-and-bidi.md) | CJK line breaking, justification and spacing, the `TypstLanguageTag` that picks the hyphenation dictionary, and the block and run directions that turn Arabic or Hebrew text around |
 | 44 | [44-mathml.md](44-mathml.md) | MathML imported into the model's math nodes, the subset it covers, the Typst markup each element writes, and the MathML the HTML export writes back |
+| 45 | [45-document-diff.md](45-document-diff.md) | `TypstDocumentDiff`: the typed changes between two documents, the sibling alignment that survives an insertion, the path each change carries, and what the diff cannot see |
 
 ## The PDF family
 
