@@ -317,7 +317,7 @@ fn encode_jpeg(pixmap: &Pixmap, quality: u8) -> Result<Vec<u8>, image::ImageErro
 
     let mut rgb = Vec::with_capacity(pixels.len() / 4 * 3);
 
-    for pixel in pixels.chunks_exact(4) {
+    for pixel in pixels.as_chunks::<4>().0 {
         // Premultiplied over opaque white: out = c + (1 - a) * 255, per channel.
         let alpha = u16::from(pixel[3]);
         let opaque = 255 - alpha;

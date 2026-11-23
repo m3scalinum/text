@@ -59,6 +59,34 @@ public sealed class PdfRasterOptions
     /// </summary>
     public long MaximumBytes { get; init; } = DefaultMaximumBytes;
 
+    /// <summary>
+    /// The JPEG quality a call gets when it names none. 85 is where the artefacts stop being
+    /// visible on a page and the file is still a fraction of the PNG.
+    /// </summary>
+    public const int DefaultQuality = 85;
+
+    /// <summary>The lowest accepted JPEG quality.</summary>
+    public const int MinimumQuality = 1;
+
+    /// <summary>
+    /// The highest accepted JPEG quality. 100 disables quantisation, so it is the largest a JPEG
+    /// gets, not a lossless one.
+    /// </summary>
+    public const int MaximumQuality = 100;
+
+    /// <summary>
+    /// The encoding of the result. Defaults to <see cref="PdfPageImageFormat.Png"/>.
+    /// </summary>
+    public PdfPageImageFormat Format { get; init; } = PdfPageImageFormat.Png;
+
+    /// <summary>
+    /// The JPEG quality, between <see cref="MinimumQuality"/> and <see cref="MaximumQuality"/>.
+    /// Defaults to <see cref="DefaultQuality"/>. It is only read when <see cref="Format"/> is
+    /// <see cref="PdfPageImageFormat.Jpeg"/>, and it is validated whatever the format is: a value
+    /// outside the range is a mistake worth reporting, not a setting to ignore.
+    /// </summary>
+    public int Quality { get; init; } = DefaultQuality;
+
     /// <summary>Refuses a combination the native library would refuse, before anything is loaded.</summary>
     /// <exception cref="ArgumentOutOfRangeException">A value is outside its accepted range.</exception>
     internal void Validate()
@@ -83,6 +111,25 @@ public sealed class PdfRasterOptions
                 nameof(MaximumBytes),
                 MaximumBytes,
                 $"The byte ceiling must be between 1 and {PdfRaster.HardMaximumBytes}.");
+        }
+
+        // A cast can carry any integer, and the native side would refuse it with a status the
+        // caller reads as "invalid argument" after paying for a document load. Name the member that
+        // does exist instead.
+        if (Format is not (PdfPageImageFormat.Png or PdfPageImageFormat.Jpeg))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(Format),
+                Format,
+                $"The format must be {nameof(PdfPageImageFormat.Png)} or {nameof(PdfPageImageFormat.Jpeg)}.");
+        }
+
+        if (Quality is < MinimumQuality or > MaximumQuality)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(Quality),
+                Quality,
+                $"The JPEG quality must be between {MinimumQuality} and {MaximumQuality}.");
         }
     }
 }
