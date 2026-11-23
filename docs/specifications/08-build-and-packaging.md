@@ -221,15 +221,19 @@ layout, so no `buildTransitive` targets are needed:
   <None Include="$(NativeArtifactsDir)/linux-x64/libsharp_typst.so"
         Pack="true" PackagePath="runtimes/linux-x64/native/" Visible="false"
         Condition="Exists('$(NativeArtifactsDir)/linux-x64/libsharp_typst.so')" />
-  <None Include="$(NativeArtifactsDir)/osx/libsharp_typst.dylib"
-        Pack="true" PackagePath="runtimes/osx/native/" Visible="false"
-        Condition="Exists('$(NativeArtifactsDir)/osx/libsharp_typst.dylib')" />
+  <None Include="$(NativeArtifactsDir)/osx-arm64/libsharp_typst.dylib"
+        Pack="true" PackagePath="runtimes/osx-arm64/native/" Visible="false"
+        Condition="Exists('$(NativeArtifactsDir)/osx-arm64/libsharp_typst.dylib')" />
+  <None Include="$(NativeArtifactsDir)/osx-x64/libsharp_typst.dylib"
+        Pack="true" PackagePath="runtimes/osx-x64/native/" Visible="false"
+        Condition="Exists('$(NativeArtifactsDir)/osx-x64/libsharp_typst.dylib')" />
   <None Include="../../THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="/" />
   <None Include="../../README.md" Pack="true" PackagePath="/" />
 </ItemGroup>
 ```
 
-(The file lists all six RIDs; three are shown here. Each entry is conditioned on the artifact's
+(The file lists all seven RIDs; three are shown here — §6.3 tabulates the sets. Each entry is
+conditioned on the artifact's
 existence, so a pack on a machine that built no natives still produces a package — and
 `tests/verify-package.py` is what turns that package red instead of a consumer.)
 
@@ -251,7 +255,9 @@ python3 tools/package-size.py artifacts/packages/M3scalinum.Text.Typst*.nupkg
 
 They are from
 `M3scalinum.Text.Typst.0.15.1.217.nupkg`, the artifact of the `pack` job of `ci-sharptypst` run
-45024810474:
+45024810474. That artifact predates the macOS split: its single `osx` entry is the universal dylib,
+and §6.3 measures what replacing it with two thin files changes. Every other figure below is
+unaffected:
 
 | Entry | Compressed | Share |
 | --- | ---: | ---: |
@@ -264,8 +270,9 @@ They are from
 | `lib/` (4 TFMs), nuspec, licences, readme — 26 entries | 0.44 MB | 0.3 % |
 | **`M3scalinum.Text.Typst.0.15.1.217.nupkg`** | **168.32 MB** | |
 
-The six natives are 167.87 MB: 99.7 % of what a consumer downloads is binaries, and five of the six
-are binaries no build on their machine can load.
+The six natives of that artifact are 167.87 MB: 99.7 % of what a consumer downloads is binaries, and
+five of the six are binaries no build on their machine can load. The split adds a seventh entry
+without adding weight to the transfer — see §6.3.
 
 ### 6.2 What a consumer downloads, per RID
 
@@ -279,6 +286,8 @@ a project that references the package above:
   root of the output;
 - the same build **without** `-r` copies all six, 379.20 MB raw under `runtimes/`, because a
   RID-agnostic build has no basis to choose. A `publish` without a RID carries the same 379 MB.
+  (That artifact carries one universal macOS dylib. With the split of §6.3 the same build copies
+  seven native files instead of six, of the same total size.)
 
 | RID | downloads | copies out | paid for, unusable |
 | --- | ---: | ---: | ---: |
@@ -380,40 +389,95 @@ link is the x64 recipe unchanged: the staticlib, `-Wl,-u` for every exported `bt
 `cargo test --lib` for that target, on a statically linked binary that executes on the glibc runner
 because it carries its own libc.
 
-**What it costs.** Thirty-five native builds per pull request instead of thirty — five crates times
-seven RIDs — each cached on its own crate-and-RID key, so a managed-only change still restores
+**What it costs.** Forty native builds per pull request instead of thirty-five — five crates times
+eight RIDs — each cached on its own crate-and-RID key, so a managed-only change still restores
 libraries instead of compiling them, and five new cache entries to fill the first time. One more
 job on the arm64 pool, `musl (Alpine arm64)`, publishes the five examples self-contained for
 `linux-musl-arm64` and runs them in `mcr.microsoft.com/dotnet/runtime-deps:11.0-alpine`. Every
 consumer downloads the extra arm64 slice whether they need it or not — the same trade the x64 musl
 entry made, and the `.nupkg` sizes the release job publishes are where the delta is measured.
 
-**Where the seventh RID is declared, and why not in the csproj.** Each of those five csproj files
-lists its `runtimes/<rid>/native/` entries literally, one per RID. `linux-musl-arm64` is not among
-them: the change that added the RID owned the workflow matrix, the staging and the verifier, and
-`src/` was outside it. `.github/native/linux-musl-arm64.targets` supplies the missing `None` item at
-pack time, imported through the two hooks `Microsoft.Common.targets` exposes —
-`CustomAfterMicrosoftCommonTargets` for the inner single-target build and
+**Where the seventh RID is declared.** In the csproj, like the other six. When the RID was first
+added it was not: `src/` was outside that change, so `.github/native/linux-musl-arm64.targets`
+injected the missing `<None>` item at pack time through the two hooks `Microsoft.Common.targets`
+exposes — `CustomAfterMicrosoftCommonTargets` for the inner single-target build and
 `CustomAfterMicrosoftCommonCrossTargetingTargets` for the outer multi-targeting one — which
-`ci-text.yml` and `release-text.yml` export as environment variables so that no pack step can forget
-them. Every item is conditioned on the staged library existing, so a job that stages none is
-unaffected, and `tests/verify-package.py --selftest` — run by the `extras` job — fails if the
-requirement is deleted. It is machinery a reader should not have to know about: the end state is
-five `<None Include=...>` lines in the csproj files and the deletion of that file.
+`ci-text.yml` and `release-text.yml` exported as environment variables. A `dotnet pack` run by hand
+therefore produced a six-RID package and said nothing about it, while the same command in CI produced
+seven. The five csproj files now carry the line themselves, the two exports are gone and the file is
+deleted (below, §6.3). `tests/verify-package.py --selftest` — run by the `extras` job — fails if the
+requirement is deleted from the verifier's own tables.
 
 **What `linux-musl-arm64` does not cover.** The compiler package has no such asset:
 `M3scalinum.Text.Typst` vendors OpenSSL for `x86_64-unknown-linux-musl` alone, so `typst-kit`'s
 downloader has no vendored TLS for the arm64 musl triple and the target is not built at all; an
 Alpine arm64 consumer of the compiler still gets `DllNotFoundException`, which is a `Cargo.toml`
-change of its own. macOS is unchanged and stays a single universal `osx` dylib: `osx-arm64` loads
-the arm64 slice of it, no `osx-arm64` native asset exists, and no job executes that slice on an
-arm64 Mac (Spec 09 §11).
+change of its own. macOS no longer ships a universal `osx` dylib either: `runtimes/osx-arm64/` and
+`runtimes/osx-x64/` hold one thin file each, built on its own runner, so an Apple-silicon consumer's
+build copies out the arm64 file rather than a fat one whose other half they cannot load (§6.3,
+Spec 09 §11).
 
 **Decision — `M3scalinum.Text.Typst.Native` is merged, not published.** Every type in that assembly is
 `internal`, so it is an implementation detail. The project reference carries `PrivateAssets="all"`
 and the assembly is added to the package through `TargetsForTfmSpecificBuildOutput`, so the
 `.nuspec` has no dependencies and a consumer installs exactly one package. Rejected: publishing it
 as a second package, which would expose nothing and add a version to keep in lockstep.
+
+### 6.3 The final RID set, and what the macOS split weighs
+
+Two layout changes end here, and both are visible in the csproj files rather than in a file beside
+them.
+
+**`linux-musl-arm64` is declared, not injected.** The five format packages list it as an eighth RID,
+in the same form as the seventh:
+
+```xml
+<None Include="$(NativeArtifactsDir)\linux-musl-arm64\libsharp_text_barcodes.so"
+      Pack="true" PackagePath="runtimes/linux-musl-arm64/native/" Visible="false"
+      Condition="Exists('$(NativeArtifactsDir)\linux-musl-arm64\libsharp_text_barcodes.so')" />
+```
+
+`.github/native/linux-musl-arm64.targets` and the two `CustomAfterMicrosoftCommon*Targets` exports of
+`ci-text.yml` and `release-text.yml` are gone. A `dotnet pack` on a workstation now produces exactly
+what the one in CI does, from the same input: seven RIDs for the compiler package, eight for each of
+the five that carry a library of their own.
+
+| Package | RIDs | Count |
+| --- | --- | ---: |
+| `M3scalinum.Text.Typst` | `win-x64`, `win-arm64`, `linux-x64`, `linux-arm64`, `linux-musl-x64`, `osx-arm64`, `osx-x64` | 7 |
+| `M3scalinum.Text.Barcodes`, `.Ocr`, `.Docx`, `.Xlsx`, `.Pdf` | the seven above, plus `linux-musl-arm64` | 8 |
+
+**macOS is two thin dylibs, not one universal one.** `runtimes/osx/native/libsharp_typst.dylib` is
+replaced by `runtimes/osx-arm64/native/libsharp_typst.dylib` and
+`runtimes/osx-x64/native/libsharp_typst.dylib`, and the same for the five `libsharp_text_*` files.
+The resolver already probes `runtimes/<rid>/` before `runtimes/osx/` (Spec 02 §9), so an arm64 Mac
+finds its own file first and the `osx` fallback is simply never reached. `lipo` is no longer in any
+workflow, and each architecture is built and tested on its own runner: `macos-15` for `osx-arm64`,
+`macos-15-intel` for `osx-x64`.
+
+| | before: one universal dylib | after: two thin dylibs |
+| --- | ---: | ---: |
+| macOS payload in the `.nupkg`, deflated | 44.59 MB | 44.59 MB |
+| raw bytes an `osx-arm64` consumer's build copies out | 45.03 MB | 21.2 MB |
+| raw bytes an `osx-x64` consumer's build copies out | 45.03 MB | 23.8 MB |
+| raw bytes copied that the machine cannot load | 23.8 MB | none |
+
+The download does not shrink, and the table says so: NuGet fetches the whole `.nupkg` whatever RID the
+project is built for, and two deflate streams weigh 0.4 KB more than one. What shrinks is the file
+that lands in an ARM Mac's build output — the x86_64 half is no longer copied, signed or archived —
+and the same in reverse on Intel.
+
+**How those figures were obtained.** The universal column is the `osx` entry of
+`M3scalinum.Text.Typst.0.15.1.217.nupkg` (§6.1), 44.59 MB deflated and 45.03 MB raw. The split
+columns are that file's two Mach-O slices, because `lipo` concatenates thin images and nothing else:
+an arm64 consumer copies the arm64 share of 45.03 MB and no longer the rest. The share was measured
+rather than assumed — on a real universal dylib (`libSkiaSharp.dylib` 3.116.1, 15,217,856 bytes) the
+fat header splits into 7,156,928 bytes of arm64 (47.0 %) and 8,030,464 bytes of x86_64 (52.8 %) —
+and the package-level cost was checked by zipping the same universal file both ways: one entry of
+7,136,315 compressed bytes against two of 3,355,012 and 3,781,544, 397 bytes apart. The exact figures
+for `libsharp_typst` and the five `libsharp_text_*` come out of `tools/package-size.py` on the first
+release that packs the split; the ratio decides only how the 45.03 MB is shared, not whether half of
+it stops being copied.
 
 ## 7. Versioning and releases
 
@@ -528,7 +592,7 @@ nine packages that do not.
 | `aot` | `ubuntu-latest` | publish `samples/Text.Typst.Samples` with `PublishAot=true` and run it |
 | `benchmarks` | `ubuntu-latest` | `--check benchmarks/baseline.json`, 1.5× gate on the minimum |
 | `coverage` | `ubuntu-latest` | `dotnet-coverage` over the four suites, merge, `tests/coverage-gate.py` fails below 90 % of production lines |
-| `pack` | `ubuntu-latest` | download all six artifacts, `dotnet pack -c Release` for the three compiler packages, `tests/verify-package.py` on each, upload `.nupkg`/`.snupkg` |
+| `pack` | `ubuntu-latest` | download all seven native artifacts, `dotnet pack -c Release` for the three compiler packages, `tests/verify-package.py` on each, upload `.nupkg`/`.snupkg` |
 
 The coverage job stays here rather than moving with the packages it partially measures: it is the
 only run where all four suites execute together, and a gate over half the assemblies would have to
@@ -582,11 +646,11 @@ The ARM entries use GitHub's native ARM runners rather than cross-compilation: `
 downloader links OpenSSL on Linux, so a cross build would need the target's OpenSSL development
 headers. Building on the target architecture avoids that entirely.
 
-macOS is the exception: the `osx` artifact is a universal dylib. Both slices are cross-compiled on
-`macos-15-intel` — `rustup` installs `aarch64-apple-darwin` and `x86_64-apple-darwin`, then `lipo`
-joins the two. .NET resolves `osx-arm64` and `osx-x64` to `osx` by fallback, so one file covers both
-architectures. Both the build and the integration leg stay on the Intel pool: the arm64 macOS pool is
-throttled hard enough by GitHub that a job is regularly dropped before a runner is ever assigned.
+macOS ships two thin dylibs and builds each on its own runner: `osx-arm64` on `macos-15`,
+`osx-x64` on `macos-15-intel`. There is no cross target and no `lipo` — each job is a host build, and
+each integration leg downloads the artifact for the architecture it runs on, so both slices are
+executed rather than the fat file's x86_64 half alone. The universal file cost every Apple-silicon
+consumer an x86_64 copy they could not load; §6.3 measures what removing it recovers.
 
 Two release workflows, one per tag namespace:
 
@@ -597,8 +661,9 @@ Two release workflows, one per tag namespace:
 
 Each validates its tag against its own version property and refuses a tag that does not start with
 it, so `sharptypst-v0.16.0.1` cannot silently publish a suite package, and a bare `v0.16.0.1`
-cannot publish a compiler package. `release-sharptypst.yml` runs the full
-native matrix; `release-text.yml` runs none, since nothing it packs contains a native asset. A manual
+cannot publish a compiler package. `release-sharptypst.yml` runs the compiler's
+seven-RID matrix; `release-text.yml` runs the eight-RID one for the five packages that carry their own
+library, and packs the rest from those artifacts. A manual
 `workflow_dispatch` on either can run the pipeline without publishing, and falls back to the run
 number for the revision.
 

@@ -32,14 +32,16 @@ import zipfile
 
 # The compiler package's RIDs. It gets no `linux-musl-arm64` build yet: its Cargo.toml vendors
 # OpenSSL for the x86_64 musl triple alone, so the target needs a vendoring change this list
-# would then have one more line for (08 §6, 09 §11).
+# would then have one more line for (08 §6, 09 §11). macOS is two thin dylibs, one per
+# architecture, rather than one universal file: a consumer copies out the RID their build targets.
 RIDS = {
     "win-x64": "sharp_typst.dll",
     "win-arm64": "sharp_typst.dll",
     "linux-x64": "libsharp_typst.so",
     "linux-arm64": "libsharp_typst.so",
     "linux-musl-x64": "libsharp_typst.so",
-    "osx": "libsharp_typst.dylib",
+    "osx-arm64": "libsharp_typst.dylib",
+    "osx-x64": "libsharp_typst.dylib",
 }
 
 REQUIRED_FILES = [
@@ -66,8 +68,8 @@ SATELLITE_ASSEMBLIES = {
     "lib/net11.0/M3scalinum.Text.Xlsx.dll",
 }
 
-# Packages that carry a Rust library of their own rather than the compiler. They ship seven RIDs —
-# the compiler's six plus `linux-musl-arm64`, which the compiler does not have. Neither musl RID can
+# Packages that carry a Rust library of their own rather than the compiler. They ship eight RIDs —
+# the compiler's seven plus `linux-musl-arm64`, which the compiler does not have. Neither musl RID can
 # be a cdylib: the CI job builds each crate's staticlib and links it with `musl-gcc`, the compiler's
 # recipe. A missing native job is caught here instead of by a consumer's DllNotFoundException on
 # Alpine, x64 or arm64.
@@ -79,7 +81,8 @@ NATIVE_PACKAGES = {
         "linux-arm64": "libsharp_text_barcodes.so",
         "linux-musl-x64": "libsharp_text_barcodes.so",
         "linux-musl-arm64": "libsharp_text_barcodes.so",
-        "osx": "libsharp_text_barcodes.dylib",
+        "osx-arm64": "libsharp_text_barcodes.dylib",
+        "osx-x64": "libsharp_text_barcodes.dylib",
     },
     "lib/net11.0/M3scalinum.Text.Ocr.dll": {
         "win-x64": "sharp_text_ocr.dll",
@@ -88,7 +91,8 @@ NATIVE_PACKAGES = {
         "linux-arm64": "libsharp_text_ocr.so",
         "linux-musl-x64": "libsharp_text_ocr.so",
         "linux-musl-arm64": "libsharp_text_ocr.so",
-        "osx": "libsharp_text_ocr.dylib",
+        "osx-arm64": "libsharp_text_ocr.dylib",
+        "osx-x64": "libsharp_text_ocr.dylib",
     },
     "lib/net11.0/M3scalinum.Text.Docx.dll": {
         "win-x64": "sharp_text_docx.dll",
@@ -97,7 +101,8 @@ NATIVE_PACKAGES = {
         "linux-arm64": "libsharp_text_docx.so",
         "linux-musl-x64": "libsharp_text_docx.so",
         "linux-musl-arm64": "libsharp_text_docx.so",
-        "osx": "libsharp_text_docx.dylib",
+        "osx-arm64": "libsharp_text_docx.dylib",
+        "osx-x64": "libsharp_text_docx.dylib",
     },
     "lib/net11.0/M3scalinum.Text.Xlsx.dll": {
         "win-x64": "sharp_text_xlsx.dll",
@@ -106,7 +111,8 @@ NATIVE_PACKAGES = {
         "linux-arm64": "libsharp_text_xlsx.so",
         "linux-musl-x64": "libsharp_text_xlsx.so",
         "linux-musl-arm64": "libsharp_text_xlsx.so",
-        "osx": "libsharp_text_xlsx.dylib",
+        "osx-arm64": "libsharp_text_xlsx.dylib",
+        "osx-x64": "libsharp_text_xlsx.dylib",
     },
 }
 
@@ -123,7 +129,8 @@ STAGED_NATIVE_PACKAGES = {
         "linux-arm64": "libsharp_text_pdf.so",
         "linux-musl-x64": "libsharp_text_pdf.so",
         "linux-musl-arm64": "libsharp_text_pdf.so",
-        "osx": "libsharp_text_pdf.dylib",
+        "osx-arm64": "libsharp_text_pdf.dylib",
+        "osx-x64": "libsharp_text_pdf.dylib",
     },
 }
 
