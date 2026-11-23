@@ -88,6 +88,19 @@ internal static partial class NativeMethods
     [LibraryImport(LibraryName, EntryPoint = "tn_document_metrics")]
     internal static partial int DocumentMetrics(IntPtr document, out NativeBuffer json, out IntPtr error);
 
+    /// <summary>
+    /// One digest per page of a paged document, as <c>{"pages":[...]}</c>. Absent from a revision 1
+    /// library, which is why the managed layer only calls it for a document it just compiled with
+    /// this library (Spec 02 §11, Spec 03 §15).
+    /// </summary>
+    [LibraryImport(LibraryName, EntryPoint = "tn_document_page_fingerprints")]
+    internal static partial int DocumentPageFingerprints(
+        IntPtr document, out NativeBuffer json, out IntPtr error);
+
+    /// <summary>Drops every memoized compilation result the process holds.</summary>
+    [LibraryImport(LibraryName, EntryPoint = "tn_cache_clear")]
+    internal static partial void CacheClear();
+
     [LibraryImport(LibraryName, EntryPoint = "tn_document_export", StringMarshalling = StringMarshalling.Utf8)]
     internal static partial int DocumentExport(
         IntPtr document, string format, string? optionsJson, out NativeBuffer output, out IntPtr error);

@@ -828,4 +828,113 @@ mod tests {
             "two thousand compilations must not scan the host fonts again"
         );
     }
+
+    /// A report of `pages` pages, every page carrying a paragraph the caller can vary.
+    ///
+    /// The body of each paragraph is `lorem`, so the pages are dense enough that the layout, not
+    /// the interpreter, is what a compilation costs.
+    fn report(pages: usize, changed: &str) -> String {
+        let mut markup = String::from("#set page(paper: \"a4\")\n#set text(size: 10pt)\n");
+
+        for page in 0..pages {
+            if page > 0 {
+                markup.push_str("#pagebreak(weak: true)\n");
+            }
+            markup.push_str(&format!("#heading(level: 1)[Section {page}]\n\n"));
+
+            for paragraph in 0..6 {
+                markup.push_str(&format!(
+                    "Paragraph {paragraph} of page {page}: #lorem({}) ",
+                    40 + paragraph
+                ));
+
+                // One paragraph of the first page is the sentence the caller edits.
+                if page == 0 && paragraph == 2 {
+                    markup.push_str(changed);
+                }
+
+                markup.push_str("\n\n");
+            }
+        }
+
+        markup
+    }
+
+    /// The measurement behind the item: a second compilation of an edited document reuses the
+    /// state Typst memoized during the first.
+    ///
+    /// Cold is made honest with `comemo::evict(0)`, which drops every memoized result the process
+    /// holds — the same state a fresh process starts with — instead of trusting that this test
+    /// runs before any other compilation.
+    ///
+    /// Ignored because it is a measurement with a timing assertion, not a gate:
+    /// `cargo test --lib --release -- --ignored --nocapture --test-threads=1`.
+    #[test]
+    #[ignore = "measurement: run with --ignored --nocapture --test-threads=1"]
+    fn an_edited_document_compiles_faster_than_a_cold_one() {
+        let world = NetWorld::new(WorldConfig::default()).expect("world");
+        let pages = 8;
+
+        world
+            .add_source(
+                "main.typ",
+                report(pages, "The first wording of the sentence."),
+            )
+            .expect("add_source");
+
+        typst::comemo::evict(0);
+        let cold_started = std::time::Instant::now();
+        let cold = typst::compile::<typst_layout::PagedDocument>(&world)
+            .output
+            .expect("the document compiles");
+        let cold_time = cold_started.elapsed();
+        assert_eq!(cold.pages().len(), pages);
+
+        // One sentence, on page one, of an eight-page document.
+        world
+            .add_source(
+                "main.typ",
+                report(pages, "The second wording of the sentence."),
+            )
+            .expect("add_source");
+
+        let warm_started = std::time::Instant::now();
+        let warm = typst::compile::<typst_layout::PagedDocument>(&world)
+            .output
+            .expect("the document compiles");
+        let warm_time = warm_started.elapsed();
+        assert_eq!(warm.pages().len(), pages);
+
+        // A second world holding the same sources: the memo table is keyed by the inputs, not by
+        // the world, so a clone is as warm as the world it came from. This is what says
+        // `WithSource` — one clone per edit — does not throw the reuse away.
+        let clone = world.clone_world().expect("clone");
+        let clone_started = std::time::Instant::now();
+        let cloned = typst::compile::<typst_layout::PagedDocument>(&clone)
+            .output
+            .expect("the document compiles");
+        let clone_time = clone_started.elapsed();
+        assert_eq!(cloned.pages().len(), pages);
+
+        let printed = crate::fingerprint::page_fingerprints(&warm);
+
+        println!(
+            "cold {cold_time:?}, warm {warm_time:?} ({:.1}x, {pages} pages), same sources in a \
+             new world {clone_time:?} ({:.1}x); fingerprints {:x?}",
+            cold_time.as_secs_f64() / warm_time.as_secs_f64().max(f64::MIN_POSITIVE),
+            cold_time.as_secs_f64() / clone_time.as_secs_f64().max(f64::MIN_POSITIVE),
+            &printed[..printed.len().min(2)]
+        );
+
+        assert!(
+            warm_time < cold_time,
+            "a second compilation of an edited document must be cheaper than a cold one \
+             (cold {cold_time:?}, warm {warm_time:?})"
+        );
+        assert!(
+            clone_time < cold_time,
+            "a new world with the same sources must reuse the memoized results \
+             (cold {cold_time:?}, clone {clone_time:?})"
+        );
+    }
 }

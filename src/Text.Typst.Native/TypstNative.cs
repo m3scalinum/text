@@ -230,6 +230,16 @@ internal sealed class TypstNative : ITypstNative
             return NativeCallException.ReadAndFree(output);
         });
 
+    public byte[] PageFingerprints(TypstDocumentHandle document)
+        => WithHandle(document, pointer =>
+        {
+            var status = NativeMethods.DocumentPageFingerprints(pointer, out var output, out var error);
+            NativeCallException.ThrowIfFailed(status, error, "read page fingerprints");
+            return NativeCallException.ReadAndFree(output);
+        });
+
+    public void ClearCache() => NativeMethods.CacheClear();
+
     public byte[] PageText(TypstDocumentHandle document, int page)
         => WithHandle(document, pointer =>
         {

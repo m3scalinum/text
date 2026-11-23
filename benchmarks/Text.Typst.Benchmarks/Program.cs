@@ -40,6 +40,7 @@ internal static class Program
     [
         ("compile-small", CompileSmall),
         ("compile-report", CompileReport),
+        ("compile-incremental", CompileIncremental),
         ("export-pdf", ExportPdf),
         ("export-png", ExportPng),
         ("export-html", ExportHtml),
@@ -362,6 +363,51 @@ internal static class Program
         return result.PageCount;
     }
 
+    /// <summary>
+    /// The loop a preview server runs: one sentence of a six-page document is edited, the world is
+    /// reused for the next compilation, and the compilation reports the pages it has to re-render.
+    /// </summary>
+    /// <remarks>
+    /// The session lives for the whole benchmark, so every iteration after the first compiles an
+    /// edited document against the state Typst memoized for the previous one. That is the case the
+    /// scenario exists to keep honest: a regression that recreates the world per compile, or that
+    /// stops asking the native library for fingerprints, shows up here as an iteration that costs
+    /// what a cold compile costs.
+    /// </remarks>
+    private static long CompileIncremental() => Session.Value.Edit();
+
+    private static readonly Lazy<IncrementalSession> Session = new(() => new IncrementalSession());
+
+    /// <summary>A six-page document whose first page carries the sentence being edited.</summary>
+    private static string IncrementalReport(int edit)
+    {
+        var markup = new System.Text.StringBuilder("#set page(paper: \"a4\")\n#set text(size: 10pt)\n");
+
+        for (var page = 0; page < 6; page++)
+        {
+            if (page > 0)
+            {
+                markup.Append("#pagebreak(weak: true)\n");
+            }
+
+            markup.Append($"#heading(level: 1)[Section {page}]\n\n");
+
+            for (var paragraph = 0; paragraph < 6; paragraph++)
+            {
+                markup.Append($"Paragraph {paragraph} of page {page}: #lorem({40 + paragraph}) ");
+
+                if (page == 0 && paragraph == 2)
+                {
+                    markup.Append($"Revision {edit} of the sentence. ");
+                }
+
+                markup.Append("\n\n");
+            }
+        }
+
+        return markup.ToString();
+    }
+
     private static long ExportPdf()
     {
         using var world = new TypstWorldBuilder().AddSource("main.typ", Report().ToMarkup()).Build();
@@ -437,6 +483,44 @@ internal static class Program
     {
         Console.Error.WriteLine(message);
         return 2;
+    }
+
+    /// <summary>
+    /// One editable document, kept for the whole run: the world is edited in place and the
+    /// fingerprints of the previous compilation are the comparison base of the next one.
+    /// </summary>
+    private sealed class IncrementalSession : IDisposable
+    {
+        private readonly TypstWorld _world;
+        private readonly TypstCompiler _compiler = new();
+        private readonly TypstIncrementalState _state = new();
+        private int _edit;
+
+        public IncrementalSession()
+        {
+            _world = new TypstWorldBuilder().AddSource("main.typ", IncrementalReport(0)).Build();
+
+            // The baseline: the first compilation has nothing to compare against, and excluding it
+            // from the measurement keeps every iteration a "second compilation of an edited
+            // document" rather than a mix of cold and warm.
+            using (var baseline = _compiler.CompileChanged(_world, _state))
+            {
+            }
+        }
+
+        public long Edit()
+        {
+            _edit++;
+            _world.SetSource("main.typ", IncrementalReport(_edit));
+
+            using var changed = _compiler.CompileChanged(_world, _state);
+
+            // Read both numbers so the work cannot be elided, and return a value that depends on
+            // the comparison having happened.
+            return changed.Document.PageCount + changed.ChangedPages.Count;
+        }
+
+        public void Dispose() => _world.Dispose();
     }
 
     private readonly record struct Settings(int Warmup, int Iterations, double MinIterationMs);

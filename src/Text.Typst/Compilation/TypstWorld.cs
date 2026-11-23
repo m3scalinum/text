@@ -10,10 +10,17 @@ namespace M3scalinum.Text.Typst.Compilation;
 /// The set of inputs a compilation sees: sources, assets, fonts and the clock.
 /// </summary>
 /// <remarks>
-/// A world is immutable once built. <see cref="Clone"/> returns a new world sharing the expensive
-/// parts — the library, the font book and the fonts — so a host can build one template world and
-/// specialise a clone per request. A world is safe to compile from several threads at once; it is
-/// the sources that are copied, not the fonts.
+/// <para>
+/// A world is built by <see cref="TypstWorldBuilder"/> and then either cloned or edited.
+/// <see cref="Clone"/> returns a new world sharing the expensive parts — the library, the font book
+/// and the fonts — so a host can build one template world and specialise a clone per request; a
+/// clone copies the sources, so editing one never touches another.
+/// </para>
+/// <para>
+/// A world is safe to compile from several threads at once. Editing it — <see cref="SetSource"/>
+/// — is not, in the sense that a compile running at the same time sees one version or the other;
+/// serialise edits per world.
+/// </para>
 /// </remarks>
 public sealed class TypstWorld : IDisposable
 {
@@ -102,6 +109,49 @@ public sealed class TypstWorld : IDisposable
         {
             clone.Dispose();
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Replaces one source inside this world, in place.
+    /// </summary>
+    /// <param name="path">Virtual path of the source.</param>
+    /// <param name="markup">The new content.</param>
+    /// <remarks>
+    /// <para>
+    /// This is the difference between <see cref="WithSource"/> and an editing session: a clone is
+    /// a new world, and a new world is a new compilation from Typst's point of view only as far as
+    /// its inputs are concerned — what survives an edit is the memoized state keyed by those
+    /// inputs. Replacing the source here keeps the world, its font book and its package handles,
+    /// which is what a caller iterating on one document wants.
+    /// </para>
+    /// <para>
+    /// The world is no longer immutable, and that is deliberate: a world is the document a caller
+    /// edits. What replaces "immutable" is "changing it affects no one else" — a clone copies the
+    /// sources, so a template world handed to <see cref="WithSource"/> is never touched. Replacing
+    /// a source while another thread compiles the same world is memory-safe but ambiguous: the
+    /// compile sees either the old text or the new one. Serialise edits per world.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentNullException"><paramref name="markup"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentException"><paramref name="path"/> breaks the path rules.</exception>
+    /// <exception cref="TypstNativeException">
+    /// The source exceeds <see cref="TypstLimits.MaxSourceBytes"/>, or the world has as many
+    /// sources as <see cref="TypstLimits.MaxSources"/> allows.
+    /// </exception>
+    public void SetSource(string path, string markup)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(markup);
+        TypstPath.Validate(path);
+
+        try
+        {
+            _native.AddSource(_handle, path, Encoding.UTF8.GetBytes(markup));
+        }
+        catch (NativeCallException exception)
+        {
+            throw NativeErrorTranslator.Translate(exception);
         }
     }
 
