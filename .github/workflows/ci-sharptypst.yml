@@ -3,7 +3,7 @@ name: ci (Typst)
 on:
   push:
     branches: [main]
-    # This workflow is the expensive one: six native builds, AOT, benchmarks, a leak soak. Nothing it
+    # This workflow is the expensive one: seven native builds, AOT, benchmarks, a leak soak. Nothing it
     # runs reads the suite packages or the documentation — the public surface and the drift checks
     # live in tests/Text.Suite.Tests, which ci-text.yml runs — so a change confined to those paths
     # does not start it.
@@ -24,7 +24,7 @@ on:
       - 'wiki/**'
       - 'README.md'
   pull_request:
-    # This workflow is the expensive one: six native builds, AOT, benchmarks, a leak soak. Nothing it
+    # This workflow is the expensive one: seven native builds, AOT, benchmarks, a leak soak. Nothing it
     # runs reads the suite packages or the documentation — the public surface and the drift checks
     # live in tests/Text.Suite.Tests, which ci-text.yml runs — so a change confined to those paths
     # does not start it.
@@ -50,8 +50,8 @@ env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
   # Bump this to invalidate every native cache below. The crate source is hashed into the key, but
-  # the musl link recipe and the universal-darwin lipo step live in this file, not in the crate, so
-  # a change there is invisible to hashFiles.
+  # the musl link recipe lives in this file, not in the crate, so a change there is invisible to
+  # hashFiles.
   NATIVE_CACHE_VERSION: v1
 
 # Read-only by default: no job here writes to the repository. The publish job of release-sharptypst.yml
@@ -59,7 +59,7 @@ env:
 permissions:
   contents: read
 
-# A branch pushed three times otherwise runs three full pipelines — six native builds, AOT, the leak
+# A branch pushed three times otherwise runs three full pipelines — seven native builds, AOT, the leak
 # soak — because the previous run is neither cancelled nor reused. The newest run wins.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -130,11 +130,14 @@ jobs:
             rid: linux-musl-x64
             lib: libsharp_typst.so
             target: x86_64-unknown-linux-musl
-          # The universal dylib cross-compiles from either macOS host: rustup adds the other target
-          # and lipo joins both slices. Building on the Intel pool keeps CI off the arm64 macOS
-          # queue, which GitHub throttles hard enough to drop jobs before a runner is assigned.
+          # One thin dylib per architecture, each a host build on its own runner: no cross target,
+          # no `lipo`, and no x86_64 slice in an Apple-silicon consumer's output.
+          - os: macos-15
+            rid: osx-arm64
+            lib: libsharp_typst.dylib
+            target: ""
           - os: macos-15-intel
-            rid: osx
+            rid: osx-x64
             lib: libsharp_typst.dylib
             target: ""
     env:
@@ -145,7 +148,7 @@ jobs:
       RUSTFLAGS: ${{ matrix.target != '' && '-C linker=musl-gcc' || '' }}
     steps:
       - uses: actions/checkout@v7
-      # The six Rust builds are the long pole, and the crate changes far less often than the managed
+      # The seven Rust builds are the long pole, and the crate changes far less often than the managed
       # tree does. The cache holds the *library each RID produces*, not `target/` (which reaches
       # 6 GB), so a managed-only pull request restores it in seconds and skips every cargo step —
       # fmt, clippy and the crate's own tests already ran on the run that populated the entry.
@@ -181,7 +184,7 @@ jobs:
         if: steps.natives.outputs.cache-hit != 'true'
         run: cargo test $CRT_TARGET --manifest-path native/sharp-typst/Cargo.toml
       - name: Build
-        if: steps.natives.outputs.cache-hit != 'true' && matrix.rid != 'osx' && matrix.target == ''
+        if: steps.natives.outputs.cache-hit != 'true' && matrix.target == ''
         run: cargo build --release --manifest-path native/sharp-typst/Cargo.toml
       - name: Build (musl)
         if: steps.natives.outputs.cache-hit != 'true' && matrix.target != ''
@@ -196,19 +199,6 @@ jobs:
             $symbols "$archive" -lpthread -ldl -lm
           strip --strip-all native/sharp-typst/target/release/libsharp_typst.so
           ls -la native/sharp-typst/target/release/libsharp_typst.so
-      - name: Build (universal)
-        if: steps.natives.outputs.cache-hit != 'true' && matrix.rid == 'osx'
-        run: |
-          # One dylib for both architectures: .NET falls back from osx-arm64 and osx-x64 to osx.
-          rustup target add aarch64-apple-darwin x86_64-apple-darwin
-          cargo build --release --manifest-path native/sharp-typst/Cargo.toml --target aarch64-apple-darwin
-          cargo build --release --manifest-path native/sharp-typst/Cargo.toml --target x86_64-apple-darwin
-          mkdir -p native/sharp-typst/target/release
-          lipo -create \
-            native/sharp-typst/target/aarch64-apple-darwin/release/libsharp_typst.dylib \
-            native/sharp-typst/target/x86_64-apple-darwin/release/libsharp_typst.dylib \
-            -output native/sharp-typst/target/release/libsharp_typst.dylib
-          lipo -info native/sharp-typst/target/release/libsharp_typst.dylib
       - name: Stage the library
         if: steps.natives.outputs.cache-hit != 'true'
         shell: bash
@@ -261,11 +251,13 @@ jobs:
           - os: ubuntu-24.04-arm
             rid: linux-arm64
             lib: libsharp_typst.so
-          # The dylib is universal, so the tests run on the Intel pool: it validates the x86_64
-          # slice, and it avoids the arm64 macOS queue, which GitHub throttles hard enough that the
-          # job is regularly dropped before a runner is ever assigned.
+          # One entry per macOS architecture: each loads its own thin dylib, so both slices are
+          # executed rather than the fat file's x86_64 half alone.
+          - os: macos-15
+            rid: osx-arm64
+            lib: libsharp_typst.dylib
           - os: macos-15-intel
-            rid: osx
+            rid: osx-x64
             lib: libsharp_typst.dylib
     steps:
       - uses: actions/checkout@v7
