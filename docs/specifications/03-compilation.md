@@ -1129,3 +1129,130 @@ for a document without pages. `tn_cache_clear` evicts every memoized result in t
 §3 does not describe either yet: §3.12 (metrics) is where the pages section belongs, and the cache
 call belongs in a new §3.13 or next to the world functions — this document specifies the behaviour,
 the ABI document must list the symbols.
+
+## 17. Variable fonts and intermediate weights
+
+A variable font carries a range per axis — typically `wght` from 100 to 900, or 300 to 700 — instead
+of one cut per weight. Asking for a weight inside that range makes the compiler interpolate an
+instance; asking for one outside it renders at the nearest end. This section states what the compiler
+actually does with the axes, what the library exposes about them, and what is left to the caller.
+
+### 17.1 What Typst does with an axis
+
+`text.weight` takes one of nine names (`thin` … `black`) or an integer, clamped to 100–900. The value
+is not compared against a list of installed cuts: it becomes a variation coordinate. On instantiation
+Typst builds the axes the face advertises — `wght` from the weight, `wdth` from `stretch`, `opsz` from
+the point size, `ital`/`slnt` from the style — clamps each to the range the font declares, and hands
+the result to the shaper. A face without an `fvar` table gets no coordinate and cannot be
+interpolated, which is the whole difference.
+
+Selection is separate and does not defeat this: `FontBook::select` scores a family by family, style
+and stretch before weight, and for weight it measures the distance to the face's axis *range* rather
+than to a single cut. A variable family is therefore chosen for any weight inside its range, and the
+interpolation happens afterwards.
+
+The weight of a *static* face is fixed, so the same selection picks the nearest cut: 350 in a family
+that ships 400 and 700 renders the 400 face. Nothing warns — the document simply looks like 400.
+
+### 17.2 The measurement
+
+Measured on Windows 11 with Bahnschrift (a variable face: `wght` 300–700, default 400; `wdth` 75–100,
+default 100), the same one-line paragraph at 10 pt, read back from the glyph placements and the glyph
+outlines of the SVG export:
+
+| Weight | Line width | Outlines |
+| --- | --- | --- |
+| 300 | 174.185 pt | distinct |
+| 350 | 174.185 pt | distinct |
+| 400 | 174.185 pt | distinct |
+| 500 | 174.185 pt | distinct |
+| 550 | 174.185 pt | distinct |
+| 700 | 174.185 pt | distinct |
+| 900 | 174.185 pt | identical to 700 |
+
+Two things follow, and both matter:
+
+- **The axis is applied.** Every weight from 300 to 700 draws a different outline, 350 and 550
+  included. They are interpolated instances, not one of the shipped cuts: the 350 outline matches
+  neither 300 nor 400.
+- **It does not have to move the layout.** Bahnschrift keeps its advances constant across the weight
+  axis, so the line occupies exactly the same width at every weight while the stems thicken. A test
+  that only compares line widths would conclude the axis was ignored. The geometry that answers the
+  question is the outline, not the advance.
+- **Out of range is clamped, silently.** 900 renders the 700 instance, byte for byte.
+
+The same paragraph in an embedded family, which is static, behaves as it did before this section
+existed: 350 is *identical* to 400 in width (160.8 pt) and in outlines, and 700 is the bold cut
+(176.97 pt).
+
+`weight: "350"` — the weight as a string — is not a weight. Typst refuses the document with a cast
+error rather than falling back to 400, which is the behaviour worth relying on: a wrong spelling fails
+loudly instead of rendering something plausible.
+
+### 17.3 What the library exposes
+
+`TypstWorld.Fonts` reports every face the world resolves — family, default weight, width as a
+percentage of normal, style, whether the face is variable, and each axis with its minimum, maximum and
+default:
+
+```csharp
+using var world = new TypstWorldBuilder()
+    .AddFontDirectory("/opt/fonts")
+    .AddSource("main.typ", "#set text(weight: 350)\n\nInterpolated.")
+    .Build();
+
+foreach (var face in world.Fonts)
+{
+    foreach (var axis in face.Axes)
+    {
+        if (axis.Tag == "wght")
+        {
+            // 350 renders as 350 only when this is true.
+            var reachable = axis.Contains(350);
+        }
+    }
+}
+```
+
+`TypstFontFace.Axis("wght")` answers the same question for one axis:
+
+```csharp
+var weight = face.Axis("wght");
+
+if (weight is not null && weight.Contains(350))
+{
+    // The face interpolates: 350 draws an instance of its own.
+}
+```
+
+The list is metadata from the scan the world already did — no font is parsed to answer it — and it
+covers the embedded faces too, which is how a caller sees that none of them carries an axis.
+
+Nothing else in the compilation path filters weights: Typst source reaches the compiler as written, so
+`#set text(weight: 350)` and `#text(weight: 350)[…]` work as soon as the world resolves a face with
+the axis. The document model's styled-run helper quotes its argument, which is why the numeric form has
+to be written as markup or through a raw node.
+
+### 17.4 What is left to the caller
+
+- **A static family cannot interpolate.** 350 in a family that ships 400 and 700 is 400, in silence.
+  `TypstWorld.Fonts` is how a host finds that out before it promises the typography.
+- **A static instance for a caller that needs the file, not the layout.** Freezing an axis into a
+  static font (`varLib.instancer` and similar) is a font-production step; the suite ships no such tool
+  and does not need one to render an intermediate weight.
+- **Advances may not change.** A grid, a table column or a measured width cannot be used as evidence
+  that a weight was applied; only the drawn outline can.
+
+### 17.5 ABI
+
+One symbol was added, and no existing one changed, so `TN_ABI_VERSION` stays at 2:
+
+```c
+int32_t tn_world_font_faces(const TnWorld *world,
+                            TnBuffer *out,
+                            TnError **out_error);
+```
+
+It returns a JSON array, one object per face:
+`{"family":"Bahnschrift","weight":400,"stretch":100,"style":"normal","variable":true,"axes":[{"tag":"wght","min":300,"max":700,"default":400}]}`.
+Spec 02 §3 does not list it yet; it belongs next to `tn_world_font_families`.
