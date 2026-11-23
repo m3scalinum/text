@@ -1,7 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading;
 
 namespace M3scalinum.Text.Typst.Native;
@@ -13,6 +16,22 @@ namespace M3scalinum.Text.Typst.Native;
 internal static class NativeLibraryResolver
 {
     private const string OverrideVariable = "SHARPTYPST_NATIVE_PATH";
+
+    /// <summary>
+    /// The satellite package that carries each RID's library (Spec 08 §6). A host with no library is
+    /// told which package installs the one it needs, and that answer has to be the package id the
+    /// release actually publishes.
+    /// </summary>
+    private static readonly Dictionary<string, string> PackagesByRid = new(StringComparer.Ordinal)
+    {
+        ["win-x64"] = "M3scalinum.Text.Typst.Native.WinX64",
+        ["win-arm64"] = "M3scalinum.Text.Typst.Native.WinArm64",
+        ["linux-x64"] = "M3scalinum.Text.Typst.Native.LinuxX64",
+        ["linux-arm64"] = "M3scalinum.Text.Typst.Native.LinuxArm64",
+        ["linux-musl-x64"] = "M3scalinum.Text.Typst.Native.LinuxMuslX64",
+        ["osx-arm64"] = "M3scalinum.Text.Typst.Native.OsxArm64",
+        ["osx-x64"] = "M3scalinum.Text.Typst.Native.OsxX64",
+    };
 
     private static string? _loadedPath;
 
@@ -53,9 +72,74 @@ internal static class NativeLibraryResolver
             }
         }
 
-        // Fall back to the default probing rules; if that fails, the runtime raises
-        // DllNotFoundException naming the library, which is the clearest signal we can give.
-        return IntPtr.Zero;
+        // The candidates are the packaged layout; the default probing rules also cover a library a
+        // host put on the loader's own search path (LD_LIBRARY_PATH, DYLD_LIBRARY_PATH, the
+        // application directory, a system install). Try those before refusing to load anything.
+        if (NativeLibrary.TryLoad(libraryName, assembly, searchPath, out var handle))
+        {
+            return handle;
+        }
+
+        throw new TypstNativeLibraryNotFoundException(MissingLibraryMessage());
+    }
+
+    /// <summary>
+    /// The message a host sees when no library could be loaded: the RID, the package that carries
+    /// it, the paths that were probed and the two supported ways to supply one.
+    /// </summary>
+    /// <remarks>
+    /// The managed package used to carry all seven natives, so a missing one could only mean a
+    /// broken install; now it means "the satellite package is not referenced", which is a line in a
+    /// project file. A bare <c>DllNotFoundException</c> names the library and nothing else, so the
+    /// reader has to know the packaging to act on it (Spec 08 §6).
+    /// </remarks>
+    internal static string MissingLibraryMessage()
+    {
+        var rid = RuntimeIdentifier();
+        var message = new StringBuilder();
+
+        message.Append("The native Typst library is not installed for this process (RID ").Append(rid).AppendLine(").");
+        message.AppendLine();
+        message.AppendLine(
+            "M3scalinum.Text.Typst carries the managed compiler only: the native library lives in a package of its own,");
+        message.AppendLine("and this project does not reference the one for this runtime.");
+
+        if (PackagesByRid.TryGetValue(rid, out var package))
+        {
+            message.AppendLine();
+            message.Append("    dotnet add package ").AppendLine(package);
+        }
+        else
+        {
+            message.AppendLine();
+            message.Append("No native package is published for ").Append(rid).AppendLine(". The supported RIDs are:");
+            message.Append("  ").AppendLine(string.Join(", ", PackagesByRid.Keys));
+        }
+
+        var overridePath = Environment.GetEnvironmentVariable(OverrideVariable);
+        if (!string.IsNullOrEmpty(overridePath))
+        {
+            message.AppendLine();
+            message.Append(OverrideVariable).Append(" is set to '").Append(overridePath)
+                .AppendLine("', and no file is there.");
+        }
+
+        message.AppendLine();
+        message.AppendLine("Probed:");
+
+        // A non-musl host probes the same path twice (its RID is its portable RID), and a list that
+        // says so twice reads like a bug in the resolver.
+        foreach (var candidate in Candidates().Distinct(StringComparer.Ordinal))
+        {
+            message.Append("  ").AppendLine(candidate);
+        }
+
+        message.AppendLine();
+        message.Append("Set ").Append(OverrideVariable).AppendLine(
+            " to the full path of a library you built yourself (cargo build --release in native/sharp-typst)");
+        message.AppendLine("to load that instead.");
+
+        return message.ToString();
     }
 
     /// <summary>
