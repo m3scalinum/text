@@ -32,6 +32,10 @@ what could not be mapped faithfully.
 | Rendering | Nothing is painted, so nothing is checked against what a viewer would show. |
 | A full glyph name list | A name the reader does not know falls back to the raw code and is reported. |
 
+A scan is the one case where nothing can be read and something can still be done: the OCR engine of
+`M3scalinum.Text.Ocr` reads the image, and §8 of this document writes what it read back into the
+document as an invisible layer, which this reader then reads like any other text.
+
 ## 2. The API
 
 ```csharp
@@ -239,3 +243,143 @@ The older `PdfTextProbe` in the test project remains the conformance and page-op
 reading a file back. It is a probe, not this API: it concatenates strings and ignores positioning,
 which is enough for "the text survived a merge" and not enough for a caller reading a document it was
 handed.
+
+## 8. Making a scan searchable: the text layer
+
+A scanned page holds an image and no glyphs, so §1's table is right about what this reader can read
+from it: nothing. The other half of the loop is writing text back. `PdfTextLayer` appends an invisible
+layer of positioned words to the page, in the font and the operators a reader already understands, and
+this reader then extracts it like the text of any other document.
+
+```csharp
+using M3scalinum.Text.Pdf;
+
+byte[] scanned = File.ReadAllBytes("scan.pdf");
+
+PdfTextLayerWord[] words =
+[
+    new PdfTextLayerWord(0, "Facture", 72, 690, 132, 710),
+    new PdfTextLayerWord(0, "n°", 140, 690, 155, 710),
+    new PdfTextLayerWord(0, "2026-0042", 163, 690, 240, 710),
+];
+
+byte[] searchable = PdfTextLayer.Add(scanned, words);
+
+PdfPageText page = PdfText.ExtractPage(searchable, 0);
+```
+
+### 8.1 What the caller hands over
+
+One `PdfTextLayerWord` per word: the zero-based page, the characters, and a box — `Left`, `Bottom`,
+`Right`, `Top` — **in the page's default user space**: points, origin at the bottom-left corner of the
+`/MediaBox`, the space `/MediaBox` itself is written in, and not the rotated space a viewer displays.
+The bottom edge becomes the baseline and the height becomes the font size; the horizontal scale of
+each word is fitted so that its advance spans the box, which is what makes a reader highlight the
+word it read and not an approximation of it.
+
+The order of the list is the reading order. Within a page the layer writes the words in the order it
+was given and never sorts by position: reading order is the caller's fact — an OCR engine's line and
+word order — and a layer that sorted by position would read a right-to-left line backwards.
+
+### 8.2 What the file gains
+
+One incremental update, written the way `PdfSigner` and `PdfAttachments` write theirs: every object
+is appended after the last byte, the page dictionaries are defined again later in the file, and
+nothing before the update moves. That is what keeps a signature over the earlier revision valid, and
+`PdfSignatureVerifier` reports it exactly that way: `IsIntact` stays true and `CoversWholeFile`
+becomes false, because the layer is part of the file and no earlier signature covers it.
+
+For a page that carries words, the update adds:
+
+| Object | What it is |
+| --- | --- |
+| One content stream | The layer's operators, uncompressed so that a reader, a validator or a person with an editor can see them. |
+| One `/Resources` dictionary | A copy of the resources the page resolved to — its own, or the page tree's — with `/Font` replaced. Copying rather than editing is what covers a page that inherits its resources, one that points at them, and one that carries them inline, and it never rewrites an object another page also uses. |
+| One merged `/Font` dictionary per distinct set of fonts | The fonts the page already had, plus `/M3TextLayer`. A page that already declares that name is refused: a second layer would renumber the glyphs the first one draws. |
+| A `Type0` font | `/Encoding /Identity-H`, one descendant, one `/ToUnicode`. |
+| A `CIDFontType2` descendant | `/CIDToGIDMap /Identity`, `/DW 500`, a `/CIDSystemInfo` naming Adobe/Identity/0. |
+| A font descriptor | `/Flags 4` (symbolic), `/FontBBox[0 -200 500 800]`, and `/FontFile2`. |
+| A `/ToUnicode` CMap | One `bfchar` entry per glyph, in blocks of a hundred: the code the stream writes and the character it stands for. |
+| A `/FontFile2` stream | The embedded program, Flate-compressed, with `/Length1`. |
+
+The page's `/Contents` becomes an array holding the streams it had and this one last. Last is what
+puts the layer *under* nothing and *over* nothing: the text is drawn invisible, so it paints no pixel,
+while the extraction order — the order the streams are read — puts the layer's words after whatever
+the page already drew, which on a scan is an image and therefore nothing.
+
+The content stream is one block per page:
+
+```
+q
+BT
+3 Tr
+/M3TextLayer 20 Tf
+0.8571 0 0 1 72 690 Tm
+<0002000300040005000600070004> Tj
+...
+ET
+Q
+```
+
+`3 Tr` is the invisible text rendering mode: the glyphs are positioned and never painted. `Tm` places
+each word, with the horizontal component carrying the fit to the box. `Tj` shows the word as one
+string of two-byte codes — the glyph identifiers the CMap maps back to characters — followed by one
+space glyph, which is what guarantees a word boundary in the extracted text. The space is invisible,
+and a reader that trims a line trims it, so a separator is never doubled.
+
+### 8.3 The font, and why it is generated
+
+A `Type0` font is what carries a `/ToUnicode` map for arbitrary characters, and its descendant CID
+font must be embedded: a non-embedded one is a document a reader substitutes a font for, and PDF/A
+refuses it outright. The repository ships no font file to subset — `native/sharp-typst` embeds none,
+and `Text.Pdf` has no font resource — so the layer writes its own program, once, for the glyphs the
+document uses.
+
+The program is a real sfnt: nine tables (`cmap`, `glyf`, `head`, `hhea`, `hmtx`, `loca`, `maxp`,
+`name`, `post`), correct table checksums, and a `head.checkSumAdjustment` that makes the file sum to
+`0xB1B0AFBA`. Every glyph is empty and every advance is 500 of 1000 em. That is the honest shape of
+what a text layer needs: the characters are never painted, so an outline would never be seen, and the
+one advance is compensated by fitting each word's horizontal scale to its box. The cost is 4 bytes of
+`hmtx` and 2 bytes of `loca` per distinct character, plus about 500 bytes of fixed tables: a page of
+Latin text adds well under a kilobyte of font, and the whole layer stays in single-digit kilobytes,
+against the hundreds of kilobytes the scan itself takes.
+
+Glyph identifiers are assigned in the order the characters first appear, so the codes a stream writes
+are not the characters and not even close to their code points; the `/ToUnicode` CMap is the only
+thing that turns them back into text. That is what a subset font does, and it is why the CMap is not
+optional here.
+
+### 8.4 What a reader gets back
+
+`PdfText.Extract` reads the layer through the CMap, exactly as it reads any other `Type0` font, and
+reports no fallback font for it. Words come back separated by a space, in the order the streams show
+them; a new line is the reader's own rule — the baseline moved, or the pen jumped backwards — applied
+to the boxes the layer placed. For a scan, the extracted text is the layer alone, in reading order:
+
+```
+Facture n° 2026-0042
+```
+
+The tests assert that shape on a hand-written scan fixture: the four words of two lines come back as
+two lines with single spaces, the earlier revision is a prefix of the result, the growth is bounded,
+the page's `/Contents` is an array, the embedded program parses (its directory is alphabetical,
+`loca` is `2 × (numGlyphs + 1)` bytes, `hmtx` is `4 × numGlyphs`, every glyph offset is zero, and the
+file sums to the sfnt constant), a document signed before the layer still verifies after it, an
+encrypted document is refused, and so are a rotated page, a page that already carries a layer, a word
+with no text, a word with no area, and a word carrying a control character. Outside the suite the
+produced file was read by poppler's `pdftotext` (which prints the words, in order, with no warning
+about the font) and the embedded program was read and re-saved by `fontTools`.
+
+### 8.5 What it does not cover
+
+| Not covered | Why, and what to do |
+| --- | --- |
+| A page with `/Rotate` other than 0 | The boxes are in the page's own user space, and the raster an OCR engine reads is the *displayed* page, so the two differ by the rotation. The layer refuses the page rather than placing words where the rotation does not put them; rotate the page to zero first, or map the boxes yourself. |
+| A right-to-left line, or any line whose words go backwards in x | Extraction keeps every word and every character, but this reader treats a jump to the left as a new line, so an RTL line reads back one word per line. Nothing is lost and nothing is reordered; the line structure is. |
+| A page whose content leaves a `cm` in force | The layer's coordinates are the default user space and it assumes the content it follows restores the graphics state (a balanced `q`/`Q`), which every producer's page does. |
+| A document whose cross-reference is a stream | `PdfDocument` needs a classic trailer to append an update, the same limitation `PdfAttachments` and `PdfSigner` have. |
+| An encrypted document | An incremental update would append plaintext no reader decrypts. Decrypt with `PdfEncryption.Open` first. |
+| Tagged PDF, `/ActualText`, PDF/UA | The layer makes text extractable and selectable; it does not describe structure or mark the text as an artefact-free alternative of the image. |
+| PDF/A-4 | The generated program has no outlines and the descriptor is symbolic; a claim of PDF/A would need a real embedded font. The layer does not change what the document claims about itself. |
+| Selecting the word's exact glyphs | Every glyph shares one advance; the fitted horizontal scale makes the word span its box, and a reader's selection of a single character inside the word may be narrower or wider than the ink under it. The line is right, and the characters are right. |
+

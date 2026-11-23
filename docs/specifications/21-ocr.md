@@ -1062,3 +1062,84 @@ symbols and no other difference, and the old entry points keep the default ceili
   repository ships none. That a real WebP file decodes: only its header path is proved. And that the
   2 GiB byte ceiling refuses a real 2 GiB buffer: the buffer is never produced, so the arithmetic is
   what is proved.
+
+## 17. From a reading to a text layer
+
+Reading a scan produces text and boxes; the archive keeps the scan. What makes the two the same
+document is a text layer: the recognised words written back into the original PDF, invisible, where
+they were read. `OcrTextLayer` is this package's half of that — the mapping from what the engine
+returned to the positions a layer needs. It does not write the PDF, and it does not reference
+`M3scalinum.Text.Pdf`, which §6 of this document already says is a boundary this package keeps.
+
+### 17.1 What the engine returns, and what a page wants
+
+An `OcrPageOutcome` carries boxes in the pixels of the rasterised page, with the origin at the
+top-left corner: `OcrWord.Bounds` is an `OcrBox` of `X`, `Y`, `Width` and `Height` at the resolution
+the page was rendered at. A PDF places text in points, with the origin at the bottom-left corner of
+the page. The two are related by the resolution and a flip:
+
+- `left = X × 72 / DPI`
+- `right = (X + Width) × 72 / DPI`
+- `top = (Height_px − Y) × 72 / DPI`
+- `bottom = top − Height × 72 / DPI`
+
+`OcrTextLayer.Words` applies exactly that and returns `OcrTextLayerWord` values — `PageIndex`, `Text`,
+`Left`, `Bottom`, `Right`, `Top` — whose field names are the ones `PdfTextLayerWord` of
+`M3scalinum.Text.Pdf` takes, so the projection is a constructor call and not arithmetic at the call
+site.
+
+```csharp
+using M3scalinum.Text.Ocr;
+using M3scalinum.Text.Pdf;
+
+IReadOnlyList<OcrPageOutcome> pages = engine.RecognizePdf(scanned, new OcrPdfOptions());
+
+var placed = new List<PdfTextLayerWord>();
+
+foreach (OcrTextLayerWord word in OcrTextLayer.Words(pages))
+{
+    placed.Add(new PdfTextLayerWord(word.PageIndex, word.Text, word.Left, word.Bottom, word.Right, word.Top));
+}
+
+byte[] searchable = PdfTextLayer.Add(scanned, placed);
+```
+
+`OcrTextLayer.PageSize` gives the page in points — the raster size scaled by 72/DPI — so a caller can
+check a box against the `/MediaBox` before writing it, which is worth doing when a page was rendered
+at a resolution other than the one it declares.
+
+### 17.2 What the caller supplies, and what it does not
+
+- **Positions** come from the engine and are never invented here: a word with no box is a word this
+  package cannot place, and there is no fallback that would guess one.
+- **Reading order** is the engine's: lines in the order the engine returned them, words in the order
+  it returned them within a line. The layer writes them in that order and never sorts by position.
+- **The document** is the original one. The layer is an incremental update to the bytes the page was
+  rendered from, so re-rendering at 150 DPI instead of 300 is fine (the boxes scale to the same
+  points), but adding the layer to a *different* document, or to one whose pages were reordered, is
+  not: the page indices would name other pages.
+- **The resolution** is the `Dpi` the page was read at, and it must be the one the raster really had.
+  A page read through the native library reports it; one read from an image the caller produced
+  itself has to be constructed with the resolution it was rasterised at, because nothing in the
+  bitmap records it.
+
+### 17.3 What is left out, deliberately
+
+- A word the engine flagged as **rejected** — below `OcrOptions.MinimumWordConfidence`. A text layer
+  states what the page says, and a word the engine doubts is not a statement. Its box is still in the
+  `OcrPageResult`, so a caller that wants the doubt visible can build its list itself.
+- A word whose box has **no area** — width or height of zero. A layer cannot place one, and a
+  recognised word with no extent is a contradiction the box already reported.
+- A **refused page** — `OcrPageUnreadable` yields no word at all, and neither does a page with no
+  line.
+
+### 17.4 What is not covered
+
+| Not covered | Why, and what to do |
+| --- | --- |
+| A page with `/Rotate` other than 0 | The raster is the displayed page and the layer is placed in the page's own user space; `PdfTextLayer` refuses such a page rather than putting the words where the rotation does not. Rotate the page to zero first, or map the boxes yourself. |
+| Reading order that a reader will re-derive | A layer's line breaks come from the boxes: the reader breaks a line when the baseline moves or the pen jumps back. A right-to-left line therefore reads back one word per line — the words and characters are all there and in order, the line structure is not. |
+| Words the engine split differently than the page | A layer carries the engine's tokens; `OcrLine.Text` and `OcrWord.Text` are what it read, and this package does not re-segment them. |
+| A layer that makes the image an artefact of tagged text | The layer is extractable and selectable; it adds no structure tag and no `/ActualText`, so PDF/UA is not claimed. |
+| Proving that a real reader selects the right glyphs | The mapping is asserted on boxes the tests state in pixels; that a specific viewer highlights exactly the ink under the word is a rendering question this package cannot answer, and the `M3scalinum.Text.Pdf` side documents the same limit. |
+
