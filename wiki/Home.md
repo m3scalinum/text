@@ -36,7 +36,7 @@ File.WriteAllBytes("hello.pdf", pdf);
 **[M3scalinum.Text.Pdf](Pdf-Getting-Started)** — sign what you produced, and change it. PAdES-B
 written as an incremental update, so a PDF/A document stays PDF/A and an earlier signature stays
 valid; plus pages, forms, text, encryption, conformance, outlines, attachments, batch manifests and
-a page rendered as a PNG.
+a page rendered as a PNG or a JPEG.
 
 ```csharp
 using M3scalinum.Text.Pdf;
@@ -48,8 +48,8 @@ var signed = PdfSigner.Sign(pdf, certificate, new PdfSignatureOptions { Reason =
 
 - **`M3scalinum.Text.Documents`** — the document model every other package builds: typed content,
   styles, tables, figures, lists, page setup, sections with their own header and watermark, a
-  bibliography from BibTeX, an index, and the HTML and Markdown importers. No compiler, no
-  native code. → [The document model](Documents-Model)
+  bibliography from BibTeX, an index, MathML formulas, a diff between two documents, and the HTML
+  and Markdown importers. No compiler, no native code. → [The document model](Documents-Model)
 - **`M3scalinum.Text.Templates`** — seven business layouts (invoice, quotation, account statement,
   attestation, contract, payslip, purchase order) with typed options and English or French labels.
   → [Templates](Typst-Templates)

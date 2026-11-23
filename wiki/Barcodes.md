@@ -294,9 +294,11 @@ data, and a test builds it so the sample cannot go stale.
 ## Shipping and licensing
 
 The package carries its engine as a native library per runtime identifier — `win-x64`, `win-arm64`,
-`linux-x64`, `linux-arm64`, `linux-musl-x64`, `linux-musl-arm64`, `osx` — under `runtimes/<rid>/native/`,
-the same layout `M3scalinum.Text.Typst` uses. `BARCODES_NATIVE_PATH` points a build at a locally compiled
-library instead.
+`linux-x64`, `linux-arm64`, `linux-musl-x64`, `linux-musl-arm64`, `osx-arm64`, `osx-x64` — under
+`runtimes/<rid>/native/`, the same layout `M3scalinum.Text.Typst` uses. macOS gets two thin dylibs,
+one per architecture, not one universal file: an arm64 process resolves `runtimes/osx-arm64/native/`,
+an Intel one `runtimes/osx-x64/native/`, and neither copies the other's bytes. `BARCODES_NATIVE_PATH`
+points a build at a locally compiled library instead.
 
 The engine is [rxing](https://crates.io/crates/rxing) 0.9.4, a Rust port of ZXing, licensed
 **Apache-2.0** — the licence of this repository, so nothing extra is required of a consumer. Its

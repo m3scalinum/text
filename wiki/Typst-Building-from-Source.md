@@ -78,6 +78,10 @@ Three packages:
 | `M3scalinum.Text.Typst.DependencyInjection` | `AddTypst()`, options, validation. Depends on `M3scalinum.Text.Typst` at the exact version. |
 | `M3scalinum.Text.Templates.Generator` | A Roslyn analyzer. No `lib/`, only `analyzers/` and `build/`. |
 
+macOS is two thin dylibs, `runtimes/osx-arm64/native/` and `runtimes/osx-x64/native/`, each built on
+its own runner; there is no universal `osx` file and no `lipo` step. An Apple-silicon consumer's build
+output contains only the arm64 file, and an Intel one only the x86_64 file.
+
 `M3scalinum.Text.Typst.Native` is **not** published: its types are internal and it is merged into `M3scalinum.Text.Typst`
 through `TargetsForTfmSpecificBuildOutput`, so a consumer installs one package.
 

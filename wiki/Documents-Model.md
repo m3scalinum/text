@@ -104,6 +104,61 @@ It also carries the shapes — `Line`, `Rect`, `Square`, `Circle`, `Ellipse`, `P
 the decorations — `Upper`, `Lower`, `SmallCaps`, `Highlight`, `Underline`, `Overline`,
 `Strikethrough`, `Subscript`, `Superscript`, `Lorem`.
 
+## Formulas from MathML
+
+`TypstDocument.Math(string)` and `TypstContent.Math(string)` take Typst math markup — a block
+equation on the document, an inline run on a content chain. Content that comes from the web or from
+a math editor arrives as MathML instead, so `TypstDocument.MathMl` and `TypstContent.MathMl` take a
+`<math>` element and import it:
+
+```csharp
+document.MathMl("""
+    <math xmlns="http://www.w3.org/1998/Math/MathML" display="block">
+      <mfrac><mn>1</mn><mn>2</mn></mfrac>
+    </math>
+    """);
+
+var line = TypstContent.Empty
+    .Text("Area: ")
+    .MathMl("<math><msup><mi>r</mi><mn>2</mn></msup></math>");
+```
+
+The formula is imported once, when the node is created: the node keeps both the Typst markup the
+compiler lays out and the tree the HTML export writes back, so the two cannot drift. A formula that
+declared `display="block"` becomes a display equation; one that declared `display="inline"`, or
+declared none, is an inline equation in a paragraph of its own. `TypstMathMlExpression.Import` takes
+the same string when a caller wants to inspect the tree, and the result writes both ways:
+`ToTypst()` is markup meant to sit inside `$ … $`, `ToMathMl()` is a single-line `<math>` element
+that keeps the display mode it was imported with.
+
+The supported subset is Presentation MathML, and it is closed: `math`, `mi`, `mn`, `mo`, `mtext`,
+`mrow`, `msup`, `msub`, `msubsup`, `mfrac`, `msqrt`, `mroot`, `mtable`, `mtr`, `mtd`. An element
+outside it is refused by name, never dropped:
+
+```csharp
+try
+{
+    document.MathMl("<math><munderover><mo>∑</mo><mn>0</mn><mn>1</mn></munderover></math>");
+}
+catch (TypstMathMlException exception) when (exception.Error == TypstMathMlError.Unsupported)
+{
+    Console.WriteLine(exception.ElementName);   // munderover
+}
+```
+
+`TypstMathMlError` separates the four refusals a caller may want to treat differently:
+`Malformed` (not well-formed XML, or a container that breaks the shape its element requires — an
+`msup` with one child, a `mtable` whose rows differ in width), `XmlPolicy` (a document type
+declaration or an entity, refused before any parser sees it), `Limit` (past the character, nesting or
+element-count cap) and `Unsupported` (an element outside the subset; `ElementName` names it).
+
+What the import does not do: Content MathML (`<apply>`, `<ci>`) is not mapped; presentation
+attributes — `mathvariant`, `displaystyle`, `columnalign` and the rest — are ignored, so `mi` is
+upright only when it holds more than one character; `munder`, `mover`, `munderover`,
+`mmultiscripts`, `mfenced` and `semantics` are refused rather than approximated; the tree is not
+normalised, so a round trip writes what the caller sent. Nothing lays MathML out: the PDF is laid out
+by Typst from the markup the import wrote.
+
 ## Page setup
 
 ```csharp
@@ -438,6 +493,59 @@ TypstHtmlExportResult html = document.ToHtml();
 Both exports report what they could not carry in `Unrepresentable` — constructs with their name and
 count — rather than approximating it. See [Importing Markdown](Documents-Markdown-Import) and
 [Importing HTML](Documents-Html-Import) for the mappings.
+
+## Comparing two documents
+
+`TypstDocumentDiff.Between` compares two models — before the compiler has decided a line break, a
+page or a hyphenation — and returns what a person edited:
+
+```csharp
+IReadOnlyList<TypstDocumentChange> changes = TypstDocumentDiff.Between(before, after);
+
+foreach (TypstDocumentChange change in changes)
+{
+    switch (change)
+    {
+        case TypstTextChanged text:
+            Console.WriteLine($"{text.Path.Text}: {text.OldText} -> {text.NewText}");
+            break;
+        case TypstNodeMoved moved:
+            Console.WriteLine($"{moved.Node}: {moved.From.Text} -> {moved.Path.Text}");
+            break;
+        default:
+            Console.WriteLine($"{change.Kind} at {change.Path.Text}");
+            break;
+    }
+}
+```
+
+Five kinds, each a type as well as a `TypstDocumentChangeKind`: `TypstNodeAdded` and
+`TypstNodeRemoved` (a node exists in one document only, and the entry names its kind, such as
+`paragraph` or `cell`), `TypstTextChanged` (`OldText`, `NewText`), `TypstStyleChanged` (`Property`,
+`OldValue`, `NewValue` — one entry per property that differs) and `TypstNodeMoved` (`From`, the path
+in the earlier document). Entries are typed rather than one record with nullable fields, so a caller
+that handles three kinds out of five cannot read a value that is not there.
+
+`TypstDocumentPath` says where: `Text` is a dot-separated walk from the body down to the node —
+`body[3]` is the fourth block, `body[3].inline[1]` the second run inside it,
+`body[2].row[1].cell[0].inline[0]` the first run of the first cell of the second row of the third
+block — `Segments` is the same path split, and `Label` is the nearest label in scope when the
+document carries one, so a change inside a labelled figure can be reported against its name. For a
+node present in both documents the path is its place in the later one; a `TypstNodeMoved` carries
+both ends.
+
+Siblings are aligned with a weighted longest common subsequence keyed on the node kind, not by index:
+inserting a paragraph at the top of a contract is one addition, not one addition and a text change on
+every paragraph after it. A node that both moved and changed is reported as a removal and an
+addition, because its subtree is no longer identical.
+
+What the diff does not see, and why: it never compiles, so it needs no native library, but it also
+knows nothing the layout produces — line breaks, justification, hyphenation, page breaks, page
+numbers, counters (`#ref`, an outline, an index), and where a table row splits across pages. The page
+setup in `TypstDocument.Page` and `TypstDocumentStyle` configures the layout rather than carrying
+words, so it is outside the comparison too. There is no similarity score and no merge: the diff is an
+answer, not an edit. A caller that must report a pagination change compares two compiled documents,
+not two models.
 
 ## Escaping
 
