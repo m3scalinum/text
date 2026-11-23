@@ -122,9 +122,11 @@ internal sealed class TypstHtmlWriter
             return;
         }
 
-        if (IsOnlyBlockMath(content, out var expression))
+        if (IsOnlyBlockMath(content, out var mathml, out var expression))
         {
-            _out.Append("<div class=\"math\">").Append(EscapeText(expression)).Append("</div>\n");
+            _out.Append("<div class=\"math\">")
+                .Append(mathml ?? EscapeText(expression))
+                .Append("</div>\n");
             return;
         }
 
@@ -133,16 +135,21 @@ internal sealed class TypstHtmlWriter
         _out.Append("</p>\n");
     }
 
-    private static bool IsOnlyBlockMath(TypstContent content, out string expression)
+    private static bool IsOnlyBlockMath(
+        TypstContent content,
+        out string? mathml,
+        out string expression)
     {
         if (content.HtmlNodes.Count == 1
             && content.HtmlNodes[0] is MathNode math
             && Captured.Bool(math, "block"))
         {
             expression = Captured.Text(math, "expression");
+            mathml = math.MathMl?.ToMathMl("block");
             return true;
         }
 
+        mathml = null;
         expression = string.Empty;
         return false;
     }
@@ -456,6 +463,10 @@ internal sealed class TypstHtmlWriter
 
             case InlineCodeNode code:
                 _out.Append("<code>").Append(EscapeText(Captured.Text(code, "code"))).Append("</code>");
+                break;
+
+            case MathNode imported when imported.MathMl is not null:
+                _out.Append(imported.MathMl.ToMathMl("inline"));
                 break;
 
             case MathNode math:

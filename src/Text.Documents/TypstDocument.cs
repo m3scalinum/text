@@ -1261,4 +1261,34 @@ public sealed partial class TypstDocument
         body?.Invoke(section.Body);
         return Section(section);
     }
+
+    /// <summary>Appends an equation imported from MathML.</summary>
+    /// <param name="mathml">A <c>&lt;math&gt;</c> element, as text.</param>
+    /// <returns>This document, for chaining.</returns>
+    /// <remarks>
+    /// The formula is imported once, here: the node keeps both the Typst markup the compiler lays out
+    /// and the tree the HTML export writes back, so the two never drift. A formula that declared
+    /// <c>display="block"</c> becomes a display equation; one that declared <c>display="inline"</c>, or
+    /// declared none, is an inline equation in a paragraph of its own.
+    /// </remarks>
+    /// <exception cref="ArgumentException"><paramref name="mathml"/> is blank.</exception>
+    /// <exception cref="TypstMathMlException">The formula is refused; see
+    /// <see cref="TypstMathMlExpression.Import(string)"/>.</exception>
+    public TypstDocument MathMl(string mathml)
+    {
+        ArgumentNullException.ThrowIfNull(mathml);
+        return MathMl(TypstMathMlExpression.Import(mathml));
+    }
+
+    /// <summary>Appends an equation from a formula already imported.</summary>
+    /// <param name="expression">The imported formula.</param>
+    /// <returns>This document, for chaining.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="expression"/> is null.</exception>
+    public TypstDocument MathMl(TypstMathMlExpression expression)
+    {
+        ArgumentNullException.ThrowIfNull(expression);
+        _body.Add(new ParagraphNode(
+            new TypstContent().Node(new MathNode(expression.ToTypst(), expression.Display, expression))));
+        return this;
+    }
 }
