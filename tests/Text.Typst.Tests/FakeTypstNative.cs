@@ -65,8 +65,16 @@ internal sealed class FakeTypstNative : ITypstNative
         return new TypstWorldHandle();
     }
 
+    /// <summary>When set, registering a source fails instead of recording it.</summary>
+    public NativeCallException? AddSourceFailure { get; set; }
+
     public void AddSource(TypstWorldHandle world, string path, ReadOnlySpan<byte> utf8)
     {
+        if (AddSourceFailure is not null)
+        {
+            throw AddSourceFailure;
+        }
+
         // The native side inserts by path, so a second call replaces rather than appends.
         var text = System.Text.Encoding.UTF8.GetString(utf8);
         var index = Sources.FindIndex(source => source.Path == path);

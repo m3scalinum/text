@@ -284,6 +284,38 @@ public sealed class IncrementalCompilationTests
     }
 
     [Fact]
+    public void A_source_the_native_layer_refuses_is_a_public_exception()
+    {
+        var native = new FakeTypstNative();
+        using var world = World(native);
+
+        native.AddSourceFailure = new NativeCallException(
+            NativeStatus.Limit,
+            """{"code":"limit","message":"source too large","diagnostics":[]}""",
+            "source too large");
+
+        var exception = Assert.Throws<TypstNativeException>(() => world.SetSource("main.typ", "= huge"));
+        Assert.Equal("source too large", exception.Message);
+    }
+
+    [Fact]
+    public void Set_source_validates_its_arguments_before_reaching_the_native_layer()
+    {
+        var native = new FakeTypstNative();
+        var world = World(native);
+
+        Assert.Throws<ArgumentException>(() => world.SetSource("../main.typ", "= x"));
+        Assert.Throws<ArgumentNullException>(() => world.SetSource("main.typ", null!));
+
+        world.Dispose();
+
+        Assert.Throws<ObjectDisposedException>(() => world.SetSource("main.typ", "= x"));
+
+        // Nothing reached the boundary: the source registered at build time is the only one.
+        Assert.Single(native.Sources);
+    }
+
+    [Fact]
     public void Clearing_the_cache_reaches_the_native_library()
     {
         var native = new FakeTypstNative();

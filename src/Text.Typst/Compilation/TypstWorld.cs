@@ -145,7 +145,14 @@ public sealed class TypstWorld : IDisposable
         ArgumentNullException.ThrowIfNull(markup);
         TypstPath.Validate(path);
 
-        _native.AddSource(_handle, path, Encoding.UTF8.GetBytes(markup));
+        try
+        {
+            _native.AddSource(_handle, path, Encoding.UTF8.GetBytes(markup));
+        }
+        catch (NativeCallException exception)
+        {
+            throw NativeErrorTranslator.Translate(exception);
+        }
     }
 
     /// <inheritdoc />
