@@ -25,7 +25,7 @@ All three converge on the same compiler entry point and the same export pipeline
 | Templates | Directory or embedded-resource template with a manifest and typed parameters |
 | Determinism | Injected clock, stable ordering, reproducible output |
 | Reference coverage | All 151 items of the Typst 0.15.1 reference are reachable: 60 typed, 9 as options, 82 through `Raw`/templates — see [11](11-reference-coverage.md) |
-| Platforms | `win-x64`, `win-arm64`, `linux-x64`, `linux-arm64`, `osx` (universal); .NET 8, 9, 10 and 11 |
+| Platforms | `win-x64`, `win-arm64`, `linux-x64`, `linux-arm64`, `linux-musl-x64`, `linux-musl-arm64`, `osx-arm64`, `osx-x64`; .NET 8, 9, 10 and 11 |
 
 ### 2.2 Out of scope (v1)
 

@@ -256,6 +256,15 @@ Not yet published.
   megapixels and 256 MiB, an option can only lower them, and the refusal is its own typed error naming the
   size observed and the ceiling — `OcrUnreadable` is for a page that was read and could not be, not for one
   that was never let in.
+- A scanned page can be made searchable: `PdfTextLayer` appends an invisible text layer as an incremental
+  update — text rendering mode 3, one Type0 font with `/ToUnicode`, an embedded TrueType program of empty
+  glyphs whose widths are corrected per word — so a reader selects the text and `PdfText` extracts it in
+  reading order. The original bytes stay a strict prefix of the result, which is what keeps an existing
+  signature valid. A rotated page, an encrypted document and a page that already carries a layer are
+  refused rather than misplaced.
+- `PdfRaster` renders a page as a JPEG at a chosen quality as well as a PNG: on a scanned A4 at 150 DPI the
+  JPEG at quality 85 is 8× smaller than the PNG (386 KB against 3.1 MB), which is what a preview needs.
+  PNG stays the default because on flat vector art it wins — the measurement is in the specification.
 
 ### Security
 
