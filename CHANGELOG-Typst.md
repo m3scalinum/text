@@ -243,6 +243,22 @@ Not yet published. Embeds Typst 0.15.1.
   typed changes (`NodeAdded`, `NodeRemoved`, `TextChanged`, `StyleChanged`, `NodeMoved`), each carrying
   its path in the tree. Two documents differing by one price produce exactly one entry. It works on the
   model and compiles nothing.
+- `TypstWorld.Fonts` reports the faces a world resolves and the variable axes each one declares, over a
+  new `tn_world_font_faces`. It answers a question the API could not: whether `#set text(weight: 350)`
+  interpolates or silently renders the nearest cut. Measured on Bahnschrift, the drawings at 300, 350,
+  400, 500, 550 and 700 are all distinct and 900 clamps to 700; on a static family every intermediate
+  weight renders 400. The line width does not move on that face's `wght` axis, so only the glyph
+  geometry proves the axis was applied — which is why the specification records the measurement.
+- `TypstTextStyle.Weight(int)` sets a numeric weight from 1 to 1000, which is what a variable font
+  interpolates; `Weight(string)` keeps the nine names and now refuses a numeric string rather than
+  emitting `weight: "350"`, which Typst rejects by refusing the whole document.
+- The compiler ships as one package per RID instead of one package with seven libraries:
+  `M3scalinum.Text.Typst` is the managed assembly alone (0.49 MB) and
+  `M3scalinum.Text.Typst.Native.<Rid>` carries the native one. Installing takes two lines, because NuGet
+  cannot pick a dependency by runtime identifier, and a missing satellite fails with
+  `TypstNativeLibraryNotFoundException`, which names the RID, the package to add and the paths probed. A
+  `win-x64` consumer downloads 23.47 MB where it used to download 168.54 (−86 %); `osx-arm64`, 21.96
+  (−87 %).
 
 - Compiling a document again reuses what the compiler already memoized: `TypstWorld.SetSource` edits a
   world in place, `TypstCompiler.CompileChanged(world, state)` reports the pages that actually changed,

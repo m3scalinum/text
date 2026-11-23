@@ -134,3 +134,8 @@ Not yet published on nuget.org.
 - Editing a document and compiling it again costs less than starting over, and the caller learns which pages
   moved instead of guessing: `CompileChanged` compares per-page fingerprints of what the page draws, not of
   its source bytes, so a changed sentence marks one page and not the whole document.
+- Intermediate font weights work, and the API now says whether they can: `TypstWorld.Fonts` lists the
+  variable axes each face declares, so a caller learns that 350 interpolates on one family and renders
+  400 on another before the typography is wrong.
+- The compiler package is 0.49 MB instead of 168 MB: the native libraries ship as one satellite package
+  per platform, and a `win-x64` consumer downloads 86 % less than before.
