@@ -38,6 +38,9 @@ internal sealed class FakeTypstNative : ITypstNative
 
     public string FontFamiliesJson { get; set; } = """["Libertinus Serif"]""";
 
+    public string FontFacesJson { get; set; } =
+        """[{"family":"Libertinus Serif","weight":400,"stretch":100,"style":"normal","variable":false,"axes":[]}]""";
+
     public List<(string Path, string Text)> Sources { get; } = [];
 
     public List<(string Path, int Length)> Assets { get; } = [];
@@ -220,6 +223,9 @@ internal sealed class FakeTypstNative : ITypstNative
 
     public byte[] FontFamilies(TypstWorldHandle world)
         => Encoding.UTF8.GetBytes(FontFamiliesJson);
+
+    public byte[] FontFaces(TypstWorldHandle world)
+        => Encoding.UTF8.GetBytes(FontFacesJson);
 
     /// <summary>
     /// The world the last clone was taken from. A clone must be derived from its original's

@@ -799,6 +799,39 @@ pub unsafe extern "C" fn tn_world_font_families(
     }
 }
 
+/// Every face a world can resolve, as a JSON array of objects: family, default weight and width,
+/// style, whether the face is variable, and the axes it carries with their ranges.
+///
+/// This is what tells a caller whether an intermediate weight is reachable: a face with a `wght`
+/// axis interpolates inside the range it reports, and a static face has an empty axis list.
+///
+/// # Safety
+/// `world` must be a live handle from `tn_world_create`; `out` must be writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn tn_world_font_faces(
+    world: *const TnWorld,
+    out: *mut TnBuffer,
+    out_error: *mut *mut TnError,
+) -> i32 {
+    unsafe {
+        guard_status(out_error, || {
+            if world.is_null() {
+                return Err(TnError::new(TN_ERR_INVALID_HANDLE, "world handle is null"));
+            }
+            if out.is_null() {
+                return Err(TnError::invalid_argument("out must not be null"));
+            }
+
+            let faces = (*world).inner.font_faces();
+            let json = serde_json::to_vec(&faces)
+                .map_err(|e| TnError::new(TN_ERR_EXPORT, format!("font faces failed: {e}")))?;
+
+            *out = TnBuffer::from_vec(json);
+            Ok(())
+        })
+    }
+}
+
 /// Evaluates the document's introspection data: outline, labels and metadata, as JSON.
 ///
 /// # Safety

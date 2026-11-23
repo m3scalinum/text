@@ -13,4 +13,5 @@ namespace M3scalinum.Text.Typst.Internal;
 [JsonSerializable(typeof(PageFingerprintDto))]
 [JsonSerializable(typeof(PdfFontInventoryDto))]
 [JsonSerializable(typeof(string[]))]
+[JsonSerializable(typeof(TypstFontFaceDto[]))]
 internal sealed partial class TypstJsonContext : JsonSerializerContext;

@@ -165,16 +165,18 @@ jobs:
               exit 1
             fi
           fi
-          dotnet pack src/Text.Documents -c Release -o artifacts/packages -p:BuildRevision="$revision"
-          dotnet pack src/Text.Typst -c Release -o artifacts/packages -p:BuildRevision="$revision"
+          # The managed compiler and its seven per-RID satellites, from one project parameterised by
+          # `NativeRid`: NuGet cannot choose a native for a consumer, so the satellites are the install
+          # story and a release that packs only the managed package publishes a package nobody can run.
+          # `pack-typst-packages.py` packs `Text.Documents` too, the compiler's only dependency.
+          python3 tools/pack-typst-packages.py --output artifacts/packages --revision "$revision"
           dotnet pack src/Text.Typst.DependencyInjection -c Release -o artifacts/packages -p:BuildRevision="$revision"
           dotnet pack src/Text.Templates.Generator -c Release -o artifacts/packages -p:BuildRevision="$revision"
       - name: Verify the packages
         # Never publish a package with no runtimes/ entry or a dependency on M3scalinum.Text.Typst.Native.
-        run: |
-          for package in artifacts/packages/*.nupkg; do
-            python3 tests/verify-package.py "$package"
-          done
+        # The whole set is passed at once so a missing satellite is caught here: NuGet would fetch only
+        # what a consumer names, so an unpublished satellite is a NU1101 in their restore and nothing here.
+        run: python3 tests/verify-package.py artifacts/packages/*.nupkg
       - name: Generate the SBOMs
         # One CycloneDX SBOM per .nupkg, built from the package itself: the .nuspec names the
         # referenced packages, runtimes/<rid>/native names the RIDs and the native library, and the
