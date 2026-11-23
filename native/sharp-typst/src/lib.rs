@@ -9,6 +9,7 @@ mod diag;
 mod evaluate;
 mod export;
 mod ffi;
+mod fingerprint;
 mod fonts;
 mod page_text;
 mod pdf_fonts;
@@ -543,6 +544,66 @@ pub unsafe extern "C" fn tn_document_metrics(
     }
 }
 
+/// One fingerprint per page of a paged document, as JSON: `{"pages":[<u64>, ...]}`.
+///
+/// A fingerprint is a digest of what the page draws — geometry, glyph runs, shapes, images and
+/// link destinations — with source spans and element tags left out, so editing text on one page
+/// does not mark the pages after it. It is the comparison a host performs to answer "which pages
+/// do I have to re-render", not a content address: two fingerprints are only meaningful against
+/// each other, and only on the machine that produced them (Spec 03 §15).
+///
+/// An HTML or bundle document has no pages and yields an empty array. The fingerprints are
+/// computed here rather than at compile time, so a caller that never asks pays nothing.
+///
+/// # Safety
+/// `document` is a valid handle; `out` is writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn tn_document_page_fingerprints(
+    document: *const TnDocument,
+    out: *mut TnBuffer,
+    out_error: *mut *mut TnError,
+) -> i32 {
+    unsafe {
+        guard_status(out_error, || {
+            if document.is_null() {
+                return Err(TnError::new(
+                    TN_ERR_INVALID_HANDLE,
+                    "document handle is null",
+                ));
+            }
+            if out.is_null() {
+                return Err(TnError::invalid_argument("out must not be null"));
+            }
+
+            let fingerprints = match &(*document).document {
+                Document::Paged(paged) => fingerprint::page_fingerprints(paged),
+                Document::Html(_) | Document::Bundle { .. } => Vec::new(),
+            };
+
+            let json = serde_json::json!({ "pages": fingerprints }).to_string();
+            *out = TnBuffer::from_vec(json.into_bytes());
+            Ok(())
+        })
+    }
+}
+
+/// Drops every memoized compilation result this process holds.
+///
+/// Typst memoizes each stage of a compilation — parsing, evaluation, layout — in a process-wide
+/// table keyed by that stage's inputs, and neither `typst::compile` nor this crate ever evicts.
+/// That is what makes a second compilation of an edited document cheaper than a first one, and it
+/// is also why a host that compiles thousands of *different* documents keeps all of their
+/// intermediate results: the table only grows. Clearing it is the valve; the next compilation of
+/// any document is cold again.
+///
+/// Safe to call at any time: a compilation running on another thread keeps the entries it already
+/// looked up and simply recomputes what it had not reached yet.
+#[unsafe(no_mangle)]
+pub extern "C" fn tn_cache_clear() {
+    // Age zero evicts every entry, whatever its age.
+    typst::comemo::evict(0);
+}
+
 /// # Safety
 /// `document` is a valid handle; `format` a NUL-terminated UTF-8 string; `out` writable.
 #[unsafe(no_mangle)]
@@ -1001,5 +1062,122 @@ mod tests {
         assert_eq!(json["fontsTotal"], 12);
         assert_eq!(json["fontsEmbedded"], 10);
         assert_eq!(json["fontBytes"], 2_048_576);
+    }
+
+    /// Three pages, of which the caller can vary one sentence on the first.
+    fn three_pages(sentence: &str) -> String {
+        format!(
+            "#set page(paper: \"a4\")\n\
+             #heading(level: 1)[First]\n\n\
+             {sentence}\n\n\
+             #pagebreak(weak: true)\n\
+             #heading(level: 1)[Second]\n\n\
+             #lorem(120)\n\n\
+             #pagebreak(weak: true)\n\
+             #heading(level: 1)[Third]\n\n\
+             #lorem(120)\n"
+        )
+    }
+
+    /// The fingerprints of a compilation, through the real entry point.
+    fn fingerprints_of(world: &NetWorld) -> Vec<u64> {
+        let (document, _diagnostics) =
+            compile_as::<PagedDocument>(world, Document::Paged).expect("compile");
+        let handle = document_handle(document, String::new(), CompileMetrics::default());
+        let pointer = Box::into_raw(handle);
+
+        let mut out = TnBuffer::empty();
+        let status =
+            unsafe { tn_document_page_fingerprints(pointer, &mut out, std::ptr::null_mut()) };
+        assert_eq!(status, 0, "the fingerprint call succeeds");
+
+        let bytes = unsafe { std::slice::from_raw_parts(out.ptr, out.len).to_vec() };
+        unsafe { out.free() };
+        unsafe { tn_document_free(pointer) };
+
+        let json: serde_json::Value = serde_json::from_slice(&bytes).expect("valid JSON");
+        json["pages"]
+            .as_array()
+            .expect("an array of pages")
+            .iter()
+            .map(|value| value.as_u64().expect("a u64 fingerprint"))
+            .collect()
+    }
+
+    /// The comparison `CompileChanged` performs: editing one sentence on page one moves the
+    /// fingerprint of page one and of nothing else, even though every later span in the source
+    /// shifted by the length of the edit.
+    #[test]
+    fn fingerprints_mark_only_the_page_that_changed() {
+        let world = NetWorld::new(WorldConfig::default()).expect("world");
+
+        world
+            .add_source("main.typ", three_pages("The first wording."))
+            .expect("add_source");
+        let before = fingerprints_of(&world);
+        assert_eq!(before.len(), 3, "the document has three pages");
+
+        world
+            .add_source("main.typ", three_pages("The second, longer wording."))
+            .expect("add_source");
+        let after = fingerprints_of(&world);
+
+        assert_eq!(after.len(), 3);
+        assert_ne!(before[0], after[0], "the edited page is marked");
+        assert_eq!(before[1], after[1], "page two did not change");
+        assert_eq!(before[2], after[2], "page three did not change");
+    }
+
+    /// The same source compiled twice yields the same fingerprints: the digest has no identity in
+    /// it, so it can be compared with a compilation that happened on another world or another
+    /// thread.
+    #[test]
+    fn fingerprints_of_the_same_source_are_equal() {
+        let first = NetWorld::new(WorldConfig::default()).expect("world");
+        first
+            .add_source("main.typ", three_pages("Stable."))
+            .expect("add_source");
+        let one = fingerprints_of(&first);
+
+        let second = NetWorld::new(WorldConfig::default()).expect("world");
+        second
+            .add_source("main.typ", three_pages("Stable."))
+            .expect("add_source");
+        let two = fingerprints_of(&second);
+
+        assert_eq!(
+            one, two,
+            "a fingerprint is a function of the page, not of a world"
+        );
+    }
+
+    /// An HTML document has no pages, so it has no page fingerprints: the array is empty rather
+    /// than an error, and the managed layer reports it as "no pages to compare".
+    #[test]
+    fn a_document_without_pages_has_no_fingerprints() {
+        let world = NetWorld::new(WorldConfig::default()).expect("world");
+        world
+            .add_source("main.typ", "= Hello\n\nBody.".to_string())
+            .expect("add_source");
+
+        let (document, _diagnostics) =
+            compile_as::<HtmlDocument>(&world, Document::Html).expect("compile");
+        let handle = Box::into_raw(document_handle(
+            document,
+            String::new(),
+            CompileMetrics::default(),
+        ));
+
+        let mut out = TnBuffer::empty();
+        let status =
+            unsafe { tn_document_page_fingerprints(handle, &mut out, std::ptr::null_mut()) };
+        assert_eq!(status, 0);
+
+        let bytes = unsafe { std::slice::from_raw_parts(out.ptr, out.len).to_vec() };
+        unsafe { out.free() };
+        unsafe { tn_document_free(handle) };
+
+        let json: serde_json::Value = serde_json::from_slice(&bytes).expect("valid JSON");
+        assert_eq!(json["pages"].as_array().expect("an array").len(), 0);
     }
 }
