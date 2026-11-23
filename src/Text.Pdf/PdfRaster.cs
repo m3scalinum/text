@@ -70,16 +70,20 @@ public static class PdfRaster
     }
 
     /// <summary>
-    /// Renders one page as a PNG.
+    /// Renders one page as a PNG or a JPEG.
     /// </summary>
     /// <param name="pdf">The bytes of a PDF.</param>
     /// <param name="page">The page to render, numbered from 1 the way a reader numbers pages.</param>
-    /// <param name="options">The resolution and the ceilings, or null for the defaults.</param>
+    /// <param name="options">
+    /// The resolution, the encoding, the JPEG quality and the ceilings, or null for the defaults:
+    /// PNG at the default resolution.
+    /// </param>
     /// <returns>The encoded image and the size it renders to.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="pdf"/> is null.</exception>
     /// <exception cref="ArgumentOutOfRangeException">
     /// <paramref name="page"/> is below 1, or <paramref name="options"/> names a value outside its
-    /// accepted range.
+    /// accepted range — including a <see cref="PdfPageImageFormat"/> that is not a member of the
+    /// enum and a JPEG quality outside 1–100.
     /// </exception>
     /// <exception cref="PdfRasterException">
     /// The bytes are not a PDF, the document is encrypted, the page does not exist, or the page would
@@ -101,9 +105,12 @@ public static class PdfRaster
         RefuseEncrypted(pdf);
         PdfRasterNative.Initialize();
 
+        // The format crosses as its own name rather than as the enum's number: the native side keeps
+        // one table of the encodings it can write, and an enum renumbered here is not a silent
+        // change of format there.
         var optionsJson = string.Create(
             CultureInfo.InvariantCulture,
-            $"{{\"dpi\":{options.Dpi},\"maxPixels\":{options.MaximumPixels},\"maxBytes\":{options.MaximumBytes}}}");
+            $"{{\"dpi\":{options.Dpi},\"maxPixels\":{options.MaximumPixels},\"maxBytes\":{options.MaximumBytes},\"format\":\"{FormatName(options.Format)}\",\"quality\":{options.Quality}}}");
 
         NativeBuffer image;
         NativeBuffer json;
@@ -209,8 +216,20 @@ public static class PdfRaster
     private static PdfPageImageFormat Format(string? format) => format switch
     {
         "png" => PdfPageImageFormat.Png,
+        "jpeg" => PdfPageImageFormat.Jpeg,
         _ => throw new PdfRasterException(
             PdfRasterError.Internal,
             $"the native library returned a '{format}' image, which this package does not decode"),
+    };
+
+    /// <summary>The name the native library knows a format by.</summary>
+    private static string FormatName(PdfPageImageFormat format) => format switch
+    {
+        PdfPageImageFormat.Png => "png",
+        PdfPageImageFormat.Jpeg => "jpeg",
+        // Validate refused everything else, and a value added to the enum without a name here would
+        // otherwise reach the library as a number in the JSON.
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(format), format, "The format has no name in the native protocol."),
     };
 }

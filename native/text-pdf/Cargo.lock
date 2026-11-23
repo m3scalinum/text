@@ -333,6 +333,8 @@ dependencies = [
  "moxcms",
  "num-traits",
  "png",
+ "zune-core",
+ "zune-jpeg",
 ]
 
 [[package]]
@@ -606,6 +608,7 @@ name = "sharp-text-pdf"
 version = "0.1.0"
 dependencies = [
  "hayro",
+ "image",
  "serde",
  "serde_json",
 ]
