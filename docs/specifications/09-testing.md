@@ -264,10 +264,10 @@ shipped native library, not by a mock, and a function the compiler cannot reach 
 ## 11. The native platform matrix
 
 Five packages carry a Rust library of their own — `M3scalinum.Text.Barcodes`, `.Ocr`, `.Docx`,
-`.Xlsx` and `.Pdf` — and each ships seven RIDs, one more than the compiler's six. The matrix in
+`.Xlsx` and `.Pdf` — and each ships eight RIDs, one more than the compiler's seven. The matrix in
 `ci-text.yml` (`native-extras`, one job per crate and RID) builds every combination;
 `verify-package.py` then reads the packed `.nupkg` and fails when a RID is missing from
-`runtimes/<rid>/native/`. A package that builds but packs six RIDs is as red as one that does not
+`runtimes/<rid>/native/`. A package that builds but packs seven RIDs is as red as one that does not
 compile.
 
 | RID | Runner | Built as | Library |
@@ -278,10 +278,11 @@ compile.
 | `linux-arm64` | `ubuntu-24.04-arm` | host build | `libsharp_text_*.so` |
 | `linux-musl-x64` | `ubuntu-latest` | cross-compile, `--target x86_64-unknown-linux-musl` | `libsharp_text_*.so` |
 | `linux-musl-arm64` | `ubuntu-24.04-arm` | musl build on a matching host, `--target aarch64-unknown-linux-musl` | `libsharp_text_*.so` |
-| `osx` | `macos-15-intel` | host build | `libsharp_text_*.dylib` |
+| `osx-arm64` | `macos-15` | host build | `libsharp_text_*.dylib` |
+| `osx-x64` | `macos-15-intel` | host build | `libsharp_text_*.dylib` |
 
-**What each entry proves.** The `win-*`, `linux-x64`, `linux-arm64` and `osx` entries compile the
-crate on the platform that will load it, run `cargo fmt`, `cargo clippy --all-targets -D warnings`
+**What each entry proves.** The `win-*`, `linux-x64`, `linux-arm64`, `osx-arm64` and `osx-x64`
+entries compile the crate on the platform that will load it, run `cargo fmt`, `cargo clippy --all-targets -D warnings`
 and the crate's unit tests there, then stage the library under `native/artifacts/<rid>/`. The
 `linux-musl-x64` and `linux-musl-arm64` entries are the ones that link by hand: Rust cannot emit a
 `cdylib` for a musl target — it drops the crate type with a warning and writes only the `staticlib`
@@ -311,16 +312,17 @@ in that container rather than in a consumer's.
 **What is still not proven.** The compiler package has no musl arm64 build:
 `M3scalinum.Text.Typst` vendors OpenSSL for `x86_64-unknown-linux-musl` alone, so `typst-kit`'s
 downloader has no vendored TLS for `aarch64-unknown-linux-musl` and an Alpine arm64 consumer of the
-compiler still gets `DllNotFoundException` (08 §6). The `osx` entry builds the host slice only; the
-universal dylib is produced by the release workflow's `lipo` step, and the package ships it under
-`runtimes/osx/native/` when the artifacts hold it. No job executes the five libraries on macOS ARM:
-that one is covered on the Intel pool with the x86_64 slice, the same trade the compiler workflow
-makes for its own `osx` entry, and `osx-arm64` resolves to no separate asset because the universal
-dylib carries both slices.
+compiler still gets `DllNotFoundException` (08 §6). Each macOS architecture now has its own entry and
+its own runner, so both dylibs are built *and executed* on the architecture that loads them — the
+universal file and its `lipo` step are gone. What no job does is load one of those libraries out of a
+packed `.nupkg` on a Mac: the `examples` job that installs a package and runs it publishes Linux
+only. The gap is the macOS install path, not the slice — a package whose `runtimes/osx-arm64/` entry
+was mislaid by `pack` would be caught by `verify-package.py` and by neither the matrix nor an
+example.
 
 **Cache.** Each crate and RID pair caches the *library* it produces under
 `native/artifacts/<rid>/`, keyed on the crate's manifest, lock file and sources, so a managed-only
-pull request restores thirty-five libraries instead of compiling them. The recipe itself lives in
+pull request restores forty libraries instead of compiling them. The recipe itself lives in
 the workflow, not in the crate, which is why `NATIVE_CACHE_VERSION` is the knob that invalidates it.
 
 ## 12. The per-package coverage table
