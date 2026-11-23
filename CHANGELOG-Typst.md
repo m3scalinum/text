@@ -229,6 +229,29 @@ Not yet published. Embeds Typst 0.15.1.
   line with `。` or `、`; an Arabic paragraph with Western digits and a Latin word lays out in the order a
   bidirectional algorithm gives, measured from glyph positions rather than inspected by eye. No document
   that asks for neither emits either attribute.
+- A package mirror: a directory of `@namespace/name:version` packages with a `mirror.json` listing every
+  file with its SHA-256 and size. A world configured with one resolves packages from it and nowhere else,
+  and verifies the manifest before it exists — a file edited in place or dropped into the tree is refused
+  by name instead of being compiled. `tools/typst-mirror.py` fills and verifies a mirror; the reason it is
+  loud where a cache is silent is that a cache is a directory somebody else can write to.
+- MathML is read into the model's math nodes and written back out: `mi`, `mn`, `mo`, `mtext`, `mrow`,
+  `msup`, `msub`, `msubsup`, `mfrac`, `msqrt`, `mroot` and `mtable`/`mtr`/`mtd`, through the repository's
+  XML policy (no DTD, no external entity, ceilings). An element outside the set is refused with its name
+  rather than dropped, and `ToHtml` writes the MathML back so an import survives a round trip.
+- A semantic diff between two documents: `TypstDocumentDiff.Between` walks both trees with a weighted LCS
+  over siblings — not an index comparison, which would report every node after an insertion — and returns
+  typed changes (`NodeAdded`, `NodeRemoved`, `TextChanged`, `StyleChanged`, `NodeMoved`), each carrying
+  its path in the tree. Two documents differing by one price produce exactly one entry. It works on the
+  model and compiles nothing.
+
+- Compiling a document again reuses what the compiler already memoized: `TypstWorld.SetSource` edits a
+  world in place, `TypstCompiler.CompileChanged(world, state)` reports the pages that actually changed,
+  and `TypstCompiler.ClearCache()` evicts the process-wide table when a long-lived host needs the memory
+  back. The gain is not a cache this library built — `comemo` is already process-wide and keyed by
+  inputs, so a clone hits it in 9.9 µs — but the fact that a page fingerprint hashes what the page draws
+  and not its source spans: an edit on page 1 used to mark every later page as changed. Measured at 2.1×
+  wall clock on an eight-page report; the layout after an edit is redone, so the factor is constant, not
+  asymptotic.
 
 ### Changed
 

@@ -407,8 +407,8 @@ separately: `sharptypst-v0.15.1.42` and `v0.1.0`.
 ## Supported platforms
 
 - .NET 8, 9, 10 or 11 (`net8.0`, `net9.0`, `net10.0`, `net11.0`)
-- `win-x64`, `win-arm64`, `linux-x64`, `linux-arm64`, `linux-musl-x64` (Alpine), `osx` (universal,
-  Intel and Apple Silicon)
+- `win-x64`, `win-arm64`, `linux-x64`, `linux-arm64`, `linux-musl-x64` and `linux-musl-arm64` (Alpine),
+  `osx-arm64` and `osx-x64` (one thin library each, not a universal one)
 
 The native compiler ships inside `M3scalinum.Text.Typst` for each of these. The five format packages that
 carry a Rust library of their own — `M3scalinum.Text.Barcodes`, `.Ocr`, `.Docx`, `.Xlsx` and `.Pdf` — ship

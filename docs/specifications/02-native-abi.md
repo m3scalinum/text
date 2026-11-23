@@ -112,6 +112,7 @@ uint32_t tn_world_live_count(void);
 | `packages.dataDir` | where local packages are read | system data |
 | `packages.download` | whether a missing package may be fetched | `false` |
 | `packages.registry` | registry base URL, http(s) | `https://packages.typst.org` |
+| `packages.mirror` | directory of a verified package mirror: when set, packages are read from it and nowhere else, every file checked against its `mirror.json` digest | `null` |
 | `fonts.directories` | directories scanned recursively for font files | `[]` |
 | `fonts.system` | whether to load the host's installed fonts | `false` |
 | `fonts.refresh` | rescan the host fonts and ignore the persistent index, instead of reusing the one the process built | `false` |
@@ -380,6 +381,30 @@ The function is additive: it was added without changing any existing symbol, so 
 stayed at 2. A library built before it does not export it — the managed layer only calls it on a
 document handle from a library that does.
 
+### 3.13 Page fingerprints and the memo cache
+
+```c
+int32_t tn_document_page_fingerprints(const TnDocument *document,
+                                      TnBuffer *out,
+                                      TnError **out_error);
+
+void    tn_cache_clear(void);
+```
+
+`tn_document_page_fingerprints` returns `{"pages": [<u64>, …]}`, one fingerprint per page in page
+order, and an empty list for a document without pages. A fingerprint hashes what the page draws —
+glyph runs and their positions, shapes, images, link destinations, fill, numbering — and **not** the
+source spans: Typst's own `Content` hash includes the span of every element, and a span is a byte
+offset, so editing a sentence on page 1 would mark every later page as changed. Comparing the
+fingerprints of two compilations of the same world is what `CompileChanged` reports (spec 03 §16).
+
+`tn_cache_clear` evicts every memoized result in the process — the table Typst keeps for parsing,
+evaluation, realization and layout. It exists because that table is never evicted by itself: a
+long-lived host that compiles many distinct documents pays memory it cannot reclaim otherwise. It has
+no effect on a running compilation and no return value.
+
+Both are additive; `TN_ABI_VERSION` stays at 2.
+
 ## 4. Handles and threading
 
 - `TnWorld` and `TnDocument` are owned by exactly one managed `SafeHandle`. Rust never frees them
@@ -494,7 +519,8 @@ probe order is therefore:
 
 1. `runtimes/<rid>/native/` — `linux-musl-x64` on a musl host.
 2. `runtimes/<portable-rid>/native/` — the glibc build, kept as a fallback.
-3. `runtimes/<os>/native/` — where the universal macOS dylib lives.
+3. `runtimes/<rid>/native/` — one thin library per identifier, `osx-arm64` and `osx-x64` rather than a
+   universal macOS dylib, which the resolver tries first on Apple Silicon.
 4. The application base directory.
 
 ## 10. Conformance tests
