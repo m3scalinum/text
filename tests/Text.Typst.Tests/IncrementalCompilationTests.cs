@@ -227,6 +227,28 @@ public sealed class IncrementalCompilationTests
     }
 
     [Fact]
+    public void A_fingerprint_uses_the_whole_unsigned_range()
+    {
+        // A digest is drawn from the whole u64 range: a decoder that read it as a signed 64-bit
+        // number would turn half of them negative and report every page as changed, every time.
+        var native = new FakeTypstNative();
+        native.PageFingerprintsJson.Add("""{"pages":[18446744073709551615,0]}""");
+
+        using var world = World(native);
+        var state = new TypstIncrementalState();
+        var compiler = new TypstCompiler(native);
+
+        using (compiler.CompileChanged(world, state))
+        {
+        }
+
+        using var second = compiler.CompileChanged(world, state);
+
+        Assert.Empty(second.ChangedPages);
+        Assert.Equal([ulong.MaxValue, 0UL], state.Fingerprints);
+    }
+
+    [Fact]
     public void A_failure_to_read_the_fingerprints_releases_the_document()
     {
         var native = new FakeTypstNative();
