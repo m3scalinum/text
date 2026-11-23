@@ -64,6 +64,31 @@ public sealed class CompilationResult : IDisposable
     /// <summary>Number of pages. Zero for an HTML document, which has no pages.</summary>
     public int PageCount => _handle.PageCount;
 
+    /// <summary>
+    /// One digest per page, computed by the native library when it is called.
+    /// </summary>
+    /// <remarks>
+    /// Internal: the comparison belongs to <see cref="TypstIncrementalState"/> and
+    /// <see cref="CompileChangedResult"/>, and a public "fingerprint" would invite a host to
+    /// persist it, which it must not — it is only meaningful next to another fingerprint of the
+    /// same document on the same machine.
+    /// </remarks>
+    internal ulong[] PageFingerprints()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        var json = _native.PageFingerprints(_handle);
+
+        if (json.Length == 0)
+        {
+            return [];
+        }
+
+        var dto = JsonSerializer.Deserialize(json, TypstJsonContext.Default.PageFingerprintDto);
+
+        return dto?.Pages ?? [];
+    }
+
     /// <summary>Warnings and hints produced by a successful compilation.</summary>
     public IReadOnlyList<TypstDiagnostic> Diagnostics { get; }
 

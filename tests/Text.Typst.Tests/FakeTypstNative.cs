@@ -239,4 +239,41 @@ internal sealed class FakeTypstNative : ITypstNative
         """{"compileNanos":0,"pages":0,"fontsTotal":0,"fontsEmbedded":0,"fontBytes":0}""";
 
     public byte[] Metrics(TypstDocumentHandle document) => Encoding.UTF8.GetBytes(MetricsJson);
+
+    /// <summary>
+    /// The JSON <c>tn_document_page_fingerprints</c> returns, one entry per call, in order. The
+    /// last entry repeats once the list is exhausted, so a test that compiles three times pushes
+    /// three — or one, if every compilation is meant to look the same.
+    /// </summary>
+    public List<string> PageFingerprintsJson { get; } = [];
+
+    /// <summary>How many times a document was asked for its fingerprints.</summary>
+    public int PageFingerprintCalls { get; private set; }
+
+    /// <summary>When set, asking a document for fingerprints fails instead of answering.</summary>
+    public NativeCallException? PageFingerprintsFailure { get; set; }
+
+    public byte[] PageFingerprints(TypstDocumentHandle document)
+    {
+        var call = PageFingerprintCalls++;
+
+        if (PageFingerprintsFailure is not null)
+        {
+            throw PageFingerprintsFailure;
+        }
+
+        var payload = "{\"pages\":[]}";
+
+        if (PageFingerprintsJson.Count > 0)
+        {
+            payload = PageFingerprintsJson[Math.Min(call, PageFingerprintsJson.Count - 1)];
+        }
+
+        return Encoding.UTF8.GetBytes(payload);
+    }
+
+    /// <summary>How many times the memoization table was asked to drop everything.</summary>
+    public int ClearCacheCalls { get; private set; }
+
+    public void ClearCache() => ClearCacheCalls++;
 }

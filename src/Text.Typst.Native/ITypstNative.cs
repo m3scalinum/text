@@ -51,4 +51,16 @@ internal interface ITypstNative
     /// inside Typst, the pages, the fonts and their bytes.
     /// </summary>
     byte[] Metrics(TypstDocumentHandle document);
+
+    /// <summary>
+    /// The page fingerprints of a paged document, as the JSON object
+    /// <c>tn_document_page_fingerprints</c> returns. Empty for a document without pages.
+    /// </summary>
+    byte[] PageFingerprints(TypstDocumentHandle document);
+
+    /// <summary>
+    /// Drops every memoized compilation result the process holds. The next compilation of any
+    /// document is cold again.
+    /// </summary>
+    void ClearCache();
 }

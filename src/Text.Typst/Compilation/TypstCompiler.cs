@@ -363,6 +363,96 @@ public sealed class TypstCompiler
         }
     }
 
+    /// <summary>
+    /// Compiles the world and reports which pages differ from the compilation recorded in
+    /// <paramref name="state"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is <see cref="Compile"/> plus one comparison: the document is complete, every page is
+    /// laid out, and the extra answer is the list of page indices whose content is not the same as
+    /// in the previous compilation. Nothing is skipped — the saving of an incremental edit comes
+    /// from Typst's own memoization of an unchanged world, not from this method, and a caller that
+    /// wants both edits the world in place with <see cref="TypstWorld.SetSource"/> and keeps it
+    /// between calls.
+    /// </para>
+    /// <para>
+    /// The comparison is against what <paramref name="state"/> recorded last, so the first call on
+    /// a fresh state reports every page as changed. A page that the previous compilation had and
+    /// this one does not is reported in <see cref="CompileChangedResult.RemovedPages"/>.
+    /// </para>
+    /// <para>
+    /// What it does not say is <em>what</em> changed inside a page: a page is either the same
+    /// digest or not (Spec 03 §15).
+    /// </para>
+    /// </remarks>
+    /// <exception cref="TypstCompilationException">The compiler rejected the document.</exception>
+    /// <exception cref="TypstNativeException">The native layer failed.</exception>
+    /// <exception cref="TypstTimeoutException"><see cref="TypstCompilationOptions.Timeout"/> elapsed.</exception>
+    public CompileChangedResult CompileChanged(
+        TypstWorld world,
+        TypstIncrementalState state,
+        TypstCompilationOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(world);
+        ArgumentNullException.ThrowIfNull(state);
+
+        var document = Compile(world, options);
+
+        try
+        {
+            var fingerprints = document.PageFingerprints();
+            var previous = state.Fingerprints;
+            var first = !state.HasBaseline;
+
+            var changed = new List<int>();
+
+            for (var page = 0; page < fingerprints.Length; page++)
+            {
+                if (first || page >= previous.Length || previous[page] != fingerprints[page])
+                {
+                    changed.Add(page);
+                }
+            }
+
+            var removed = new List<int>();
+
+            for (var page = fingerprints.Length; page < previous.Length; page++)
+            {
+                removed.Add(page);
+            }
+
+            state.Record(fingerprints);
+
+            return new CompileChangedResult(document, changed, removed, first);
+        }
+        catch
+        {
+            document.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Drops every compilation result Typst memoized in this process.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Typst keeps each stage of a compilation — parsing, evaluation, layout — in a process-wide
+    /// table keyed by that stage's inputs, and never evicts. That is what makes a second
+    /// compilation of an edited document cheaper than a cold one; it is also why a host that
+    /// compiles thousands of <em>different</em> documents keeps all of their intermediate results.
+    /// This is the valve.
+    /// </para>
+    /// <para>
+    /// Process-wide, not per compiler: a second <see cref="TypstCompiler"/> instance does not have
+    /// its own table, because there is only one. The next compilation of any document — from any
+    /// thread — is cold again. A compilation already running keeps what it has looked up and
+    /// recomputes the rest.
+    /// </para>
+    /// </remarks>
+    public void ClearCache() => _native.ClearCache();
+
     /// <summary>Compiles a single source to PDF with default settings.</summary>
     public static byte[] CompileToPdf(string markup)
     {

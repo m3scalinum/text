@@ -32,9 +32,11 @@ several threads at once.
 
 ## 2. `TypstWorld`
 
-A world is immutable once built. `TypstWorldBuilder` mutates a draft; `Build()` freezes it and
-creates the native world handle. `TypstWorld.Clone()` returns a new world sharing the library, the
-font book and the fonts, and `WithSource(path, markup)` returns a specialised clone.
+`TypstWorldBuilder` mutates a draft; `Build()` freezes it and creates the native world handle.
+`TypstWorld.Clone()` returns a new world sharing the library, the font book and the fonts, and
+`WithSource(path, markup)` returns a specialised clone. `SetSource(path, markup)` replaces a source
+in the world itself, which is what a caller iterating on one document wants — a clone per keystroke
+copies the source map each time and throws away nothing else (§15).
 
 | Member | Meaning |
 | --- | --- |
@@ -406,6 +408,7 @@ the exception taxonomy are in [07](07-diagnostics.md).
 | Standard library construction | first compile in the process | Built once, shared via `Arc` |
 | Package fetch | `UseUniversePackages` + first use of a version | Cached on disk by the caller-supplied cache directory |
 | Layout | `Compile` | Unavoidable; scales with content, not with page count alone |
+| Layout of the next compilation | `Compile` of an edited world | Reuses Typst's process-wide memo table: everything before the edit and every unchanged source (§15) |
 | Rasterization | PNG export only | Choose PPI deliberately; 144 is the default, 300 for print |
 
 Guidance for servers: build one template world with the fonts and the static assets, then take a
@@ -432,6 +435,11 @@ public sealed class RenderService : IDisposable
 `WithSource` returns a new world; the template is never mutated, so the same instance serves every
 request. A world is safe to compile from several threads at once — the sources are copied per clone,
 the fonts are shared through `Arc`.
+
+A caller that edits *one* document repeatedly — an author typing, a preview server — keeps one world
+and replaces its source instead: `world.SetSource("main.typ", markup)` then
+`compiler.CompileChanged(world, state)`. §15 has what survives the edit, what it costs in memory,
+and what the returned list of changed pages does and does not say.
 
 ## 10. Cancellation and timeouts
 
@@ -809,3 +817,159 @@ host that wants that paid before the first request pre-warms (§14.5).
 No symbol was added. `system`, `directories`, `refresh`, `cache` and `cacheDir` travel in the world
 config JSON that `tn_world_create` already takes, so a host that predates this change sends the same
 payload it always did and gets the shared index; a host that wants a refresh sets one boolean.
+## 15. Incremental compilation
+
+An author iterating on a document compiles it again after every edit, and each of those
+compilations used to pay the full price. It no longer does, and the reason is not a cache this
+library built: it is the one Typst already has.
+
+### 15.1 What is reused
+
+Typst 0.15 memoizes each stage of a compilation — parsing, evaluation, realization, layout — in
+`comemo`, a **process-wide** table keyed by the inputs of that stage. Nothing in this library owns
+it, nothing in it is per world, and `typst::compile` never evicts it. Two consequences matter:
+
+- **The key is the inputs, not the world.** A second compilation of the same text hits the entries
+  the first one wrote, whether it runs on the same `TypstWorld` or on a clone of it (§15.3
+  measures the clone: 9.9 µs). `WithSource` — which clones the world — therefore does not throw the
+  reuse away; `SetSource` is not required for the saving.
+- **A tracked world is not part of the key either.** The compiler records *what it asked the world*
+  (`source(id)`, `file(id)`, `font(n)`, the library, the book, the clock) and validates those
+  hashes on the next lookup. A new world with the same answers hits the same entries.
+
+What `SetSource` buys is honesty and a little work: the world *is* the document a caller edits, the
+source map is not copied per edit, and the handle a preview server holds never changes. It is the
+API that says "same document, new text".
+
+### 15.2 What invalidates it
+
+| Input | What it costs when it changes |
+| --- | --- |
+| The text of a source | Its parse and evaluation are redone, and so is the layout of everything from the edit onward (§15.3) |
+| An asset (`AddAsset`) | The layout that reads it, and everything after it |
+| A font (`AddFont`, a host font, the font book) | Everything: the layout depends on glyph metrics |
+| The clock (`today()`) | Every `datetime.today()` call, and the layout that uses it |
+| A package (`@preview/...`) | The reading compilation that imports it |
+| `ClearCache()` | Everything, for every document in the process |
+
+### 15.3 What survives an edit, and what does not
+
+Every `Content` hash in Typst includes a `Span`, and a span is a **byte midpoint** in the source
+(`typst_syntax::Span` packs the file id and the offset). Inserting or deleting text anywhere shifts
+the offsets of everything after it, so the evaluated content after an edit is not the content the
+previous compilation saw — its layout is recomputed.
+
+That is the shape of the win: **everything before the edit is reused, everything after it is laid
+out again**, plus the parse and evaluation of every source that did not change. A one-line edit on
+page one of a hundred-page document still re-lays out the other ninety-nine; the saving is the
+front matter, the imported partials, the arrangement of the text before the cursor and every
+artefact that does not depend on what follows it. It is a constant factor, not an asymptotic win,
+and it is the reason this section says "cheaper" rather than "free".
+
+Measured on one Windows 11 host, release build of the native library, an eight-page A4 report of
+`lorem` paragraphs where a single sentence on page one is changed between the two compilations:
+
+| Layer | Cold | Warm (one sentence changed) | Ratio |
+| --- | --- | --- | --- |
+| `typst::compile` in `cargo test --release`, first compilation of a fresh process | 11.6 ms | 1.3 ms | 9.1× |
+| The same sources compiled from a *new* world (`clone_world`) | 11.6 ms | 0.01 ms | 1176× |
+| `TypstCompiler.CompileChanged` from .NET, process warm, memo table cleared between rounds | 3.8 ms wall / 2.9 ms inside Typst | 1.8 ms wall / 1.0 ms inside Typst | 2.1× / 2.8× |
+
+All three rows are the same document and the same edit. The first is the ratio a cold process sees:
+it also pays for the first use of everything. The second is the claim of §15.1 in numbers — a
+world that asked the same questions is answered from the table, so `WithSource` per request is not
+a regression, it is a hit. The third is what a host lives with: **the wall clock of an edit is
+about half of a cold compile**, and the part inside Typst about a third. What is left is the fixed
+cost of the call — marshalling, the metrics and diagnostics round trip, and the fingerprint walk of
+§15.4 — which does not shrink because nothing changed, and which is why the managed ratio is
+smaller than the compiler's own.
+
+`tests/Text.Typst.Integration.Tests/IncrementalCompilationTests.cs` measures this per run and
+asserts it, on both the wall clock and the time inside Typst;
+`benchmarks/Text.Typst.Benchmarks` replays the loop as `compile-incremental`.
+
+### 15.4 `CompileChanged` and page fingerprints
+
+```csharp
+using var world = new TypstWorldBuilder().AddSource("main.typ", markup).Build();
+var state = new TypstIncrementalState();     // one per document, kept between edits
+var compiler = new TypstCompiler();
+
+while (stillEditing)
+{
+    world.SetSource("main.typ", currentMarkup);
+
+    using var changed = compiler.CompileChanged(world, state);
+
+    foreach (var page in changed.ChangedPages)   // indices, ascending
+        rerender(page, changed.Document);        // the document is complete, not just these pages
+}
+```
+
+`CompileChanged` compiles the whole document, then compares one 64-bit digest per page with the
+digests `state` recorded last. The document it returns is complete — every page, every export — and
+`ChangedPages` is the answer to "which of them do I have to re-render". `IsFirstCompile` means
+"all of them"; `RemovedPages` lists the indices the previous compilation had and this one does not.
+
+The digest is computed from the **laid-out page**: its frame's geometry (positions, sizes,
+baselines), its glyph runs (font, size, paint, language, text, glyph ids), its shapes, its images
+and its link destinations, plus the page's fill, numbering and bleed. Source spans and element tags
+are excluded — that is the whole point (§15.3): a digest that included them would mark every page
+after an edit as changed and answer nothing.
+
+What it does not say:
+
+- **What changed inside a page.** A page is the same digest or not. Diffing positions or words is a
+  different job and a different cost.
+- **Why it changed.** A reflowed paragraph and an edited one look identical here.
+- **Anything about a document without pages.** An HTML or bundle compilation has no page
+  fingerprints: `ChangedPages` is empty and `IsFirstCompile` is still true.
+- **That the fingerprints are stable across machines.** They are FNV-1a 64 over the hashed
+  structures in the host's byte order: comparable within a process and across runs on one machine,
+  not a content address to persist.
+- **That an unchanged page is unchanged.** An edit before a page moves its spans, so the page is
+  laid out again and the digest is recomputed. When it comes out equal, that is Typst having
+  produced the same frame, which is exactly what a renderer needs to skip.
+- **That links are exempt.** A link whose target moved changes the digest, so the page is reported
+  as changed even if nothing visible did. Over-reporting is the safe direction; the alternative
+  misses a page.
+
+The fingerprints are computed on demand, in `tn_document_page_fingerprints`, not during
+`tn_compile`: a host that never asks pays nothing. The walk is part of the difference between the
+1.0 ms Typst reports and the 1.8 ms wall clock in §15.3 — 0.8 ms for eight pages, which also covers
+marshalling, metrics and the diagnostics round trip, so it is an upper bound rather than a
+measurement of the walk alone.
+
+### 15.5 What a persistent world costs
+
+- **The world itself is small.** One `Source` per source (its text and line index), the font book
+  and fonts it shares with every other world through `Arc`, and its package handles. Keeping one
+  world per open document is cheaper than re-cloning one per keystroke.
+- **The memo table is the cost, and it is unbounded.** `comemo` keeps, per distinct version of a
+  document, the parse tree, the evaluated content and the frames it laid out. Nothing evicts them —
+  not `typst::compile`, not this library — so a preview session that compiles two hundred revisions
+  of a ten-page document holds the frames of all two hundred. There is no per-document cap and no
+  per-document eviction: `TypstCompiler.ClearCache()` drops the whole table for the whole process.
+- **Call it deliberately.** A server that compiles a bounded set of documents in a loop never needs
+  it. A server whose per-document revisions are unbounded — a long editing session, a render farm —
+  should clear on a schedule, on idle, or when its own memory budget says so, and accept that the
+  next compilation of everything is cold.
+- **Clearing is safe while others compile.** A running compilation keeps the entries it already
+  looked up and recomputes what it had not reached; it pays more, it does not fail.
+
+### 15.6 ABI
+
+Two symbols were added, and no existing one changed, so `TN_ABI_VERSION` stays at 2:
+
+```c
+int32_t tn_document_page_fingerprints(const TnDocument *document,
+                                      TnBuffer *out,
+                                      TnError **out_error);
+void    tn_cache_clear(void);
+```
+
+`tn_document_page_fingerprints` returns `{"pages":[...]}`, one `u64` per page in page order, empty
+for a document without pages. `tn_cache_clear` evicts every memoized result in the process. Spec 02
+§3 does not describe either yet: §3.12 (metrics) is where the pages section belongs, and the cache
+call belongs in a new §3.13 or next to the world functions — this document specifies the behaviour,
+the ABI document must list the symbols.
