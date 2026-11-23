@@ -50,6 +50,38 @@ concurrency:
 
 
 jobs:
+  changes:
+    # One comparison, no third-party action: does this change touch anything but markdown? The two
+    # workflows that run on every pull request used to answer that question by running everything; a
+    # documentation pull request started forty Rust builds to reach the drift test. `code` gates the
+    # heavy jobs, and a base we cannot resolve (a force-push, the first push of a branch) answers
+    # `true`, because being slow is cheaper than being wrong.
+    name: what changed
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: diff
+        shell: bash
+        run: |
+          base='${{ github.event.pull_request.base.sha || github.event.before }}'
+          if [[ -z "$base" || "$base" =~ ^0+$ ]] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            echo "no base to compare against; treating this as a code change"
+            echo code=true >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed=$(git diff --name-only "$base"...HEAD)
+          echo "$changed" | sed 's/^/  /'
+          if grep -qvE '\.md$|^(LICENSE|NOTICE|\.github/ISSUE_TEMPLATE/|\.github/PULL_REQUEST_TEMPLATE\.md)' <<< "$changed"; then
+            echo code=true >> "$GITHUB_OUTPUT"
+          else
+            echo "markdown only" 
+            echo code=false >> "$GITHUB_OUTPUT"
+          fi
+
   native:
     # Distinct from the compiler workflow's job of the same purpose: two jobs sharing a check name
     # make a required status check ambiguous.
@@ -90,12 +122,52 @@ jobs:
           path: native/artifacts/linux-x64/libsharp_typst.so
           if-no-files-found: error
 
+  native-pdf:
+    # One library, deliberately. `suite` runs the drift test and the Pdf coverage gate; the gate needs
+    # the rasteriser present, or its thirty raster tests skip and the file counts as uncovered. It used
+    # to `need:` the whole forty-job matrix for this single artifact, so a README edit paid for eight
+    # architectures of five crates. This job builds and stages exactly what `suite` downloads.
+    name: native (text-pdf, linux-x64, for the suite)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/cache@v4
+        id: natives
+        with:
+          path: native/artifacts/linux-x64
+          key: natives-text-pdf-linux-x64-suite-${{ env.NATIVE_CACHE_VERSION }}-${{ hashFiles('native/text-pdf/Cargo.toml', 'native/text-pdf/Cargo.lock', 'native/text-pdf/src/**') }}
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.natives.outputs.cache-hit != 'true'
+      - uses: Swatinem/rust-cache@v2
+        if: steps.natives.outputs.cache-hit != 'true'
+        with:
+          workspaces: native/text-pdf
+      - name: Build
+        if: steps.natives.outputs.cache-hit != 'true'
+        run: cargo build --release --manifest-path native/text-pdf/Cargo.toml
+      - name: Stage the library
+        if: steps.natives.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          mkdir -p native/artifacts/linux-x64
+          cp native/text-pdf/target/release/libsharp_text_pdf.so native/artifacts/linux-x64/
+          ls -l native/artifacts/linux-x64/
+      - uses: actions/upload-artifact@v7
+        # A single file at the artifact root, not the `native/artifacts` tree: `suite` downloads it
+        # straight into `native/artifacts/linux-x64`, and a nested directory would put the library one
+        # level too deep for the `SHARPTEXTPDF_NATIVE_PATH` it sets. The name is distinct from the
+        # matrix's `text-pdf-linux-x64` so a code pull request, where both jobs run, does not collide.
+        with:
+          name: text-pdf-linux-x64-suite
+          path: native/artifacts/linux-x64/libsharp_text_pdf.so
+          if-no-files-found: error
+
   suite:
     name: suite
     # The coverage gate for M3scalinum.Text.Pdf runs in this job, and the raster tests only execute
     # when the native library is present: without it they skip and the raster code counts as
     # uncovered. The one library the gate needs is downloaded below, not the whole matrix.
-    needs: [native-extras]
+    needs: [native-pdf]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -104,7 +176,7 @@ jobs:
           dotnet-version: 11.0.x
       - uses: actions/download-artifact@v8
         with:
-          name: text-pdf-linux-x64
+          name: text-pdf-linux-x64-suite
           path: native/artifacts/linux-x64
       - run: dotnet restore
       - run: dotnet build -c Release --no-restore
@@ -269,7 +341,15 @@ jobs:
     # PDF page rasteriser. Each is its own crate with its own Cargo.lock, and before this job existed
     # nothing compiled them — a Dependabot bump of `zip` in native/text-docx reached main with every
     # check green and a broken build.
+    #
+    # Skipped when a pull request touches no code. Forty runner-minutes of Rust, including four macOS
+    # slices, used to start for a README edit, because `suite` needed one library from this matrix and
+    # `needs:` cannot take a single cell of it: `native-pdf` builds that one, and everything below
+    # cascades — `extras`, both `musl` jobs, `examples`, `sbom` and the coverage table all `need:` this
+    # job and skip with it.
+    if: needs.changes.outputs.code == 'true'
     name: native (${{ matrix.crate }}, ${{ matrix.rid }})
+    needs: [changes]
     # Eight RIDs per crate, the same set the package ships, because `verify-package.py` demands every
     # one of them: a linux-only job packs a package with one native and the check then fails, or worse,
     # passes for a package missing seven architectures. That is the compiler's seven, `linux-musl-x64`
