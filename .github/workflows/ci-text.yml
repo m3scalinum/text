@@ -713,6 +713,12 @@ jobs:
           for project in Text.Pdf Text.Templates Text.Mcp Text.Barcodes Text.Ocr Text.Docx Text.Xlsx Text.Typst Text.Documents; do
             dotnet pack "src/$project" -c Release --no-build -o artifacts/packages-examples
           done
+          # The compiler ships as one package per RID: `M3scalinum.Text.Typst` is now the managed
+          # assembly alone, and the Templates example — like any caller that compiles — needs the
+          # satellite for this runner beside it. A feed without it fails at the resolver, which is
+          # the point of the resolver's message, but it fails this job.
+          dotnet pack src/Text.Typst.Native.Package -c Release --no-build \
+            -o artifacts/packages-examples -p:NativeRid=linux-x64
           ls -l artifacts/packages-examples
       - name: Run one example per package
         # Each example is a console project generated outside the repository by `run.sh`, with an
