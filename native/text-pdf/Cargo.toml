@@ -22,6 +22,13 @@ hayro = "0.9"
 # bytes, never as JSON: base64 would cost a third more memory for nothing.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# The JPEG encoder. `image` is already in this crate's graph — `hayro` decodes PNG with it — so the
+# only thing this line adds is the `jpeg` feature: no new package, no new lock entry, and the
+# `zune-jpeg`/`zune-core` pair the feature needs is already locked through `hayro-syntax`. MIT OR
+# Apache-2.0, the same terms as the rest of the suite, and it is already a row in
+# docs/specifications/dependencies.md. `default-features = false` keeps `rayon` and the dozen other
+# codecs out of the build.
+image = { version = "0.25.10", default-features = false, features = ["jpeg"] }
 
 [profile.release]
 lto = "thin"

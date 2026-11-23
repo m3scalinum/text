@@ -36,7 +36,7 @@ several threads at once.
 `TypstWorld.Clone()` returns a new world sharing the library, the font book and the fonts, and
 `WithSource(path, markup)` returns a specialised clone. `SetSource(path, markup)` replaces a source
 in the world itself, which is what a caller iterating on one document wants — a clone per keystroke
-copies the source map each time and throws away nothing else (§15).
+copies the source map each time and throws away nothing else (§16).
 
 | Member | Meaning |
 | --- | --- |
@@ -119,6 +119,7 @@ using var world = new TypstWorldBuilder()
 | `DataDirectory` | system data | Where local packages are read from |
 | `AllowDownload` | `false` | Whether a missing package may be fetched |
 | `Registry` | `https://packages.typst.org` | Registry base URL; must be http(s) |
+| `MirrorDirectory` | `null` | A verified, cache-only mirror; the only package source (§15) |
 
 **Decision — offline by default.** A compile is a pure function of its inputs; a network call
 inside it would make latency, failure modes and reproducibility depend on the host's connectivity.
@@ -128,6 +129,11 @@ diagnostic rather than a network error.
 
 The cache layout is Typst's own — `<cache>/<namespace>/<name>/<version>/` — so a directory populated
 by the `typst` CLI works unchanged, and vice versa.
+
+A cache is silent about what changed in it. A deployment that has to answer that question ships a
+mirror instead: the same layout plus a `mirror.json` of SHA-256 digests, verified before a world
+exists. §15 covers the script that fills it, the cache-only mode, and what a digest does and does not
+prove.
 
 ### 2.4 Fonts
 
@@ -408,7 +414,7 @@ the exception taxonomy are in [07](07-diagnostics.md).
 | Standard library construction | first compile in the process | Built once, shared via `Arc` |
 | Package fetch | `UseUniversePackages` + first use of a version | Cached on disk by the caller-supplied cache directory |
 | Layout | `Compile` | Unavoidable; scales with content, not with page count alone |
-| Layout of the next compilation | `Compile` of an edited world | Reuses Typst's process-wide memo table: everything before the edit and every unchanged source (§15) |
+| Layout of the next compilation | `Compile` of an edited world | Reuses Typst's process-wide memo table: everything before the edit and every unchanged source (§16) |
 | Rasterization | PNG export only | Choose PPI deliberately; 144 is the default, 300 for print |
 
 Guidance for servers: build one template world with the fonts and the static assets, then take a
@@ -438,7 +444,7 @@ the fonts are shared through `Arc`.
 
 A caller that edits *one* document repeatedly — an author typing, a preview server — keeps one world
 and replaces its source instead: `world.SetSource("main.typ", markup)` then
-`compiler.CompileChanged(world, state)`. §15 has what survives the edit, what it costs in memory,
+`compiler.CompileChanged(world, state)`. §16 has what survives the edit, what it costs in memory,
 and what the returned list of changed pages does and does not say.
 
 ## 10. Cancellation and timeouts
@@ -817,20 +823,170 @@ host that wants that paid before the first request pre-warms (§14.5).
 No symbol was added. `system`, `directories`, `refresh`, `cache` and `cacheDir` travel in the world
 config JSON that `tn_world_create` already takes, so a host that predates this change sends the same
 payload it always did and gets the shared index; a host that wants a refresh sets one boolean.
-## 15. Incremental compilation
+
+## 15. Package mirrors
+
+A mirror is a directory of `@namespace/name:version` packages plus a `mirror.json` that lists every
+file of every package with its SHA-256 and its size. A world configured with one resolves packages
+only from it, and verifies the manifest before it exists.
+
+**Decision — the failures of a cache are silent, so the mirror is loud.** §2.3 already makes a
+compile offline: with `AllowDownload` false a missing package fails instead of reaching the network.
+That leaves the other half of the problem. A cache is a directory somebody else can write to, and
+the compiler reads whatever it finds there: a file edited in place is served without a word, a
+package dropped into the tree is resolved as if it had been fetched. In a deployment that ships a
+cache — a container image, a build artifact, an air-gapped host — nobody can tell afterwards which
+bytes were compiled. A manifest makes an edit loud and an unlisted file louder.
+
+### 15.1 What a mirror is
+
+```text
+/opt/typst-mirror/
+├── mirror.json
+└── preview/
+    └── cetz/
+        └── 0.3.1/
+            ├── typst.toml
+            ├── lib.typ
+            └── ...
+```
+
+The package layout is Typst's own (`<namespace>/<name>/<version>/`), so a directory the `typst` CLI
+populated is already a mirror — it only needs the manifest. The manifest names every package it
+covers, and every file inside them:
+
+```json
+{
+  "format": 1,
+  "generatedBy": "typst-mirror/1 (+https://github.com/m3scalinum/text)",
+  "packages": {
+    "@preview/cetz:0.3.1": [
+      { "path": "lib.typ", "sha256": "9b5b…", "size": 4123 },
+      { "path": "typst.toml", "sha256": "7a10…", "size": 402 }
+    ]
+  }
+}
+```
+
+Paths are relative to the package directory and use forward slashes. `format` is checked: a manifest
+of a format this build does not read is refused rather than guessed at.
+
+### 15.2 Filling and verifying a mirror
+
+`tools/typst-mirror.py` writes and checks the manifest. It is standard library only, so it runs in a
+build image with nothing installed but Python:
+
+```bash
+# From the registry. Repeatable; the manifest covers everything the mirror then holds.
+python3 tools/typst-mirror.py --mirror /opt/typst-mirror \
+    --package @preview/cetz:0.3.1 \
+    --package @preview/tablex:0.0.8
+
+# From a directory a `typst` CLI already populated, for an air-gapped job.
+python3 tools/typst-mirror.py --mirror /opt/typst-mirror --source ~/.cache/typst/packages \
+    --package @preview/cetz:0.3.1
+
+# Check a mirror against its manifest, changing nothing.
+python3 tools/typst-mirror.py --mirror /opt/typst-mirror --verify
+```
+
+`--verify` exits `0` when every file matches, `1` when it refuses one, and `2` when the request
+itself is wrong (no manifest, a package the registry does not serve). A refusal names the package,
+the file and the mirror:
+
+```text
+refused: package `@preview/cetz:0.3.1` in the mirror at `/opt/typst-mirror` has a `lib.typ` whose
+SHA-256 is 3f1c…, and the manifest records 9b5b…
+```
+
+`fill` unpacks into a staging directory inside the mirror and moves the result into place, so an
+interrupted download never leaves a half-populated package that the manifest would then describe.
+
+### 15.3 The cache-only mode
+
+```csharp
+using var world = new TypstWorldBuilder()
+    .WithPackages(packages => packages.MirrorDirectory = "/opt/typst-mirror")
+    .AddSource("main.typ", """
+        #import "@preview/cetz:0.3.1": canvas, draw
+
+        #canvas({ draw.circle((0, 0), radius: 1) })
+        """)
+    .Build();
+```
+
+| Setting | JSON | Effect |
+| --- | --- | --- |
+| `MirrorDirectory` | `packages.mirror` | The mirror is the only package source |
+| — | `packages.cacheDir`, `packages.dataDir` | Set to the mirror by the native layer; a different value is refused |
+| `AllowDownload` | `packages.download` | Must stay `false`; `true` with a mirror is an `ArgumentException` |
+
+Setting a mirror switches the world to cache-only, and it does so in the strict sense: the mirror
+becomes **both** package directories, so the system data directory — where the host's own local
+packages live — cannot satisfy an import that the mirror does not hold. The manifest is then read
+and verified in `WorldConfig::parse`, before any world exists. A mirror that does not match it never
+becomes a world.
+
+Three refusals, each naming what an operator has to fix:
+
+| Situation | Message |
+| --- | --- |
+| A file's bytes are not the ones recorded | ``… has a `lib.typ` whose SHA-256 is 3f1c…, and the manifest records 9b5b…`` |
+| A file is present but unlisted | ``… holds `extra.typ`, which mirror.json does not list`` |
+| A package is present but unlisted | ``the mirror at `…` holds package `@preview/other:1.0.0`, which mirror.json does not list`` |
+| A listed package or file is absent | ``package `@preview/cetz:0.3.1` is missing `lib.typ` …`` |
+| A package the document imports is not in the mirror | ``package `@preview/absent:9.9.9` is not in the package mirror at …; add it with tools/typst-mirror.py`` |
+
+Every one of them names the package, the file where there is one, and the mirror — which is what
+turns "the build is red" into "re-fetch this".
+
+The last one is the one a compile hits in practice, and it is the reason the managed layer keeps a
+preflight of its own. Verification can only speak about what the manifest lists; a package the
+document imports and the mirror never held is invisible to it, and the compiler's own diagnostic
+(`package not found (searched for @preview/absent:9.9.9)`) names the package but not the mirror —
+which reads like a typo in the import. `TypstWorldBuilder.Build` therefore checks the registered
+sources for `@namespace/name:version` literals and fails with the mirror and the command that fills
+it. That preflight is a scan, not a parser: a spec built at run time still reaches the compiler, and
+from then on the message is the compiler's.
+
+Unlisted files and unlisted packages are refused for the same reason as a wrong digest: resolution
+walks the mirror's directories, so a file or a package that verification never saw is a file or a
+package a compilation can still read.
+
+### 15.4 What it proves, and what it does not
+
+A verified mirror proves **integrity**: the bytes a world will read are the bytes this manifest
+describes. It does not prove **authenticity**: a mirror that can rewrite `lib.typ` can rewrite
+`mirror.json` in the same motion, and the result verifies cleanly. The manifest is only as trustworthy
+as the path it arrived by, so the deployment has to supply that trust elsewhere — a signed image, a
+release artifact pinned by digest, a read-only layer, or a signature over `mirror.json` of its own.
+
+Two narrower limits are worth stating rather than discovering:
+
+- **The check happens when the world is created, not when each file is read.** A file changed between
+  `Build()` and the compilation that reads it is served with the digest that was checked earlier. Mount
+  the mirror read-only, or verify it again before the build, if the process outlives the check.
+- **The manifest is not a lock file.** It does not enumerate the versions a document may request; it
+  describes what the mirror holds. Pinning is §11's job, and the two compose: a pinned import plus a
+  verified mirror is a compile that cannot silently change either branch.
+
+Verification costs one walk and one SHA-256 per file per world creation. Build one world and clone it
+(§9) rather than building one per request; a clone shares the resolution and pays nothing.
+
+## 16. Incremental compilation
 
 An author iterating on a document compiles it again after every edit, and each of those
 compilations used to pay the full price. It no longer does, and the reason is not a cache this
 library built: it is the one Typst already has.
 
-### 15.1 What is reused
+### 16.1 What is reused
 
 Typst 0.15 memoizes each stage of a compilation — parsing, evaluation, realization, layout — in
 `comemo`, a **process-wide** table keyed by the inputs of that stage. Nothing in this library owns
 it, nothing in it is per world, and `typst::compile` never evicts it. Two consequences matter:
 
 - **The key is the inputs, not the world.** A second compilation of the same text hits the entries
-  the first one wrote, whether it runs on the same `TypstWorld` or on a clone of it (§15.3
+  the first one wrote, whether it runs on the same `TypstWorld` or on a clone of it (§16.3
   measures the clone: 9.9 µs). `WithSource` — which clones the world — therefore does not throw the
   reuse away; `SetSource` is not required for the saving.
 - **A tracked world is not part of the key either.** The compiler records *what it asked the world*
@@ -841,18 +997,18 @@ What `SetSource` buys is honesty and a little work: the world *is* the document 
 source map is not copied per edit, and the handle a preview server holds never changes. It is the
 API that says "same document, new text".
 
-### 15.2 What invalidates it
+### 16.2 What invalidates it
 
 | Input | What it costs when it changes |
 | --- | --- |
-| The text of a source | Its parse and evaluation are redone, and so is the layout of everything from the edit onward (§15.3) |
+| The text of a source | Its parse and evaluation are redone, and so is the layout of everything from the edit onward (§16.3) |
 | An asset (`AddAsset`) | The layout that reads it, and everything after it |
 | A font (`AddFont`, a host font, the font book) | Everything: the layout depends on glyph metrics |
 | The clock (`today()`) | Every `datetime.today()` call, and the layout that uses it |
 | A package (`@preview/...`) | The reading compilation that imports it |
 | `ClearCache()` | Everything, for every document in the process |
 
-### 15.3 What survives an edit, and what does not
+### 16.3 What survives an edit, and what does not
 
 Every `Content` hash in Typst includes a `Span`, and a span is a **byte midpoint** in the source
 (`typst_syntax::Span` packs the file id and the offset). Inserting or deleting text anywhere shifts
@@ -876,19 +1032,19 @@ Measured on one Windows 11 host, release build of the native library, an eight-p
 | `TypstCompiler.CompileChanged` from .NET, process warm, memo table cleared between rounds | 3.8 ms wall / 2.9 ms inside Typst | 1.8 ms wall / 1.0 ms inside Typst | 2.1× / 2.8× |
 
 All three rows are the same document and the same edit. The first is the ratio a cold process sees:
-it also pays for the first use of everything. The second is the claim of §15.1 in numbers — a
+it also pays for the first use of everything. The second is the claim of §16.1 in numbers — a
 world that asked the same questions is answered from the table, so `WithSource` per request is not
 a regression, it is a hit. The third is what a host lives with: **the wall clock of an edit is
 about half of a cold compile**, and the part inside Typst about a third. What is left is the fixed
 cost of the call — marshalling, the metrics and diagnostics round trip, and the fingerprint walk of
-§15.4 — which does not shrink because nothing changed, and which is why the managed ratio is
+§16.4 — which does not shrink because nothing changed, and which is why the managed ratio is
 smaller than the compiler's own.
 
 `tests/Text.Typst.Integration.Tests/IncrementalCompilationTests.cs` measures this per run and
 asserts it, on both the wall clock and the time inside Typst;
 `benchmarks/Text.Typst.Benchmarks` replays the loop as `compile-incremental`.
 
-### 15.4 `CompileChanged` and page fingerprints
+### 16.4 `CompileChanged` and page fingerprints
 
 ```csharp
 using var world = new TypstWorldBuilder().AddSource("main.typ", markup).Build();
@@ -914,7 +1070,7 @@ digests `state` recorded last. The document it returns is complete — every pag
 The digest is computed from the **laid-out page**: its frame's geometry (positions, sizes,
 baselines), its glyph runs (font, size, paint, language, text, glyph ids), its shapes, its images
 and its link destinations, plus the page's fill, numbering and bleed. Source spans and element tags
-are excluded — that is the whole point (§15.3): a digest that included them would mark every page
+are excluded — that is the whole point (§16.3): a digest that included them would mark every page
 after an edit as changed and answer nothing.
 
 What it does not say:
@@ -936,11 +1092,11 @@ What it does not say:
 
 The fingerprints are computed on demand, in `tn_document_page_fingerprints`, not during
 `tn_compile`: a host that never asks pays nothing. The walk is part of the difference between the
-1.0 ms Typst reports and the 1.8 ms wall clock in §15.3 — 0.8 ms for eight pages, which also covers
+1.0 ms Typst reports and the 1.8 ms wall clock in §16.3 — 0.8 ms for eight pages, which also covers
 marshalling, metrics and the diagnostics round trip, so it is an upper bound rather than a
 measurement of the walk alone.
 
-### 15.5 What a persistent world costs
+### 16.5 What a persistent world costs
 
 - **The world itself is small.** One `Source` per source (its text and line index), the font book
   and fonts it shares with every other world through `Arc`, and its package handles. Keeping one
@@ -957,7 +1113,7 @@ measurement of the walk alone.
 - **Clearing is safe while others compile.** A running compilation keeps the entries it already
   looked up and recomputes what it had not reached; it pays more, it does not fail.
 
-### 15.6 ABI
+### 16.6 ABI
 
 Two symbols were added, and no existing one changed, so `TN_ABI_VERSION` stays at 2:
 

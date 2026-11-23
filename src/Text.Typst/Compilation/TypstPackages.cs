@@ -37,6 +37,24 @@ public sealed class TypstPackages
     public string? Registry { get; set; }
 
     /// <summary>
+    /// Directory of a package mirror: the packages themselves plus a <c>mirror.json</c> listing
+    /// every file's SHA-256.
+    /// </summary>
+    /// <remarks>
+    /// Setting it puts the world in cache-only mode. The mirror becomes both package directories,
+    /// downloads are refused, and the native layer verifies the manifest before the world is built,
+    /// refusing a file whose digest is not the one recorded — naming the package, the file and the
+    /// mirror. A document that imports a package the mirror does not hold fails with a message
+    /// naming the package and the mirror.
+    /// <para>
+    /// The manifest proves integrity, not authenticity: a mirror that can rewrite a file can
+    /// rewrite the manifest, so it has to come from somewhere this deployment trusts. Fill one with
+    /// <c>tools/typst-mirror.py</c> and verify it with <c>--verify</c>.
+    /// </para>
+    /// </remarks>
+    public string? MirrorDirectory { get; set; }
+
+    /// <summary>
     /// Throws <see cref="ArgumentException"/> when a setting is malformed.
     /// </summary>
     /// <remarks>Called automatically by <c>WithPackages</c>; exposed so a host can validate its own configuration.</remarks>
@@ -50,6 +68,18 @@ public sealed class TypstPackages
         if (DataDirectory is not null)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(DataDirectory, nameof(DataDirectory));
+        }
+
+        if (MirrorDirectory is not null)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(MirrorDirectory, nameof(MirrorDirectory));
+
+            if (AllowDownload)
+            {
+                throw new ArgumentException(
+                    "a package mirror is cache-only: AllowDownload must stay false",
+                    nameof(AllowDownload));
+            }
         }
 
         if (Registry is not null)

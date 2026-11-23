@@ -26,6 +26,7 @@ pub mod fuzz_api {
             dpi: 72,
             max_pixels: 4_000_000,
             max_bytes: 32 * 1024 * 1024,
+            ..Options::default()
         };
         let _ = raster::render_page(bytes, 1, &options);
     }
@@ -39,7 +40,7 @@ use serde::Deserialize;
 use crate::ffi::{
     TP_ERR_INTERNAL, TP_ERR_INVALID_ARGUMENT, guard_status, guard_value, read_bytes, read_str,
 };
-use crate::raster::Options;
+use crate::raster::{Format, Options};
 
 /// The ABI version this library implements.
 #[unsafe(no_mangle)]
@@ -60,7 +61,11 @@ pub extern "C" fn tp_build_info() -> *const c_char {
             "crate": env!("CARGO_PKG_NAME"),
             "version": env!("CARGO_PKG_VERSION"),
             "renderer": format!("hayro {HAYRO_SERIES}"),
+            // `format` is the encoding a render gets when the caller names none, which is what a
+            // consumer reading the field before this library learned JPEG expects; `formats` is
+            // every encoding it can write.
             "format": "png",
+            "formats": ["png", "jpeg"],
         })
         .to_string();
 
@@ -146,15 +151,17 @@ pub unsafe extern "C" fn tp_page_count(
     }
 }
 
-/// Renders one page as PNG.
+/// Renders one page as PNG or JPEG.
 ///
 /// `page` is 1-based, the way a reader numbers pages. `options_json` is optional;
 /// `{"dpi": 300, "maxPixels": 20000000, "maxBytes": 67108864}` renders at 300 DPI under lower
-/// ceilings.
+/// ceilings, and `{"format": "jpeg", "quality": 85}` asks for a JPEG at quality 85 — the default
+/// format is PNG and the default quality 85. A format other than `"png"` or `"jpeg"` is refused.
 ///
-/// On success `out_image` holds the PNG and `out_json` the metadata document
-/// `{"page","pageCount","format","width","height","dpi","effectiveDpi","bytes"}`. On failure both
-/// are empty and `out_error` names the reason.
+/// On success `out_image` holds the encoded page and `out_json` the metadata document
+/// `{"page","pageCount","format","width","height","dpi","effectiveDpi","bytes"}`, where `format` is
+/// the encoding of what was actually written. On failure both are empty and `out_error` names the
+/// reason.
 ///
 /// # Safety
 /// `data` is valid for `len` bytes, the two out-slots are valid, and `out_error` is null or a valid
@@ -188,12 +195,12 @@ pub unsafe extern "C" fn tp_page_render(
             let metadata = serde_json::json!({
                 "page": rendered.page,
                 "pageCount": rendered.page_count,
-                "format": "png",
+                "format": rendered.format.name(),
                 "width": rendered.width,
                 "height": rendered.height,
                 "dpi": rendered.dpi,
                 "effectiveDpi": rendered.effective_dpi,
-                "bytes": rendered.png.len(),
+                "bytes": rendered.bytes.len(),
             });
 
             let json = serde_json::to_vec(&metadata).map_err(|error| {
@@ -203,7 +210,7 @@ pub unsafe extern "C" fn tp_page_render(
                 )
             })?;
 
-            *out_image = TpBuffer::from_vec(rendered.png);
+            *out_image = TpBuffer::from_vec(rendered.bytes);
             *out_json = TpBuffer::from_vec(json);
 
             Ok(())
@@ -221,6 +228,11 @@ struct RawOptions {
     dpi: Option<u32>,
     max_pixels: Option<u64>,
     max_bytes: Option<u64>,
+    /// `"png"` or `"jpeg"`; anything else is refused by [`Format::parse`].
+    format: Option<String>,
+    /// Read as a wider integer than the crate stores, so 300 is refused by this module with a
+    /// sentence naming the range instead of by `serde` with a width it cannot explain.
+    quality: Option<u32>,
 }
 
 /// Builds the options, deferring every range check to [`Options::validate`] so the two entry points
@@ -243,10 +255,31 @@ fn parse_options(json: Option<&str>) -> Result<Options, TpError> {
         )
     })?;
 
+    let format = match raw.format.as_deref() {
+        Some(name) => Format::parse(name)?,
+        None => defaults.format,
+    };
+
+    let quality = match raw.quality {
+        Some(quality) => match u8::try_from(quality) {
+            Ok(quality) => quality,
+            Err(_) => {
+                return Err(TpError::invalid_argument(format!(
+                    "quality must be between {} and {}, not {quality}",
+                    raster::MIN_JPEG_QUALITY,
+                    raster::MAX_JPEG_QUALITY
+                )));
+            }
+        },
+        None => defaults.quality,
+    };
+
     Ok(Options {
         dpi: raw.dpi.unwrap_or(defaults.dpi),
         max_pixels: raw.max_pixels.unwrap_or(defaults.max_pixels),
         max_bytes: raw.max_bytes.unwrap_or(defaults.max_bytes),
+        format,
+        quality,
     })
 }
 
@@ -279,6 +312,33 @@ mod tests {
     fn options_that_are_not_json_are_refused() {
         let error = parse_options(Some("{")).unwrap_err();
         assert_eq!(error.code, TP_ERR_INVALID_ARGUMENT);
+    }
+
+    #[test]
+    fn the_format_and_the_quality_are_read_from_json() {
+        let options = parse_options(Some(r#"{"format": "jpeg", "quality": 1}"#)).unwrap();
+        assert_eq!(options.format, Format::Jpeg);
+        assert_eq!(options.quality, 1);
+
+        let defaults = parse_options(None).unwrap();
+        assert_eq!(defaults.format, Format::Png);
+        assert_eq!(defaults.quality, 85);
+    }
+
+    #[test]
+    fn an_unknown_format_in_the_options_is_refused() {
+        let error = parse_options(Some(r#"{"format": "webp"}"#)).unwrap_err();
+
+        assert_eq!(error.code, TP_ERR_INVALID_ARGUMENT);
+        assert!(error.json.contains("webp"));
+    }
+
+    #[test]
+    fn a_quality_past_the_byte_range_is_refused_with_the_range() {
+        let error = parse_options(Some(r#"{"format": "jpeg", "quality": 300}"#)).unwrap_err();
+
+        assert_eq!(error.code, TP_ERR_INVALID_ARGUMENT);
+        assert!(error.json.contains("quality"));
     }
 
     #[test]

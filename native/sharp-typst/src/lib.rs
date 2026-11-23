@@ -11,6 +11,7 @@ mod export;
 mod ffi;
 mod fingerprint;
 mod fonts;
+mod packages;
 mod page_text;
 mod pdf_fonts;
 mod semantic;
