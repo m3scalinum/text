@@ -325,6 +325,15 @@ example.
 pull request restores forty libraries instead of compiling them. The recipe itself lives in
 the workflow, not in the crate, which is why `NATIVE_CACHE_VERSION` is the knob that invalidates it.
 
+**What a documentation change starts.** The matrix is skipped when a pull request touches nothing but
+markdown: a `changes` job in `ci-text.yml` diffs against the base and publishes `code`, and
+`native-extras` — with everything that `need:`s it, so both `musl` jobs, `examples`, `sbom` and the
+coverage table — runs only when that answer is true. A base it cannot resolve (a force-push, the first
+push of a branch) answers true, because being slow costs less than being wrong. `suite`, `templates`,
+`mcp` and `text` always run: they are the ones that catch documentation drift, and they need no
+matrix. `suite` used to `need:` the whole matrix for a single artifact, which made a README edit pay
+for forty Rust builds; it now needs `native-pdf`, one crate for `linux-x64`.
+
 ## 12. The per-package coverage table
 
 Seven gates over four jobs answer "is this package still above 90 %", and none of them answers "where
