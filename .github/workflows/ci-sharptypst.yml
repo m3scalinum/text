@@ -168,6 +168,8 @@ jobs:
         if: steps.natives.outputs.cache-hit != 'true'
         with:
           workspaces: native/sharp-typst
+          # Restores the default branch's cache; does not write one per pull request (10 GB budget).
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install the musl toolchain
         if: steps.natives.outputs.cache-hit != 'true' && matrix.target != ''
         run: |
