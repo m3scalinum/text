@@ -183,9 +183,11 @@ jobs:
         if: steps.natives.outputs.cache-hit != 'true'
         run: cargo clippy $CRT_TARGET --manifest-path native/sharp-typst/Cargo.toml --all-targets -- -D warnings
       - name: Documentation
-        if: steps.natives.outputs.cache-hit != 'true'
-        # See the same step of `ci-text.yml`: rustdoc warnings are invisible to clippy and to the
-        # tests, and the ABI is documented by hand in `docs/specifications/02-native-abi.md`.
+        # See the same step of `ci-text.yml`: documentation is target-independent, and a musl cell's
+        # `RUSTFLAGS=-C linker=musl-gcc` breaks a `cargo doc` that names no target.
+        if: steps.natives.outputs.cache-hit != 'true' && matrix.target == ''
+        # Rustdoc warnings are invisible to clippy and to the tests, and the ABI is documented by
+        # hand in `docs/specifications/02-native-abi.md`.
         env:
           RUSTDOCFLAGS: -D warnings
         run: cargo doc --no-deps --locked --manifest-path native/sharp-typst/Cargo.toml
