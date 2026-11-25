@@ -106,6 +106,8 @@ jobs:
         if: steps.natives.outputs.cache-hit != 'true'
         with:
           workspaces: native/sharp-typst
+          # Restores the default branch's cache; does not write one per pull request (10 GB budget).
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Build
         if: steps.natives.outputs.cache-hit != 'true'
         run: cargo build --release --manifest-path native/sharp-typst/Cargo.toml
@@ -142,6 +144,8 @@ jobs:
         if: steps.natives.outputs.cache-hit != 'true'
         with:
           workspaces: native/text-pdf
+          # Restores the default branch's cache; does not write one per pull request (10 GB budget).
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Build
         if: steps.natives.outputs.cache-hit != 'true'
         run: cargo build --release --manifest-path native/text-pdf/Cargo.toml
@@ -411,6 +415,8 @@ jobs:
         if: steps.natives.outputs.cache-hit != 'true'
         with:
           workspaces: native/${{ matrix.crate }}
+          # Restores the default branch's cache; does not write one per pull request (10 GB budget).
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install the musl toolchain
         if: steps.natives.outputs.cache-hit != 'true' && matrix.target != ''
         run: |
@@ -483,7 +489,13 @@ jobs:
     # Three packages in one job, each carrying its own native library. One job keeps the coverage
     # measurement per assembly explicit rather than spreading three near-identical jobs across the
     # workflow.
-    needs: [native, native-extras]
+    needs: [changes, native, native-extras]
+    # A cell that was cancelled — a macOS runner reclaiming a heavy crate, which happens — must not
+    # skip the job that proves the packages pack and install. This job needs the linux artifacts, not
+    # the courtesy of every other cell finishing; if one of those is missing it fails on its own terms.
+    # `changes.code` keeps it from running on a documentation pull request, where the matrix is skipped
+    # on purpose.
+    if: ${{ !cancelled() && needs.changes.outputs.code == 'true' && needs.native.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -574,7 +586,13 @@ jobs:
     # mcr.microsoft.com/dotnet/runtime-deps:11.0-alpine" — so it is a gate, not a note: a package
     # whose musl library is absent or unloadable fails the build here instead of in a consumer's
     # container. The four examples are the same ones the `examples` job runs from the same packages.
-    needs: [native, native-extras]
+    needs: [changes, native, native-extras]
+    # A cell that was cancelled — a macOS runner reclaiming a heavy crate, which happens — must not
+    # skip the job that proves the packages pack and install. This job needs the linux artifacts, not
+    # the courtesy of every other cell finishing; if one of those is missing it fails on its own terms.
+    # `changes.code` keeps it from running on a documentation pull request, where the matrix is skipped
+    # on purpose.
+    if: ${{ !cancelled() && needs.changes.outputs.code == 'true' && needs.native.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -687,7 +705,13 @@ jobs:
     # The job packs all nine packages itself rather than downloading them: the compiler train's two
     # (Typst, Documents) are packed by no other job of this workflow, and a feed holding one run's
     # packages is the only way a transitive dependency resolves to the build under test.
-    needs: [native, native-extras]
+    needs: [changes, native, native-extras]
+    # A cell that was cancelled — a macOS runner reclaiming a heavy crate, which happens — must not
+    # skip the job that proves the packages pack and install. This job needs the linux artifacts, not
+    # the courtesy of every other cell finishing; if one of those is missing it fails on its own terms.
+    # `changes.code` keeps it from running on a documentation pull request, where the matrix is skipped
+    # on purpose.
+    if: ${{ !cancelled() && needs.changes.outputs.code == 'true' && needs.native.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
