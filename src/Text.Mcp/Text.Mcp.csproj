@@ -2,9 +2,10 @@
 
   <PropertyGroup>
     <!--
-      This package follows the suite, not the compiler: it depends on both the compiler wrapper and
-      the e-invoicing package, and a package that follows the Typst version cannot depend on one
-      that does not. See Directory.Build.props.
+      This package follows the suite, not the compiler: it depends on packages from both trains — the
+      compiler wrapper and the document model on one side, the layout pack and the PDF package on the
+      other — and a package that follows the Typst version cannot depend on one that does not. See
+      Directory.Build.props.
     -->
     <SuiteVersion Condition="'$(SuiteVersion)' == ''">$(TextVersion)</SuiteVersion>
     <Version>$(SuiteVersion)</Version>
@@ -14,7 +15,7 @@
     <IsPackable>true</IsPackable>
     <PackageId>M3scalinum.Text.Mcp</PackageId>
     <Description>A Model Context Protocol server over stdio or HTTP for M3scalinum.Text: render Typst documents from a model or from the layout pack, sign, merge and read PDFs, and write nothing to disk unless the host says so.</Description>
-    <PackageTags>mcp;model-context-protocol;json-rpc;stdio;http;streamable-http;typst;pdf;facturx;invoice;sign;pades;merge</PackageTags>
+    <PackageTags>mcp;model-context-protocol;json-rpc;stdio;http;streamable-http;typst;pdf;invoice;sign;pades;merge</PackageTags>
     <TargetFrameworks>net8.0;net9.0;net10.0;net11.0</TargetFrameworks>
     <TargetFramework />
     <SuppressTfmSupportBuildWarnings>true</SuppressTfmSupportBuildWarnings>

@@ -17,7 +17,8 @@
     <IsAotCompatible>true</IsAotCompatible>
     <IsPackable>true</IsPackable>
     <PackageId>M3scalinum.Text.Ocr</PackageId>
-    <Description>Read text from page images and scanned PDFs in-process, with models the caller supplies.</Description>
+    <Description>Read text from page images and scanned PDFs in-process, with models the caller supplies: words, lines and boxes, confidence thresholds that refuse a page instead of guessing, quarter-turn detection, deskew and denoise, and the model fingerprints behind every result.</Description>
+    <PackageTags>ocr;text-recognition;scanned-pdf;image;preprocessing;deskew;rten</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

@@ -175,12 +175,12 @@ jobs:
             version_args=(-p:SuiteVersion="$version")
           fi
 
-          # Facture-X renders through the compiler wrapper, and this train releases on its own
-          # schedule: it must name a core version that exists on NuGet rather than the one this
+          # The suite packages version against the compiler wrapper, and this train releases on its
+          # own schedule: it must name a core version that exists on NuGet rather than the one this
           # checkout happens to build. Resolving it here also makes a re-run reproducible, since it
           # pins the newest stable core at the moment the tag is pushed.
           set -o pipefail
-          core="$(curl -sSf https://api.nuget.org/v3-flatcontainer/m3scalinum.text.sharptypst/index.json \
+          core="$(curl -sSf https://api.nuget.org/v3-flatcontainer/m3scalinum.text.typst/index.json \
             | python3 -c 'import json,sys; v=[x for x in json.load(sys.stdin)["versions"] if "-" not in x]; print(v[-1])')" \
             || { echo "M3scalinum.Text.Typst is not on nuget.org: publish the compiler train first" >&2; exit 1; }
           if [[ -z "$core" ]]; then

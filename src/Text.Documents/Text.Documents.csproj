@@ -16,8 +16,8 @@
     <IsPackable>true</IsPackable>
     <IsAotCompatible>true</IsAotCompatible>
     <PackageId>M3scalinum.Text.Documents</PackageId>
-    <Description>The document model the suite builds: typed content, inline styles, tables, figures, lists and page setup, plus the HTML and Markdown importers. No dependency, no native code, no compiler.</Description>
-    <PackageTags>documents;document-model;typst;markdown;html;templates</PackageTags>
+    <Description>The document model the suite builds: typed content, inline styles, tables with merged cells, figures, lists, page setup, cross-references and a reusable document style, with HTML and Markdown read in and written back out. Emits Typst markup and depends on nothing: no compiler, no native code.</Description>
+    <PackageTags>documents;document-model;typst;markdown;html;templates;report</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

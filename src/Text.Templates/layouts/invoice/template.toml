@@ -2,7 +2,7 @@ name = "invoice"
 version = "1.0.0"
 entry = "template.typ"
 description = "A4 invoice (facture): seller and customer blocks, a line-item table, tax and balance, with every label supplied by the caller in English or French"
-authors = ["SharpTypst"]
+authors = ["m3scalinum"]
 
 [parameters]
 title = { type = "string", required = true }

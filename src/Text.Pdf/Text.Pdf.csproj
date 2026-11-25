@@ -21,7 +21,8 @@
     <IsPackable>true</IsPackable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <PackageId>M3scalinum.Text.Pdf</PackageId>
-    <Description>Sign a PDF with PAdES, read its text and outline, and render a page as a PNG preview; post-process the documents M3scalinum.Text.Typst produces.</Description>
+    <Description>Sign a PDF with PAdES (B-B to B-LTA), eIDAS seals and European trust lists; merge, split, rotate, extract and remove pages; fill and flatten forms; encrypt with AES-256 or AES-128; read its text and outline; attach files; convert it to PDF/A; check PDF/A and PDF/UA conformance; render a page as a PNG. Works on any PDF and depends on no compiler.</Description>
+    <PackageTags>pdf;pades;signature;eidas;pdf-a;pdf-ua;conformance;encryption;forms;pages;merge;attachments;raster;trust-list</PackageTags>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
 
     <PkcsVersion Condition="'$(TargetFramework)' == 'net8.0'">8.0.2</PkcsVersion>

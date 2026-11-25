@@ -2,7 +2,7 @@
 
 M3scalinum.Text.Mcp serves the suite over the Model Context Protocol: an MCP client asks for a
 document or an invoice and gets a PDF back, over standard input and output, or over HTTP on a loopback
-port when more than one client needs it. The compiler, the layout pack and the e-invoicing package are
+port when more than one client needs it. The compiler, the layout pack and the PDF package are
 all inside the process — nothing is spawned and nothing is downloaded.
 
 ## Start the server

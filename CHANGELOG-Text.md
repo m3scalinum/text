@@ -266,6 +266,28 @@ Not yet published.
   JPEG at quality 85 is 8× smaller than the PNG (386 KB against 3.1 MB), which is what a preview needs.
   PNG stays the default because on flat vector art it wins — the measurement is in the specification.
 
+### Changed
+
+- Every package's NuGet description now states what the package does. `M3scalinum.Text.Pdf` names PAdES
+  B-B to B-LTA, eIDAS, page operations, forms, encryption, PDF/A conversion, PDF/A and PDF/UA
+  conformance and rasterisation instead of only signing and a page preview, and it and
+  `M3scalinum.Text.Ocr` gain the `PackageTags` they were missing. `M3scalinum.Text.Barcodes` names the
+  nineteen symbologies and GS1 rather than ten of them; `M3scalinum.Text.Documents` states that HTML
+  and Markdown are written back out as well as read in; `M3scalinum.Text.Xlsx` adds durations;
+  `M3scalinum.Text.Typst` says that the managed package carries no native library and names the
+  satellite to add; and `M3scalinum.Text.Mcp` drops the `facturx` tag of a package the suite no longer
+  has.
+- References to the packages the suite no longer has are gone. `CONTRIBUTING.md` named
+  `M3scalinum.Text.Pdf.FactureX` as the second package of the suite train and now lists the seven that
+  actually follow `TextVersion`; `08-build-and-packaging.md` says that the `examples` job packs the
+  per-RID compiler satellite instead of naming `facturx`; `tests/verify-package.py` no longer expects
+  a `M3scalinum.Text.Pdf.FactureX.dll` in a package; the `Mcp` package's own comment and the wiki's
+  MCP page stop counting an e-invoicing package among its dependencies; and the seven layout manifests
+  under `src/Text.Templates/layouts/` state `authors = ["m3scalinum"]` rather than the pre-rename
+  `SharpTypst`. `release-text.yml` resolves the compiler train under the id it publishes,
+  `m3scalinum.text.typst` — the previous `m3scalinum.text.sharptypst` answers 404, so the release job
+  would have failed before publishing anything.
+
 ### Security
 
 - `M3scalinum.Text.Docx` reads every XML part through one entry point, `xml::parse`, which refuses a

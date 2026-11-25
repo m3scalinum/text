@@ -2,7 +2,7 @@ name = "purchase-order"
 version = "1.0.0"
 entry = "template.typ"
 description = "A4 purchase order (bon de commande): buyer and supplier blocks, the ordered lines with their amounts and tax, the delivery address and the terms, with every label supplied by the caller"
-authors = ["SharpTypst"]
+authors = ["m3scalinum"]
 
 [parameters]
 title = { type = "string", required = true }

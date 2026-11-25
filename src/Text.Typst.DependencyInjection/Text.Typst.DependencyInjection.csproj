@@ -3,7 +3,7 @@
   <PropertyGroup>
     <IsPackable>true</IsPackable>
     <PackageId>M3scalinum.Text.Typst.DependencyInjection</PackageId>
-    <Description>Microsoft.Extensions.DependencyInjection integration for M3scalinum.Text.Typst: register the compiler, a pre-configured world builder and the package resolver from configuration.</Description>
+    <Description>Microsoft.Extensions.DependencyInjection integration for M3scalinum.Text.Typst: register the compiler, a world factory and a world builder pre-configured with the size limits, the package access and the clock from configuration, all validated at startup.</Description>
     <PackageTags>typst;pdf;typesetting;dependency-injection;di</PackageTags>
     <TargetFrameworks>net8.0;net9.0;net10.0;net11.0</TargetFrameworks>
     <TargetFramework />

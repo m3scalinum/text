@@ -2,7 +2,7 @@ name = "payslip"
 version = "1.0.0"
 entry = "template.typ"
 description = "A4 payslip (bulletin de paie): employer and employee blocks, the period, the gross earnings lines, the contributions and the net pay, with every label supplied by the caller"
-authors = ["SharpTypst"]
+authors = ["m3scalinum"]
 
 [parameters]
 title = { type = "string", required = true }

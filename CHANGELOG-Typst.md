@@ -285,6 +285,12 @@ Not yet published. Embeds Typst 0.15.1.
 - `TypstLocation` (the static location helpers) is renamed `TypstLocations`, so it no longer
   collides with the `TypstLocation` record in `M3scalinum.Text.Typst.Diagnostics`.
 - `TypstWorld.ReplaceSource` is removed: `WithSource` returns the new world instead of mutating one.
+- The NuGet descriptions state what each package does. `M3scalinum.Text.Typst` names the PDF/A and
+  PDF/UA standards, tagged output and streaming export, and says that the managed package carries no
+  native library and which satellite to add; `M3scalinum.Text.Documents` states that HTML and Markdown
+  are written back out as well as read in, and names cross-references and the reusable document style;
+  `M3scalinum.Text.Typst.DependencyInjection` names what `AddTypst` binds — the size limits, the
+  package access and the clock — instead of a package resolver it does not register.
 - PDF/A-4f is documented as what the profile is: a claim that requires at least one attached file.
   Typst exports 4f with an empty `/EmbeddedFiles` tree when the document attaches nothing, so the
   bytes carry a claim the document does not meet; `PdfConformance.Check` reports

@@ -15,7 +15,7 @@
     <IsAotCompatible>true</IsAotCompatible>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <PackageId>M3scalinum.Text.Xlsx</PackageId>
-    <Description>Read Excel .xlsx workbooks into typed sheets and cells — text, numbers, booleans, dates, errors, and formulas with their cached results — and render a sheet with M3scalinum.Text.Typst.</Description>
+    <Description>Read Excel .xlsx workbooks into typed sheets and cells — text, numbers, booleans, dates, durations, errors, and formulas with their cached results — and render every sheet as a table with M3scalinum.Text.Typst.</Description>
     <PackageTags>xlsx;excel;spreadsheet;ooxml;typst;documents;conversion</PackageTags>
     <TargetFrameworks>net8.0;net9.0;net10.0;net11.0</TargetFrameworks>
     <!-- Clears the single-TFM default Directory.Build.props sets, as the other multi-targeted
