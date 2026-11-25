@@ -21,6 +21,16 @@
     <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
     <PathMap>$(MSBuildThisFileDirectory)=/_/</PathMap>
 
+    <!--
+      `Microsoft.SourceLink.GitHub` brings `System.IO.Hashing` along as a build-time dependency
+      (`PrivateAssets="all"`), and that package's targets file warns on every target framework below
+      the one it was built for: "System.IO.Hashing 11.0.0 doesn't support net8.0". Nothing of it
+      ships — it is not in the nuspec and not in the output — so the warning is about a build tool,
+      not about the package under test. Declared here rather than in the eight multi-targeted
+      projects that each need it, because two of them had forgotten it: one switch, one reason.
+    -->
+    <SuppressTfmSupportBuildWarnings>true</SuppressTfmSupportBuildWarnings>
+
     <!-- Packaging defaults; projects opt in with IsPackable -->
     <IsPackable>false</IsPackable>
     <Authors>m3scalinum</Authors>

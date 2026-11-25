@@ -12,7 +12,6 @@
     <!-- Clears the single-TFM default Directory.Build.props sets, as the other multi-targeted
          projects do; without it only net11.0 is built and pack fails on the missing assemblies. -->
     <TargetFramework />
-    <SuppressTfmSupportBuildWarnings>true</SuppressTfmSupportBuildWarnings>
     <IsPackable>true</IsPackable>
     <IsAotCompatible>true</IsAotCompatible>
     <PackageId>M3scalinum.Text.Documents</PackageId>

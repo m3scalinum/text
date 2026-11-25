@@ -268,6 +268,11 @@ Not yet published.
 
 ### Changed
 
+- `M3scalinum.Text.Pdf` no longer declares a `System.IO.Hashing` dependency that no code used: it was
+  a workaround for a build-time warning, and it travelled to every consumer in the nuspec. The warning
+  is suppressed once, in `Directory.Build.props`, where it belongs — it comes from
+  `Microsoft.SourceLink.GitHub`'s own build-time `System.IO.Hashing`, which ships nothing. The tree
+  now builds with zero warnings, on a clean build, for all four frameworks.
 - Every package's NuGet description now states what the package does. `M3scalinum.Text.Pdf` names PAdES
   B-B to B-LTA, eIDAS, page operations, forms, encryption, PDF/A conversion, PDF/A and PDF/UA
   conformance and rasterisation instead of only signing and a page preview, and it and
