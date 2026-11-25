@@ -25,7 +25,8 @@
     <IsPackable>false</IsPackable>
     <Authors>m3scalinum</Authors>
     <Company>m3scalinum</Company>
-    <Product>M3scalinum.Text.Typst</Product>
+    <!-- No `Product` here: it is per assembly, and the SDK defaults it to `AssemblyName`. One value
+         for the tree made every DLL report `M3scalinum.Text.Typst` — including `Text.Pdf.dll`. -->
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageProjectUrl>https://github.com/m3scalinum/text</PackageProjectUrl>
