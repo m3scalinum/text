@@ -1,6 +1,8 @@
 using System;
+using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
+using M3scalinum.Text.Pdf;
 using M3scalinum.Text.Typst.Compilation;
 using M3scalinum.Text.Typst.Export;
 using Xunit;
@@ -151,5 +153,82 @@ public sealed partial class PdfOptionsTests
             {
                 Standards = [PdfStandard.PdfA1b, PdfStandard.Pdf20],
             }));
+    }
+
+    [Fact]
+    public void Pdf_a_4f_with_an_embedded_file_is_conformant_and_keeps_the_attachment()
+    {
+        var payload = Encoding.UTF8.GetBytes("reading,value\noxygen,21\n");
+
+        var world = new TypstWorldBuilder()
+            .AddSource("main.typ", """
+                #set document(title: "Archived with its data")
+
+                #pdf.attach(
+                  "readings.csv",
+                  relationship: "supplement",
+                  mime-type: "text/csv",
+                  description: "Raw readings",
+                )
+
+                = One
+                """)
+            .AddAsset("readings.csv", payload)
+            .Build();
+
+        using var result = new TypstCompiler().Compile(world);
+
+        var pdf = result.ExportPdf(new PdfExportOptions
+        {
+            Standards = [PdfStandard.PdfA4f],
+            Timestamp = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero),
+        });
+
+        Assert.StartsWith("%PDF-2.0", Encoding.Latin1.GetString(pdf), StringComparison.Ordinal);
+
+        var report = PdfConformance.Check(pdf, PdfConformanceStandard.PdfA4f);
+        Assert.True(
+            report.IsConformant,
+            string.Join("; ", report.Errors.Select(issue => $"{issue.Code} at {issue.Target}: {issue.Message}")));
+
+        var attachment = Assert.Single(PdfAttachments.Read(pdf));
+        Assert.Equal("readings.csv", attachment.Name);
+        Assert.Equal(PdfAttachmentRole.Supplement, attachment.Role);
+        Assert.Equal(payload, attachment.Content);
+    }
+
+    [Fact]
+    public void Pdf_a_4f_without_an_embedded_file_claims_the_profile_the_checker_rejects()
+    {
+        using var result = Compile(ThreePages);
+
+        // Typst writes an empty /EmbeddedFiles tree for 4f rather than refusing, so the bytes claim a
+        // profile the document does not meet. The checker is what says so.
+        var pdf = result.ExportPdf(new PdfExportOptions
+        {
+            Standards = [PdfStandard.PdfA4f],
+            Timestamp = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero),
+        });
+
+        var report = PdfConformance.Check(pdf, PdfConformanceStandard.PdfA4f);
+
+        Assert.False(report.IsConformant);
+        Assert.Contains(report.Errors, issue => issue.Code == "PDFA4F.EMBEDDED_FILES_MISSING");
+    }
+
+    [Fact]
+    public void Pdf_a_4e_exports_a_pdf_2_0_with_archival_metadata()
+    {
+        using var result = Compile(ThreePages);
+
+        var pdf = result.ExportPdf(new PdfExportOptions
+        {
+            Standards = [PdfStandard.PdfA4e],
+            Timestamp = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero),
+        });
+
+        var text = Encoding.Latin1.GetString(pdf);
+        Assert.StartsWith("%PDF-2.0", text, StringComparison.Ordinal);
+        Assert.Contains("pdfaid", text, StringComparison.Ordinal);
     }
 }

@@ -269,6 +269,12 @@ Not yet published. Embeds Typst 0.15.1.
 - `TypstLocation` (the static location helpers) is renamed `TypstLocations`, so it no longer
   collides with the `TypstLocation` record in `M3scalinum.Text.Typst.Diagnostics`.
 - `TypstWorld.ReplaceSource` is removed: `WithSource` returns the new world instead of mutating one.
+- PDF/A-4f is documented as what the profile is: a claim that requires at least one attached file.
+  Typst exports 4f with an empty `/EmbeddedFiles` tree when the document attaches nothing, so the
+  bytes carry a claim the document does not meet; `PdfConformance.Check` reports
+  `PDFA4F.EMBEDDED_FILES_MISSING` on them. The integration suite proves the conformant case — a 4f
+  export with `#pdf.attach(path, relationship: …)` passes the checker and keeps the attachment's
+  name, role and bytes — and the rejected one, alongside a PDF/A-4e export written as `%PDF-2.0`.
 
 ### Security
 
