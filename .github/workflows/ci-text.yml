@@ -293,9 +293,9 @@ jobs:
           dotnet-coverage collect -f cobertura -o artifacts/coverage/mcp.xml
           "dotnet test tests/Text.Mcp.Tests -c Release --no-build"
       - name: Gate
-        # Only the server's own assembly: the compiler wrapper and the e-invoicing package are linked
-        # into the output as dependencies, and counting their lines would measure code these tests
-        # use rather than code they own.
+        # Only the server's own assembly: the compiler wrapper is linked into the output as a
+        # dependency, and counting its lines would measure code these tests use rather than code they
+        # own.
         run: >
           python3 tests/coverage-gate.py artifacts/coverage/mcp.xml 90
           --require M3scalinum.Text.Mcp

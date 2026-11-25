@@ -2,9 +2,10 @@
 
   <PropertyGroup>
     <!--
-      This package follows the suite, not the compiler: it depends on both the compiler wrapper and
-      the e-invoicing package, and a package that follows the Typst version cannot depend on one
-      that does not. See Directory.Build.props.
+      This package follows the suite, not the compiler: it depends on packages from both trains — the
+      compiler wrapper and the document model on one side, the layout pack and the PDF package on the
+      other — and a package that follows the Typst version cannot depend on one that does not. See
+      Directory.Build.props.
     -->
     <SuiteVersion Condition="'$(SuiteVersion)' == ''">$(TextVersion)</SuiteVersion>
     <Version>$(SuiteVersion)</Version>

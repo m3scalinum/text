@@ -277,6 +277,16 @@ Not yet published.
   `M3scalinum.Text.Typst` says that the managed package carries no native library and names the
   satellite to add; and `M3scalinum.Text.Mcp` drops the `facturx` tag of a package the suite no longer
   has.
+- References to the packages the suite no longer has are gone. `CONTRIBUTING.md` named
+  `M3scalinum.Text.Pdf.FactureX` as the second package of the suite train and now lists the seven that
+  actually follow `TextVersion`; `08-build-and-packaging.md` says that the `examples` job packs the
+  per-RID compiler satellite instead of naming `facturx`; `tests/verify-package.py` no longer expects
+  a `M3scalinum.Text.Pdf.FactureX.dll` in a package; the `Mcp` package's own comment and the wiki's
+  MCP page stop counting an e-invoicing package among its dependencies; and the seven layout manifests
+  under `src/Text.Templates/layouts/` state `authors = ["m3scalinum"]` rather than the pre-rename
+  `SharpTypst`. `release-text.yml` resolves the compiler train under the id it publishes,
+  `m3scalinum.text.typst` — the previous `m3scalinum.text.sharptypst` answers 404, so the release job
+  would have failed before publishing anything.
 
 ### Security
 

@@ -1,5 +1,5 @@
 // Model — every item of the category, invoked once.
-#set document(title: "Conformance", author: "SharpTypst")
+#set document(title: "Conformance", author: "m3scalinum")
 #set heading(numbering: "1.")
 
 = Heading <model-heading>

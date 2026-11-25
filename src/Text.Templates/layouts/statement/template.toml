@@ -2,7 +2,7 @@ name = "statement"
 version = "1.0.0"
 entry = "template.typ"
 description = "A4 account statement (relevé de compte): opening balance, dated movements with their running balance, and the closing balance, with every label supplied by the caller"
-authors = ["SharpTypst"]
+authors = ["m3scalinum"]
 
 [parameters]
 title = { type = "string", required = true }

@@ -2,7 +2,7 @@ name = "contract"
 version = "1.0.0"
 entry = "template.typ"
 description = "A4 service or employment contract (contrat): the two parties, the numbered clauses in order and the signature block, with every label supplied by the caller"
-authors = ["SharpTypst"]
+authors = ["m3scalinum"]
 
 [parameters]
 title = { type = "string", required = true }

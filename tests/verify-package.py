@@ -6,7 +6,7 @@ Six failures this catches, four of which shipped once:
 - a package with no `runtimes/` entry, because the native job had not run;
 - a dependency on `M3scalinum.Text.Typst.Native`, which is never published, so every consumer got NU1101;
 - a missing licence file, which breaks the Apache-2.0 obligations;
-- a satellite package (`M3scalinum.Text.Typst.DependencyInjection`, `M3scalinum.Text.Pdf.FactureX`) built against a
+- a satellite package (`M3scalinum.Text.Typst.DependencyInjection`, `M3scalinum.Text.Templates`) built against a
   different `M3scalinum.Text.Typst` than the one packed in the same run — the version is derived from the
   referenced project, and nothing else forces the two to agree;
 - a managed package that still carries `runtimes/<rid>/native/` — the natives belong to the per-RID
@@ -81,7 +81,6 @@ CORE_PACKAGE = "M3scalinum.Text.Typst"
 SATELLITE_ASSEMBLIES = {
     "lib/net11.0/M3scalinum.Text.Typst.DependencyInjection.dll",
     "lib/net11.0/M3scalinum.Text.Templates.dll",
-    "lib/net11.0/M3scalinum.Text.Pdf.FactureX.dll",
     "lib/net11.0/M3scalinum.Text.Mcp.dll",
     "lib/net11.0/M3scalinum.Text.Docx.dll",
     "lib/net11.0/M3scalinum.Text.Xlsx.dll",
@@ -211,7 +210,7 @@ def check(path: str, require_native: bool = False) -> dict:
                     lower = re.sub(r"^[\[(]", "", declared).split(",")[0].strip()
 
                     # The satellite must pin an exact core version, but not necessarily its own:
-                    # M3scalinum.Text.Pdf.FactureX follows the suite (0.1.x) while the compiler
+                    # M3scalinum.Text.Templates follows the suite (0.1.x) while the compiler
                     # wrapper it builds on follows Typst (0.15.1.x). NuGet writes an exact pin as a
                     # bare version, and a range as `[1.0.0, )` or `(1.0.0, 2.0.0)`.
                     if not lower or "," in declared or declared.startswith("("):

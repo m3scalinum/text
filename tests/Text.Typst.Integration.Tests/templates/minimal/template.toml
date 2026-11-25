@@ -2,7 +2,7 @@ name = "minimal"
 version = "1.0.0"
 entry = "template.typ"
 description = "Minimal template used by the embedded-loading test"
-authors = ["SharpTypst"]
+authors = ["m3scalinum"]
 
 [parameters]
 title = { type = "string", required = true }

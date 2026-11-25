@@ -101,9 +101,9 @@ Two families, two versions. The packages that embed the compiler — `M3scalinum
 `0.15.1.<revision>`. A change that requires a newer Typst is a version bump, not a patch, and it goes
 in `CHANGELOG-Typst.md`.
 
-`M3scalinum.Text.Pdf` and `M3scalinum.Text.Pdf.FactureX` embed nothing and follow `TextVersion`
-instead, `0.1.<revision>` for now. Their entries go in `CHANGELOG-Text.md`. A change that crosses
-both trains also gets a line in `CHANGELOG.md`.
+`M3scalinum.Text.Pdf`, `.Templates`, `.Mcp`, `.Barcodes`, `.Ocr`, `.Docx` and `.Xlsx` embed no compiler
+of their own and follow `TextVersion` instead, `0.1.<revision>` for now. Their entries go in
+`CHANGELOG-Text.md`. A change that crosses both trains also gets a line in `CHANGELOG.md`.
 
 ## Releasing
 

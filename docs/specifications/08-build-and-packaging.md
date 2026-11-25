@@ -705,7 +705,7 @@ drop the threshold to mean anything.
 | --- | --- | --- |
 | `native` | `ubuntu-latest` | one `cargo build --release` for `linux-x64`, uploaded as `native-linux-x64`. No six-RID matrix: nothing here ships a native asset |
 | `text` | `ubuntu-latest` | restore, build, the `Pdf` and `Mcp` unit suites (neither needs a native library), `dotnet pack` for `M3scalinum.Text.Pdf` |
-| `examples` | `ubuntu-latest` | download the compiler's `linux-x64` native artifact and the fifteen `native-extras` ones, restore, build, `dotnet pack` the nine packages under test into one local feed, then `samples/examples/run.sh` once per package; the nine `.nupkg` are uploaded for the `sbom` job |
+| `examples` | `ubuntu-latest` | download the compiler's `linux-x64` native artifact and the fifteen `native-extras` ones, restore, build, `dotnet pack` the nine packages under test into one local feed plus the per-RID satellite `M3scalinum.Text.Typst.Native.*` the `Templates` example compiles through, then `samples/examples/run.sh` once per package; the nine `.nupkg` are uploaded for the `sbom` job |
 | `sbom` | `ubuntu-latest` | download the `example-packages` artifact, `.github/sbom/sbom.py generate` then `verify` over those nine packages, then empty each SBOM in turn and fail if `verify` accepts it (§12) |
 
 The `examples` job is the one that proves a `.nupkg` is enough. Every other job in both
@@ -735,8 +735,9 @@ Local developer experience adds one command: `samples/examples/run.sh <example> 
 <version> <feed>` builds and runs one example from a feed, and `--build-only` stops after the
 compile, which is all a Windows host can prove for a package whose native library is a Linux `.so`.
 
-The render validation needs the compiler, which is why `facturx` builds one here: keeping the pair
-self-contained costs twelve minutes of Rust in one job instead of coupling the two workflows.
+The render validation needs the compiler, which is why this job packs the per-RID satellite beside the
+nine packages: keeping the pair self-contained costs twelve minutes of Rust in one job instead of
+coupling the two workflows.
 
 `tests/verify-package.py` is the guard that would have caught two shipped defects: a package with no
 `runtimes/` entry (the native job had not run) and a dependency on `M3scalinum.Text.Typst.Native`, which is never
