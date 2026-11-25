@@ -70,6 +70,21 @@ host_rid() {
     printf '%s' "$rid"
 }
 
+# The suffix a satellite package carries for a RID: `linux-musl-x64` -> `LinuxMuslX64`.
+rid_suffix() {
+    case "$1" in
+        win-x64) echo WinX64 ;;
+        win-arm64) echo WinArm64 ;;
+        linux-x64) echo LinuxX64 ;;
+        linux-arm64) echo LinuxArm64 ;;
+        linux-musl-x64) echo LinuxMuslX64 ;;
+        linux-musl-arm64) echo LinuxMuslArm64 ;;
+        osx-arm64) echo OsxArm64 ;;
+        osx-x64) echo OsxX64 ;;
+        *) return 1 ;;
+    esac
+}
+
 # The satellite package a package's native library ships in, for a RID. Only the compiler wrapper is
 # split by RID (Spec 08 §6); every other package carries its natives in the same .nupkg and this
 # prints nothing. `M3scalinum.Text.Templates` is named beside it because its example renders a
@@ -79,7 +94,7 @@ satellite_package() {
     local id=$1 rid=$2
 
     case "$id" in
-        M3scalinum.Text.Typst|M3scalinum.Text.Templates) ;;
+        M3scalinum.Text.Typst|M3scalinum.Text.Templates|M3scalinum.Text.Docx|M3scalinum.Text.Xlsx) ;;
         *) return 0 ;;
     esac
 
@@ -99,12 +114,32 @@ satellite_package() {
     esac
 }
 
+# The five format packages carry no native library since the split (Spec 08 §6): a consumer adds
+# `M3scalinum.Text.<Format>.Native.<Rid>` beside the managed package, exactly as a consumer of the
+# compiler adds the compiler's satellite. Docx and Xlsx render through the compiler, so their example
+# needs both.
+format_satellite() {
+    local id=$1 rid=$2 suffix
+
+    case "$id" in
+        M3scalinum.Text.Barcodes) suffix=Barcodes ;;
+        M3scalinum.Text.Docx)     suffix=Docx ;;
+        M3scalinum.Text.Ocr)      suffix=Ocr ;;
+        M3scalinum.Text.Pdf)      suffix=Pdf ;;
+        M3scalinum.Text.Xlsx)     suffix=Xlsx ;;
+        *) return 0 ;;
+    esac
+
+    printf 'M3scalinum.Text.%s.Native.%s' "$suffix" "$(rid_suffix "$rid")"
+}
+
 rid=${6:-}
 if [ -z "$rid" ]; then
     rid=$(host_rid)
 fi
 
 satellite=$(satellite_package "$package" "$rid")
+format_native=$(format_satellite "$package" "$rid")
 
 # The generated project is written outside the repository, so it inherits neither
 # Directory.Build.props nor the central package versions. The path is converted for the native
@@ -122,24 +157,29 @@ if [ ! -f "$feed/$package.$version.nupkg" ]; then
     exit 1
 fi
 
-if [ -n "$satellite" ]; then
-    # The satellite travels with the compiler train, not with the package under test: a Templates
-    # example restores `M3scalinum.Text.Templates` 0.1.0 and the library it compiles through is
-    # `M3scalinum.Text.Typst.Native.LinuxX64` 0.15.1.N. Its version is read from the feed for that
-    # reason, never derived from <version>.
-    satellite_nupkg=$(ls "$feed/$satellite".*.nupkg 2>/dev/null | head -n 1 || true)
-    if [ -z "$satellite_nupkg" ]; then
-        # The package under test is here and the library it needs is not: a green run would prove
+# Each satellite's version is read from the feed, never derived from <version>: the compiler's
+# travels with the compiler train (0.15.1.x) while a format satellite carries its managed package's
+# version (0.1.x), and a Templates example restores 0.1.0 of a package that pins 0.15.1.
+satellite_references=""
+for required_satellite in $satellite $format_native; do
+    required_nupkg=$(ls "$feed/$required_satellite".*.nupkg 2>/dev/null | head -n 1 || true)
+
+    if [ -z "$required_nupkg" ]; then
+        # The package under test is here and a library it needs is not: a green run would prove
         # nothing, because the example would fail at its first compile with a message about a feed.
-        echo "the feed $feed holds no $satellite.<version>.nupkg: pack" \
-             "src/Text.Typst.Native.Package -p:NativeRid=$rid alongside the other packages" \
-             "(tools/pack-typst-packages.py packs the set)" >&2
+        echo "the feed $feed holds no $required_satellite.<version>.nupkg: pack" \
+             "src/Text.Typst.Native.Package or src/Text.Format.Native.Package for RID $rid" \
+             "alongside the other packages (tools/pack-typst-packages.py and" \
+             "tools/pack-format-packages.py pack the sets)" >&2
         exit 1
     fi
-    satellite_version=$(basename "$satellite_nupkg")
-    satellite_version=${satellite_version#"$satellite".}
-    satellite_version=${satellite_version%.nupkg}
-fi
+
+    required_version=$(basename "$required_nupkg")
+    required_version=${required_version#"$required_satellite".}
+    required_version=${required_version%.nupkg}
+    satellite_references="$satellite_references    <PackageReference Include=\"$required_satellite\" Version=\"$required_version\" />
+"
+done
 
 rm -rf "$work"
 mkdir -p "$work"
@@ -153,10 +193,7 @@ export NUGET_PACKAGES="$work/.nuget"
 
 # The satellite is a second PackageReference, the way a consumer writes it: NuGet cannot choose it
 # from the RID, so the project has to name it (Spec 08 §6).
-satellite_reference=""
-if [ -n "$satellite" ]; then
-    satellite_reference="    <PackageReference Include=\"$satellite\" Version=\"$satellite_version\" />"
-fi
+
 
 cat > "$work/Example.csproj" <<EOF
 <Project Sdk="Microsoft.NET.Sdk">
@@ -172,7 +209,7 @@ cat > "$work/Example.csproj" <<EOF
 
   <ItemGroup>
     <PackageReference Include="$package" Version="$version" />
-${satellite_reference}
+${satellite_references}
   </ItemGroup>
 
   <ItemGroup>
@@ -182,7 +219,7 @@ ${satellite_reference}
 </Project>
 EOF
 
-echo "== $example: $package $version from $feed (RID $rid${satellite:+, plus $satellite})"
+echo "== $example: $package $version from $feed (RID $rid${satellite:+, plus $satellite}${format_native:+, plus $format_native})"
 
 # The sources are a file rather than `--source` arguments: a local folder and nuget.org, the first
 # for the package under test and the second for its published dependencies. The `<clear/>` keeps a

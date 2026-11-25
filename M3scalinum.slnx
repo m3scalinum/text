@@ -6,6 +6,7 @@
     <Project Path="src/Text.Typst.DependencyInjection/Text.Typst.DependencyInjection.csproj" />
     <Project Path="src/Text.Typst.Native/Text.Typst.Native.csproj" />
     <Project Path="src/Text.Typst.Native.Package/Text.Typst.Native.Package.csproj" />
+    <Project Path="src/Text.Format.Native.Package/Text.Format.Native.Package.csproj" />
     <Project Path="src/Text.Templates.Generator/Text.Templates.Generator.csproj" />
     <Project Path="src/Text.Templates/Text.Templates.csproj" />
     <Project Path="src/Text.Typst/Text.Typst.csproj" />

@@ -1,0 +1,138 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    One project, forty packages: the per-RID satellites that carry the five format libraries
+    (`text-barcodes`, `text-docx`, `text-ocr`, `text-pdf`, `text-xlsx`), separated from their managed
+    packages so a consumer downloads the library their machine can load and not the seven others
+    (Spec 08 §6). The compiler did this first in `src/Text.Typst.Native.Package`; this is the same
+    recipe, parameterised by format as well as by RID.
+
+    The format and the RID are properties, not projects. `NativeFormat` selects the library stem and
+    the managed package the satellite belongs to; `NativeRid` selects the extension and the suffix of
+    the package id. Forty-five copied csproj files would each restate the same eight RIDs, the same
+    `Exists(...)` conditions and the same licence items, and would drift on the first file added.
+
+    Nothing managed is packed here: the file is the native library, so `IncludeBuildOutput` is off and
+    `lib/<tfm>/_._` says "this package has no assembly" to NuGet — which is also what makes it
+    installable on every target framework the managed package supports.
+  -->
+  <PropertyGroup>
+    <!-- `-p:RuntimeIdentifier=<rid>` also works; `NativeRid` wins when both are given. -->
+    <NativeRid Condition="'$(NativeRid)' == ''">$(RuntimeIdentifier)</NativeRid>
+
+    <!-- The managed package this satellite completes, and the folder it lives in. -->
+    <NativeFormatSuffix Condition="'$(NativeFormat)' == 'barcodes'">Barcodes</NativeFormatSuffix>
+    <NativeFormatSuffix Condition="'$(NativeFormat)' == 'docx'">Docx</NativeFormatSuffix>
+    <NativeFormatSuffix Condition="'$(NativeFormat)' == 'ocr'">Ocr</NativeFormatSuffix>
+    <NativeFormatSuffix Condition="'$(NativeFormat)' == 'pdf'">Pdf</NativeFormatSuffix>
+    <NativeFormatSuffix Condition="'$(NativeFormat)' == 'xlsx'">Xlsx</NativeFormatSuffix>
+
+    <!-- The library's name without prefix or extension, which is the crate's `lib` name. -->
+    <NativeStem Condition="'$(NativeFormat)' == 'barcodes'">sharp_text_barcodes</NativeStem>
+    <NativeStem Condition="'$(NativeFormat)' == 'docx'">sharp_text_docx</NativeStem>
+    <NativeStem Condition="'$(NativeFormat)' == 'ocr'">sharp_text_ocr</NativeStem>
+    <NativeStem Condition="'$(NativeFormat)' == 'pdf'">sharp_text_pdf</NativeStem>
+    <NativeStem Condition="'$(NativeFormat)' == 'xlsx'">sharp_text_xlsx</NativeStem>
+
+    <NativeLibrary Condition="'$(NativeRid)' == 'win-x64'">$(NativeStem).dll</NativeLibrary>
+    <NativeLibrary Condition="'$(NativeRid)' == 'win-arm64'">$(NativeStem).dll</NativeLibrary>
+    <NativeLibrary Condition="'$(NativeRid)' == 'linux-x64'">lib$(NativeStem).so</NativeLibrary>
+    <NativeLibrary Condition="'$(NativeRid)' == 'linux-arm64'">lib$(NativeStem).so</NativeLibrary>
+    <NativeLibrary Condition="'$(NativeRid)' == 'linux-musl-x64'">lib$(NativeStem).so</NativeLibrary>
+    <NativeLibrary Condition="'$(NativeRid)' == 'linux-musl-arm64'">lib$(NativeStem).so</NativeLibrary>
+    <NativeLibrary Condition="'$(NativeRid)' == 'osx-arm64'">lib$(NativeStem).dylib</NativeLibrary>
+    <NativeLibrary Condition="'$(NativeRid)' == 'osx-x64'">lib$(NativeStem).dylib</NativeLibrary>
+
+    <NativePackageSuffix Condition="'$(NativeRid)' == 'win-x64'">WinX64</NativePackageSuffix>
+    <NativePackageSuffix Condition="'$(NativeRid)' == 'win-arm64'">WinArm64</NativePackageSuffix>
+    <NativePackageSuffix Condition="'$(NativeRid)' == 'linux-x64'">LinuxX64</NativePackageSuffix>
+    <NativePackageSuffix Condition="'$(NativeRid)' == 'linux-arm64'">LinuxArm64</NativePackageSuffix>
+    <NativePackageSuffix Condition="'$(NativeRid)' == 'linux-musl-x64'">LinuxMuslX64</NativePackageSuffix>
+    <NativePackageSuffix Condition="'$(NativeRid)' == 'linux-musl-arm64'">LinuxMuslArm64</NativePackageSuffix>
+    <NativePackageSuffix Condition="'$(NativeRid)' == 'osx-arm64'">OsxArm64</NativePackageSuffix>
+    <NativePackageSuffix Condition="'$(NativeRid)' == 'osx-x64'">OsxX64</NativePackageSuffix>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!--
+      This package follows the suite, not the compiler: a satellite of `M3scalinum.Text.Pdf` must carry
+      the version of `M3scalinum.Text.Pdf` (0.1.x), not the version of the compiler it does not embed.
+      The release passes -p:SuiteVersion=<tag>; an untagged build falls back to TextVersion.
+    -->
+    <SuiteVersion Condition="'$(SuiteVersion)' == ''">$(TextVersion)</SuiteVersion>
+    <Version>$(SuiteVersion)</Version>
+    <AssemblyVersion>$(SuiteVersion)</AssemblyVersion>
+    <FileVersion>$(SuiteVersion)</FileVersion>
+    <InformationalVersion>$(Version)</InformationalVersion>
+
+    <!-- A build of the solution packs nothing: without a format and a RID there is no package to name. -->
+    <IsPackable Condition="'$(NativeLibrary)' != '' and '$(NativeFormatSuffix)' != ''">true</IsPackable>
+    <PackageId Condition="'$(NativeLibrary)' != '' and '$(NativeFormatSuffix)' != ''">M3scalinum.Text.$(NativeFormatSuffix).Native.$(NativePackageSuffix)</PackageId>
+    <Description Condition="'$(NativeLibrary)' != '' and '$(NativeFormatSuffix)' != ''">The native $(NativeFormat) library for $(NativeRid), for M3scalinum.Text.$(NativeFormatSuffix). Reference this package on $(NativeRid) hosts; the managed package alone carries no native library.</Description>
+    <PackageTags>native;$(NativeFormat);$(NativeRid)</PackageTags>
+
+    <!-- The package is one binary: an empty assembly and a symbol package would only add bytes. -->
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <IncludeSymbols>false</IncludeSymbols>
+
+    <TargetFrameworks>net8.0;net9.0;net10.0;net11.0</TargetFrameworks>
+    <TargetFramework />
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(NativeFormatSuffix)' != ''">
+    <!--
+      The managed package a consumer adds first. A project reference pins the exact version the
+      satellite was packed against, so a satellite can never be installed against a managed package it
+      was not built for.
+    -->
+    <ProjectReference Include="..\Text.$(NativeFormatSuffix)\Text.$(NativeFormatSuffix).csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- `lib/<tfm>/_._`: "no assembly, and none is missing" (the placeholder meta-packages use). -->
+    <None Include="_._" Pack="true" PackagePath="lib/net8.0/" Visible="false" />
+    <None Include="_._" Pack="true" PackagePath="lib/net9.0/" Visible="false" />
+    <None Include="_._" Pack="true" PackagePath="lib/net10.0/" Visible="false" />
+    <None Include="_._" Pack="true" PackagePath="lib/net11.0/" Visible="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      The same `runtimes/<rid>/native/` layout and the same `Exists(...)` condition the managed
+      packages used for their entries: a pack on a machine that built no natives still produces a
+      package, and `tests/verify-package.py` is what turns it red instead of a consumer.
+    -->
+    <None Include="$(NativeArtifactsDir)/$(NativeRid)/$(NativeLibrary)"
+          Pack="true" PackagePath="runtimes/$(NativeRid)/native/" Visible="false"
+          Condition="Exists('$(NativeArtifactsDir)/$(NativeRid)/$(NativeLibrary)')" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="/" />
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="/" />
+    <None Include="..\..\NOTICE" Pack="true" PackagePath="/" />
+    <None Include="..\..\THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="/" Condition="Exists('..\..\THIRD-PARTY-NOTICES.md')" />
+  </ItemGroup>
+
+  <!--
+    A pack has to name a format and a RID. An unknown value would otherwise produce a package named
+    `M3scalinum.Text..Native.` with no native in it, which is worse than a failed pack — so it is an
+    error, and a plain `dotnet pack` on a solution says what to pass instead of silently doing nothing.
+  -->
+  <Target Name="RequireKnownFormat" BeforeTargets="Pack"
+          Condition="'$(NativeFormat)' != '' and '$(NativeFormatSuffix)' == ''">
+    <Error Text="Unknown NativeFormat '$(NativeFormat)'. Pass one of: barcodes, docx, ocr, pdf, xlsx (for example -p:NativeFormat=pdf)." />
+  </Target>
+
+  <Target Name="RequireKnownNativeRid" BeforeTargets="Pack"
+          Condition="'$(NativeRid)' != '' and '$(NativeLibrary)' == ''">
+    <Error Text="Unknown NativeRid '$(NativeRid)'. Pass one of: win-x64, win-arm64, linux-x64, linux-arm64, linux-musl-x64, linux-musl-arm64, osx-arm64, osx-x64 (for example -p:NativeRid=win-x64)." />
+  </Target>
+
+  <Target Name="SayNoFormatOrRid" BeforeTargets="Pack"
+          Condition="'$(NativeFormat)' == '' or '$(NativeRid)' == ''">
+    <Message Importance="high"
+             Text="Text.Format.Native.Package packs nothing without a format and a RID: pass -p:NativeFormat=pdf -p:NativeRid=win-x64 (tools/pack-format-packages.py packs the set)." />
+  </Target>
+
+</Project>
