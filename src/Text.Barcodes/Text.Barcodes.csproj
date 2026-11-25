@@ -20,8 +20,8 @@
     <IsAotCompatible>true</IsAotCompatible>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <PackageId>M3scalinum.Text.Barcodes</PackageId>
-    <Description>Encode and decode QR Code, DataMatrix, Aztec, PDF417, Code 128, Code 39, EAN-13, EAN-8, ITF and Codabar in-process: SVG and PNG out, text and symbology back.</Description>
-    <PackageTags>barcode;qrcode;datamatrix;aztec;pdf417;ean13;ean8;code128;code39;itf;codabar;svg;png</PackageTags>
+    <Description>Encode and decode 19 barcode symbologies in-process — QR Code, Micro QR, DataMatrix, Aztec, PDF417, MaxiCode, Code 128, 39 and 93, Telepen, EAN-13 and EAN-8, UPC-A and UPC-E, ITF, Codabar, GS1-128 and GS1 DataBar — to SVG or PNG, decode every symbol on a page, and build GS1 element strings and Digital Link URLs.</Description>
+    <PackageTags>barcode;qrcode;micro-qr;datamatrix;aztec;pdf417;maxicode;ean13;ean8;upc;code128;code39;code93;telepen;itf;codabar;gs1;databar;svg;png</PackageTags>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
 

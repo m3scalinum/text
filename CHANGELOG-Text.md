@@ -266,6 +266,18 @@ Not yet published.
   JPEG at quality 85 is 8× smaller than the PNG (386 KB against 3.1 MB), which is what a preview needs.
   PNG stays the default because on flat vector art it wins — the measurement is in the specification.
 
+### Changed
+
+- Every package's NuGet description now states what the package does. `M3scalinum.Text.Pdf` names PAdES
+  B-B to B-LTA, eIDAS, page operations, forms, encryption, PDF/A conversion, PDF/A and PDF/UA
+  conformance and rasterisation instead of only signing and a page preview, and it and
+  `M3scalinum.Text.Ocr` gain the `PackageTags` they were missing. `M3scalinum.Text.Barcodes` names the
+  nineteen symbologies and GS1 rather than ten of them; `M3scalinum.Text.Documents` states that HTML
+  and Markdown are written back out as well as read in; `M3scalinum.Text.Xlsx` adds durations;
+  `M3scalinum.Text.Typst` says that the managed package carries no native library and names the
+  satellite to add; and `M3scalinum.Text.Mcp` drops the `facturx` tag of a package the suite no longer
+  has.
+
 ### Security
 
 - `M3scalinum.Text.Docx` reads every XML part through one entry point, `xml::parse`, which refuses a

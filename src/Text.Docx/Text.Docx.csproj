@@ -26,9 +26,9 @@
 
   <ItemGroup>
     <!--
-      Same two ways to reach the compiler wrapper as M3scalinum.Text.Pdf.FactureX: a project
-      reference in the repository, a package reference when the release passes CoreVersion. This
-      package exists to produce a TypstDocument, so the dependency is the point, not an accident.
+      Same two ways to reach the compiler wrapper as M3scalinum.Text.Xlsx: a project reference in the
+      repository, a package reference when the release passes CoreVersion. This package exists to
+      produce a TypstDocument, so the dependency is the point, not an accident.
     -->
     <ProjectReference Include="..\Text.Typst\Text.Typst.csproj" Condition="'$(CoreVersion)' == ''" />
     <PackageReference Include="M3scalinum.Text.Typst" Condition="'$(CoreVersion)' != ''" />
