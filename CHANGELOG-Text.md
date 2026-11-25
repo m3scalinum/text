@@ -276,7 +276,8 @@ Not yet published.
   and Markdown are written back out as well as read in; `M3scalinum.Text.Xlsx` adds durations;
   `M3scalinum.Text.Typst` says that the managed package carries no native library and names the
   satellite to add; and `M3scalinum.Text.Mcp` drops the `facturx` tag of a package the suite no longer
-  has.
+  has. Every package also names its project — `projectUrl` — and carries the 256 px icon nuget.org
+  shows, both required by `tests/verify-package.py`.
 - References to the packages the suite no longer has are gone. `CONTRIBUTING.md` named
   `M3scalinum.Text.Pdf.FactureX` as the second package of the suite train and now lists the seven that
   actually follow `TextVersion`; `08-build-and-packaging.md` says that the `examples` job packs the

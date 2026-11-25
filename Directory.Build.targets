@@ -28,6 +28,16 @@
   </PropertyGroup>
 
   <!--
+    The icon nuget.org shows for every package: one 256 px file at the package root, which is the
+    path `PackageIcon` names. `tests/verify-package.py` requires it in each package, so a pack that
+    loses it fails instead of shipping a grey square.
+  -->
+  <ItemGroup Condition="'$(IsPackable)' == 'true'">
+    <None Include="$(MSBuildThisFileDirectory)assets/icon.png"
+          Pack="true" PackagePath="/" Link="icon.png" Visible="false" />
+  </ItemGroup>
+
+  <!--
     The Rust crate is never built implicitly: a managed build must not depend on a Rust
     toolchain. Set BuildNative=true (or run cargo yourself) to produce the native library.
   -->

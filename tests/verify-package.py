@@ -68,6 +68,7 @@ REQUIRED_FILES = [
     "NOTICE",
     "THIRD-PARTY-NOTICES.md",
     "README.md",
+    "icon.png",
 ]
 
 REQUIRED_ASSEMBLIES = [
@@ -256,7 +257,7 @@ def check(path: str, require_native: bool = False) -> dict:
                 if required not in names:
                     problems.append(f"missing file: {required}")
 
-            summary = f"ok (managed only, {len(REQUIRED_FILES)} licence files)"
+            summary = f"ok (managed only, {len(REQUIRED_FILES)} required files)"
 
         elif rid_of_satellite is not None:
             kind = "native-satellite"
@@ -297,7 +298,7 @@ def check(path: str, require_native: bool = False) -> dict:
                 if required not in names:
                     problems.append(f"missing file: {required}")
 
-            summary = f"ok ({len(NATIVE_PACKAGES[native_package])} RIDs, {len(REQUIRED_FILES)} licence files)"
+            summary = f"ok ({len(NATIVE_PACKAGES[native_package])} RIDs, {len(REQUIRED_FILES)} required files)"
 
         elif staged_package is not None:
             kind = "staged-package"
@@ -315,7 +316,7 @@ def check(path: str, require_native: bool = False) -> dict:
                         problems.append(f"missing native asset: {entry}")
 
             rid_count = len(STAGED_NATIVE_PACKAGES[staged_package]) if require_native else 0
-            summary = f"ok ({rid_count} RIDs checked, {len(REQUIRED_FILES)} licence files)"
+            summary = f"ok ({rid_count} RIDs checked, {len(REQUIRED_FILES)} required files)"
 
         elif is_satellite:
             kind = "satellite"
@@ -402,7 +403,7 @@ def _fabricate(
     ident: str = "M3scalinum.Text.Selftest",
     pins: str | None = None,
 ) -> str:
-    """Writes the smallest package `check` can judge: one assembly, the licence files, a nuspec.
+    """Writes the smallest package `check` can judge: one assembly, the required files, a nuspec.
 
     `pins` writes the core dependency a satellite declares, which is what a set is judged on: a
     satellite that names no core version, or another one, breaks the consumer's restore.
@@ -466,7 +467,7 @@ def selftest() -> int:
             barcodes,
             False,
             0,
-            f"ok ({len(barcodes)} RIDs, 4 licence files)",
+            f"ok ({len(barcodes)} RIDs, 5 required files)",
         ),
         (
             "a native package without its linux-musl-arm64 library",
@@ -482,7 +483,7 @@ def selftest() -> int:
             pdf,
             True,
             0,
-            f"ok ({len(pdf)} RIDs checked, 4 licence files)",
+            f"ok ({len(pdf)} RIDs checked, 5 required files)",
         ),
         (
             "a staged package with --native and no linux-musl-arm64 library",
@@ -506,7 +507,7 @@ def selftest() -> int:
             {},
             False,
             0,
-            "ok (managed only, 4 licence files)",
+            "ok (managed only, 5 required files)",
         ),
         (
             "the managed compiler package carrying a native library again",
