@@ -14,7 +14,7 @@
 | Unit (generator) | `tests/Text.Templates.Generator.Tests` | No | 14 | < 5 s |
 | Layouts | `tests/Text.Templates.Tests` | Yes, for the render tests | 111 | ~15 s |
 | Suite (surface and docs) | `tests/Text.Suite.Tests` | No | 7 | < 2 s |
-| Integration | `tests/Text.Typst.Integration.Tests` | **Yes** — `SHARPTYPST_NATIVE_PATH` | 316 | < 3 min |
+| Integration | `tests/Text.Typst.Integration.Tests` | **Yes** — `SHARPTYPST_NATIVE_PATH` | 326 | < 3 min |
 | ABI | `native/sharp-typst` (`cargo test`) | — | 54 | < 30 s |
 | Unit (native xlsx) | `native/text-xlsx` (`cargo test --lib`) | — | 36 | < 5 s |
 | Unit (native pdf) | `native/text-pdf` (`cargo test --lib`) | — | 24 | < 5 s |
@@ -87,7 +87,7 @@ the `.nupkg` that same run packed — never against the project ([08 §8](08-bui
 | Compilation | Minimal document; multi-page; imports; images; custom font; missing font fallback; math; table; footnote; reference |
 | Formats | PDF (magic bytes, page count via a PDF reader), SVG (well-formed XML, one root per page), PNG (dimensions match PPI × page size), HTML (contains expected tags), Markdown, text |
 | Merged exports | `ExportSvgMerged` and `ExportPngMerged` stack every page: the merged height is the sum of the pages, and a single-page document merges to one page |
-| PDF options | PDF/A-2b and PDF/UA-1 write their metadata; a page range subsets the output; an untagged export is smaller; an unknown range and an incompatible standard combination are rejected |
+| PDF options | PDF/A-2b and PDF/UA-1 write their metadata; a PDF/A-4f export with `#pdf.attach(…)` is conformant by `PdfConformance` and keeps its attachment, and one that attaches nothing claims 4f and is rejected with `PDFA4F.EMBEDDED_FILES_MISSING`; PDF/A-4e writes a PDF 2.0; a page range subsets the output; an untagged export is smaller; an unknown range and an incompatible standard combination are rejected |
 | Fonts | A directory adds faces; a missing directory adds none; a document compiles with a font that only exists in the scanned directory |
 | Async and helpers | `CompileAsync` returns a usable result, honours a cancelled token and surfaces a compilation error; the five `CompileTo*` helpers return the right format |
 | In-memory templates | A template loads from a file set, renders, and rejects a missing entry or a missing `render`; a bundle writes to a zip |

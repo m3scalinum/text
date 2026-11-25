@@ -131,3 +131,4 @@ question is answered once instead of at every review. They live in [../decisions
 | --- | --- | --- |
 | 0001 | [0001-pdf-written-by-hand.md](../decisions/0001-pdf-written-by-hand.md) | PDF is written and edited byte by byte, with no PDF writing library |
 | 0002 | [0002-markdown-read-and-written-by-hand.md](../decisions/0002-markdown-read-and-written-by-hand.md) | Markdown is parsed and emitted by hand, with no Markdown crate |
+| 0003 | [0003-pdfa-4f-is-reported-not-refused.md](../decisions/0003-pdfa-4f-is-reported-not-refused.md) | A PDF/A-4f export with nothing attached is reported by the checker, not refused by the compiler |

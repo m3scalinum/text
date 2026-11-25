@@ -248,6 +248,15 @@ public sealed record HtmlExportOptions
 Two constraints come from Typst and are surfaced as `TypstExportException` rather than silently
 worked around: a page range cannot be combined with tagged output, and PDF/A needs a document date.
 
+PDF/A-4f is the one flavour whose claim depends on the document rather than on the options. The
+profile requires at least one associated file, and Typst does not refuse a 4f export that attaches
+nothing: it writes an empty `/EmbeddedFiles` tree and the XMP still declares part 4, level F, so the
+bytes claim a profile they do not meet. `PdfConformance.Check(pdf, PdfConformanceStandard.PdfA4f)`
+reports `PDFA4F.EMBEDDED_FILES_MISSING` on such a file, and a document that attaches a file with
+`#pdf.attach(path, relationship: …)` passes. Every attached file must state its relationship — the
+profile reads `/AFRelationship`, and a file that states none is refused by the converter. Why the
+compiler does not refuse the empty claim itself is [decision 0003](../decisions/0003-pdfa-4f-is-reported-not-refused.md).
+
 Fonts are deliberately absent from this table: the writer embeds a subset of every face it uses and
 exposes no switch for it. §13 covers what that means and how to measure it.
 

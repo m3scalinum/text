@@ -84,6 +84,11 @@ and never seeked.
 - PDF/A needs a document date — set `Timestamp`.
 - PDF/UA needs a document title — `#set document(title: …)`.
 
+PDF/A-4f adds a condition on the document instead: the profile requires at least one associated file.
+Typst exports 4f anyway, with an empty `/EmbeddedFiles` tree, so a 4f document that attaches nothing
+is a false claim — `PdfConformance.Check` reports `PDFA4F.EMBEDDED_FILES_MISSING` on it. Attach a
+file with `#pdf.attach(path, relationship: …)`.
+
 ## Async
 
 ```csharp

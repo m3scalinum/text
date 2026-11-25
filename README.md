@@ -138,7 +138,7 @@ result.ExportPdf(response.Body);
 | Export | PDF, SVG, PNG, HTML, Markdown, plain text, and an HTML bundle with its assets |
 | Streaming | `ExportPdf(Stream)` copies the output out in 64 KiB chunks: no second, managed copy of a large PDF |
 | Telemetry | `ActivitySource` and `Meter` named `M3scalinum.Text.Typst`: spans, durations, page counts, outcomes |
-| PDF standards | PDF/A-1b to A-4e, PDF/UA-1, page ranges, tagged output, metadata |
+| PDF standards | PDF/A-1b to A-4e, PDF/UA-1, page ranges, tagged output, metadata; a 4f claim needs an attached file |
 | Fonts | Embedded, scanned from a directory, or the host's installed fonts |
 | Async | `CompileAsync` on the thread pool, with the cancellation caveat documented |
 | Concurrency | `TypstCompiler(maxConcurrency)` bounds the work in flight; the queue wait is asynchronous |
