@@ -22,9 +22,11 @@ rxing = { version = "0.9.4", default-features = false, features = [
     "multi_barcode_readers",
     "encoding_rs",
 ] }
-# PNG only, pinned to the version rxing itself depends on so the tree holds one copy. MIT OR
-# Apache-2.0.
-image = { version = "=0.25.8", default-features = false, features = ["png"] }
+# PNG only. MIT OR Apache-2.0. The requirement is a range, not the exact version rxing happens to
+# depend on: `fuzz/` links this crate with the other parsers, and an `=` pin here made that graph
+# unresolvable as soon as another crate wanted a newer 0.25 patch (`image` 0.25.10), which is what
+# turned the weekly fuzz run red. The committed `Cargo.lock` still holds one copy per crate.
+image = { version = "0.25.8", default-features = false, features = ["png"] }
 
 [profile.release]
 lto = "thin"

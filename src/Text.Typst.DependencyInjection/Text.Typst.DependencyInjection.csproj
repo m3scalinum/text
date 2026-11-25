@@ -7,7 +7,6 @@
     <PackageTags>typst;pdf;typesetting;dependency-injection;di</PackageTags>
     <TargetFrameworks>net8.0;net9.0;net10.0;net11.0</TargetFrameworks>
     <TargetFramework />
-    <SuppressTfmSupportBuildWarnings>true</SuppressTfmSupportBuildWarnings>
 
     <!--
       The abstractions ship inside the shared framework above net10, so the package reference below

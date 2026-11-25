@@ -17,7 +17,6 @@
     <PackageTags>typst;templates;invoice;facture;quotation;devis;statement;attestation;contract;contrat;payslip;bulletin-de-paie;purchase-order;bon-de-commande;pdf</PackageTags>
     <TargetFrameworks>net8.0;net9.0;net10.0;net11.0</TargetFrameworks>
     <TargetFramework />
-    <SuppressTfmSupportBuildWarnings>true</SuppressTfmSupportBuildWarnings>
 
     <!--
       The abstractions ship inside the shared framework above net10, so the package reference below

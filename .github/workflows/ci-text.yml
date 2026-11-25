@@ -431,6 +431,16 @@ jobs:
         if: steps.natives.outputs.cache-hit != 'true'
         working-directory: native/${{ matrix.crate }}
         run: cargo clippy $CRT_TARGET --all-targets -- -D warnings
+      - name: Documentation
+        if: steps.natives.outputs.cache-hit != 'true'
+        working-directory: native/${{ matrix.crate }}
+        # A rustdoc warning is not a compiler warning: an intra-doc link to an item that was renamed,
+        # or a doc comment whose code is not escaped, builds and tests green while the published
+        # documentation reads wrong. `-D warnings` makes it a gate. No `--document-private-items`:
+        # what ships is the public surface.
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --no-deps --locked
       - name: Unit tests
         if: steps.natives.outputs.cache-hit != 'true'
         working-directory: native/${{ matrix.crate }}

@@ -21,13 +21,26 @@
     <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
     <PathMap>$(MSBuildThisFileDirectory)=/_/</PathMap>
 
+    <!--
+      `Microsoft.SourceLink.GitHub` brings `System.IO.Hashing` along as a build-time dependency
+      (`PrivateAssets="all"`), and that package's targets file warns on every target framework below
+      the one it was built for: "System.IO.Hashing 11.0.0 doesn't support net8.0". Nothing of it
+      ships — it is not in the nuspec and not in the output — so the warning is about a build tool,
+      not about the package under test. Declared here rather than in the eight multi-targeted
+      projects that each need it, because two of them had forgotten it: one switch, one reason.
+    -->
+    <SuppressTfmSupportBuildWarnings>true</SuppressTfmSupportBuildWarnings>
+
     <!-- Packaging defaults; projects opt in with IsPackable -->
     <IsPackable>false</IsPackable>
     <Authors>m3scalinum</Authors>
     <Company>m3scalinum</Company>
-    <Product>M3scalinum.Text.Typst</Product>
+    <!-- No `Product` here: it is per assembly, and the SDK defaults it to `AssemblyName`. One value
+         for the tree made every DLL report `M3scalinum.Text.Typst` — including `Text.Pdf.dll`. -->
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageIcon>icon.png</PackageIcon>
+    <PackageProjectUrl>https://github.com/m3scalinum/text</PackageProjectUrl>
     <RepositoryType>git</RepositoryType>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>

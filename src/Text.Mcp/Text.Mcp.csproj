@@ -18,7 +18,6 @@
     <PackageTags>mcp;model-context-protocol;json-rpc;stdio;http;streamable-http;typst;pdf;invoice;sign;pades;merge</PackageTags>
     <TargetFrameworks>net8.0;net9.0;net10.0;net11.0</TargetFrameworks>
     <TargetFramework />
-    <SuppressTfmSupportBuildWarnings>true</SuppressTfmSupportBuildWarnings>
 
     <!--
       The protocol surface is hand-written JSON-RPC on top of a source-generated serializer context:

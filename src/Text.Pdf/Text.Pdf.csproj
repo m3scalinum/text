@@ -41,7 +41,6 @@
   <ItemGroup>
     <!-- Sized to the runtime, like the Microsoft.Extensions.* packages of the DI package. -->
     <PackageReference Include="System.Security.Cryptography.Pkcs" VersionOverride="$(PkcsVersion)" />
-    <PackageReference Include="System.IO.Hashing" VersionOverride="8.0.0" />
   </ItemGroup>
 
   <ItemGroup>

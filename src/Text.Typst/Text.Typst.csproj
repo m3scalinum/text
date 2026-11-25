@@ -8,7 +8,6 @@
     <PackageTags>typst;pdf;typesetting;documents;report;pdf-a;pdf-ua;html;markdown;svg;native</PackageTags>
     <TargetFrameworks>net8.0;net9.0;net10.0;net11.0</TargetFrameworks>
     <TargetFramework />
-    <SuppressTfmSupportBuildWarnings>true</SuppressTfmSupportBuildWarnings>
   </PropertyGroup>
 
   <ItemGroup>
