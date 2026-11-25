@@ -432,7 +432,10 @@ jobs:
         working-directory: native/${{ matrix.crate }}
         run: cargo clippy $CRT_TARGET --all-targets -- -D warnings
       - name: Documentation
-        if: steps.natives.outputs.cache-hit != 'true'
+        # Documentation does not depend on the target, and the musl cells carry
+        # `RUSTFLAGS=-C linker=musl-gcc`: a `cargo doc` without `--target` then builds the host's build
+        # scripts with the musl linker and dies in `collect2`. One cell per crate is enough.
+        if: steps.natives.outputs.cache-hit != 'true' && matrix.target == ''
         working-directory: native/${{ matrix.crate }}
         # A rustdoc warning is not a compiler warning: an intra-doc link to an item that was renamed,
         # or a doc comment whose code is not escaped, builds and tests green while the published
