@@ -268,6 +268,15 @@ Not yet published.
 
 ### Changed
 
+- The five format packages ship as a managed package plus one satellite per RID:
+  `M3scalinum.Text.Pdf` and `M3scalinum.Text.Pdf.Native.WinX64`, and the same for `Barcodes`, `Docx`,
+  `Ocr` and `Xlsx`. The single package made every consumer download all eight libraries — 111.3 MB for
+  `Ocr` to use 12.5, 63.0 MB for `Pdf` to use 6.4 — so a `win-x64` consumer pays for six to nine times
+  what their runtime loads. Forty new packages, packed by `tools/pack-format-packages.py` and gated by
+  `tests/verify-package.py`, which now refuses a managed format package that carries a native again and
+  demands the eight satellites of every format in a set. `Docx`, `Xlsx`, `Mcp` and `Templates` also need
+  the compiler's satellite, which they already did: their dependency on the compiler has shipped split
+  since the compiler was.
 - `M3scalinum.Text.Pdf` no longer declares a `System.IO.Hashing` dependency that no code used: it was
   a workaround for a build-time warning, and it travelled to every consumer in the nuspec. The warning
   is suppressed once, in `Directory.Build.props`, where it belongs — it comes from

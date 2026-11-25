@@ -209,6 +209,15 @@ jobs:
             -o artifacts/packages -p:CoreVersion="$core" "${version_args[@]}"
           dotnet pack src/Text.Xlsx -c Release --no-restore \
             -o artifacts/packages -p:CoreVersion="$core" "${version_args[@]}"
+          # The five format packages carry no native library: each ships eight satellites, packed here
+          # at the tag's version. Each pack builds its format first — the assets file only learns the
+          # managed package a satellite pins when the project is built with that format.
+          for format in barcodes docx ocr pdf xlsx; do
+            for rid in win-x64 win-arm64 linux-x64 linux-arm64 linux-musl-x64 linux-musl-arm64 osx-arm64 osx-x64; do
+              dotnet pack src/Text.Format.Native.Package -c Release -o artifacts/packages \
+                "${version_args[@]}" -p:NativeFormat="$format" -p:NativeRid="$rid"
+            done
+          done
       - name: Verify the packages
         # `--native`: this job downloads every crate's eight RIDs, so a package that ships without
         # one of its libraries is caught here rather than by a consumer's DllNotFoundException.

@@ -496,9 +496,10 @@ jobs:
 
   extras:
     name: extras
-    # Three packages in one job, each carrying its own native library. One job keeps the coverage
-    # measurement per assembly explicit rather than spreading three near-identical jobs across the
-    # workflow.
+    # Four managed packages, their thirty-two satellites, and the forty-five packages of the format
+    # split. One job keeps the coverage measurement per assembly explicit rather than spreading four
+    # near-identical jobs across the workflow, and it is the only job that holds every crate's
+    # artifacts, which is what packing all five formats needs.
     needs: [changes, native, native-extras]
     # A cell that was cancelled — a macOS runner reclaiming a heavy crate, which happens — must not
     # skip the job that proves the packages pack and install. This job needs the linux artifacts, not
@@ -564,24 +565,21 @@ jobs:
           name: coverage-extras
           path: artifacts/coverage/extras.xml
       - name: Pack
-        run: |
-          dotnet pack src/Text.Barcodes -c Release --no-build -o artifacts/packages
-          dotnet pack src/Text.Docx -c Release --no-build -o artifacts/packages
-          dotnet pack src/Text.Ocr -c Release --no-build -o artifacts/packages
-          dotnet pack src/Text.Xlsx -c Release --no-build -o artifacts/packages
+        # The four managed packages, then their thirty-two satellites: `src/Text.Format.Native.Package`
+        # is one project parameterised by `-p:NativeFormat` and `-p:NativeRid`, and the script builds
+        # each format once before packing its eight RIDs (a `--no-build` pack reads the assets file,
+        # which only knows the managed package if the format was built).
+        run: python3 tools/pack-format-packages.py --output artifacts/packages
       - name: Prove the verifier refuses a package without linux-musl-arm64
         # A verifier that only passes proves nothing. The selftest fabricates packages and asserts
         # that one without that RID is refused, so deleting the requirement turns this red instead
         # of quietly shrinking what the next step checks.
         run: python3 tests/verify-package.py --selftest
       - name: Verify the packages
-        # Three of them carry a native library each: a missing RID fails here rather than as a
-        # DllNotFoundException in a consumer's application.
-        run: |
-          python3 tests/verify-package.py artifacts/packages/M3scalinum.Text.Barcodes.*.nupkg
-          python3 tests/verify-package.py artifacts/packages/M3scalinum.Text.Docx.*.nupkg
-          python3 tests/verify-package.py artifacts/packages/M3scalinum.Text.Ocr.*.nupkg
-          python3 tests/verify-package.py artifacts/packages/M3scalinum.Text.Xlsx.*.nupkg
+        # The set, not one file per call: a managed format package must be joined by its eight
+        # satellites, and each satellite must carry exactly its own RID's library and pin the managed
+        # version it was built against.
+        run: python3 tests/verify-package.py artifacts/packages/M3scalinum.Text.*.nupkg
       - uses: actions/upload-artifact@v7
         with:
           name: packages-extras
@@ -627,6 +625,12 @@ jobs:
         run: |
           for project in Text.Pdf Text.Templates Text.Mcp Text.Barcodes Text.Ocr Text.Docx Text.Xlsx Text.Typst Text.Documents; do
             dotnet pack "src/$project" -c Release --no-build -o artifacts/packages
+          done
+          # The satellites the Alpine examples restore: the five format libraries for this image's
+          # RID, each packed with its format built so the assets file knows the managed dependency.
+          for format in barcodes docx ocr pdf xlsx; do
+            dotnet pack src/Text.Format.Native.Package -c Release -o artifacts/packages \
+              -p:NativeFormat=$format -p:NativeRid=linux-musl-x64
           done
           ls -l artifacts/packages
       - name: Run one example per package on Alpine
@@ -682,6 +686,12 @@ jobs:
         run: |
           for project in Text.Pdf Text.Templates Text.Mcp Text.Barcodes Text.Ocr Text.Docx Text.Xlsx Text.Typst Text.Documents; do
             dotnet pack "src/$project" -c Release --no-build -o artifacts/packages
+          done
+          # The satellites the Alpine examples restore: the five format libraries for this image's
+          # RID, each packed with its format built so the assets file knows the managed dependency.
+          for format in barcodes docx ocr pdf xlsx; do
+            dotnet pack src/Text.Format.Native.Package -c Release -o artifacts/packages \
+              -p:NativeFormat=$format -p:NativeRid=linux-musl-arm64
           done
           ls -l artifacts/packages
       - name: Run one example per package on Alpine
@@ -753,6 +763,14 @@ jobs:
           # the point of the resolver's message, but it fails this job.
           dotnet pack src/Text.Typst.Native.Package -c Release --no-build \
             -o artifacts/packages-examples -p:NativeRid=linux-x64
+          # The five format packages carry no native library either, since the same split: each
+          # example restores `M3scalinum.Text.<Format>.Native.LinuxX64` beside the package under
+          # test. Packed without `--no-build` because the assets file only learns the managed package
+          # a satellite pins when the project is built with that format.
+          for format in barcodes docx ocr pdf xlsx; do
+            dotnet pack src/Text.Format.Native.Package -c Release -o artifacts/packages-examples \
+              -p:NativeFormat=$format -p:NativeRid=linux-x64
+          done
           ls -l artifacts/packages-examples
       - name: Run one example per package
         # Each example is a console project generated outside the repository by `run.sh`, with an

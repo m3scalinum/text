@@ -426,17 +426,56 @@ loads the library from `runtimes/win-x64/native/` in its own output directory.
 
 ### 6.5 The RID set of the packages that are not the compiler
 
-The five format packages carry a Rust library of their own, and each still ships **eight** RIDs in one
-package: the compiler's seven plus `linux-musl-arm64`, which the compiler does not have.
+The five format packages carry a Rust library of their own, and each ships **eight** RIDs — the
+compiler's seven plus `linux-musl-arm64`, which the compiler does not have.
 
-| Package | RIDs | Count |
+| Package | Satellites | RIDs each |
 | --- | --- | ---: |
-| `M3scalinum.Text.Typst` (the satellites) | `win-x64`, `win-arm64`, `linux-x64`, `linux-arm64`, `linux-musl-x64`, `osx-arm64`, `osx-x64` | 7 |
-| `M3scalinum.Text.Barcodes`, `.Ocr`, `.Docx`, `.Xlsx`, `.Pdf` | the seven above, plus `linux-musl-arm64` | 8 |
+| `M3scalinum.Text.Typst` | `…Typst.Native.<Rid>` | 7 |
+| `M3scalinum.Text.Barcodes`, `.Ocr`, `.Docx`, `.Xlsx`, `.Pdf` | `…<Format>.Native.<Rid>` | 8 |
 
-Those five are not split: each one's library is a few megabytes and its consumers use the one binary
-their RID needs, so the download a `win-x64` consumer pays for is a fraction of the compiler's. A split
-there would repeat the two-line install for packages that are usually pulled in transitively.
+**They are split, and the earlier decision not to split them was wrong on its own numbers.** §6.2
+measured what a consumer of the compiler paid for a package that carried every RID; the same
+arithmetic was never run for the five, whose libraries had been described here as "a few megabytes".
+They are not: measured on the `.nupkg` the CI packs (`example-packages`), before the split.
+
+| Package | The package | What one platform loads | Wasted |
+| --- | ---: | ---: | ---: |
+| `M3scalinum.Text.Ocr` | 111.3 MB | 12.5 MB (`win-x64`) | 89 % |
+| `M3scalinum.Text.Pdf` | 63.0 MB | 6.4 MB (`win-x64`) | 90 % |
+| `M3scalinum.Text.Barcodes` | 42.9 MB | 4.0 MB (`win-x64`) | 91 % |
+| `M3scalinum.Text.Xlsx` | 13.0 MB | ~1.6 MB | 88 % |
+| `M3scalinum.Text.Docx` | 9.6 MB | ~1.2 MB | 87 % |
+
+Two arguments were made against the split, and neither holds. The first was that the download was "a
+fraction of the compiler's" — the compiler's satellite is 56 MB for one RID, and `Ocr` was 111 MB for
+eight. The second was that a split "would repeat the two-line install for packages that are usually
+pulled in transitively" — but `Docx`, `Xlsx`, `Mcp` and `Templates` already depend on
+`M3scalinum.Text.Typst`, whose native ships as a satellite, so every one of those consumers was
+already writing a second line and could not run without it. The split makes that line explicit and
+adds one more, instead of hiding 89 % of the download in the package they did add.
+
+**One project, forty packages.** `src/Text.Format.Native.Package` is parameterised by
+`-p:NativeFormat` (barcodes, docx, ocr, pdf, xlsx) and `-p:NativeRid`, in the same form as
+`src/Text.Typst.Native.Package` for the compiler. `tools/pack-format-packages.py` packs the set, and it
+builds each format once before packing that format's eight RIDs: `dotnet pack --no-build` reads the
+assets file of the last restore, and that file only records the managed package a satellite pins when
+the project was built with that format. A satellite packed without its build has no dependency at all —
+the failure is silent, which is why the script does the build itself.
+
+**What a consumer writes.** The managed package, then the satellite for their runtime, exactly as for
+the compiler:
+
+```bash
+dotnet add package M3scalinum.Text.Pdf
+dotnet add package M3scalinum.Text.Pdf.Native.WinX64
+```
+
+**The guard.** `tests/verify-package.py` judges both halves. A managed format package that carries
+`runtimes/<rid>/native/` again is refused by name, and a satellite must ship exactly its own RID's
+library, no assembly, and an exact pin on the managed version it was built against. Passed the whole
+set, it demands all eight satellites per format, so a release that forgets one fails here instead of
+as a `NU1101` in a consumer's restore.
 
 **The five native packages ship `linux-musl-arm64`.** `linux-musl-x64` alone left the other
 architecture open: NuGet resolves `linux-musl-arm64` to `linux-arm64` without a word, so an Alpine

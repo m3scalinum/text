@@ -22,7 +22,7 @@ arguments, all seven satellites have to be there, and each has to pin that exact
 single path is checked on its own, which is what the `pack` jobs of the CI workflows do.
 
 `--native` additionally requires every RID library of a package whose natives a workflow may not
-have built (`STAGED_NATIVE_PACKAGES`); pass it wherever those libraries exist.
+have built; pass it wherever those libraries exist.
 
 `--selftest` fabricates packages in a temporary directory and asserts this script's own verdicts on
 them, including that a package without its `linux-musl-arm64` library is refused and that a set
@@ -92,8 +92,12 @@ SATELLITE_ASSEMBLIES = {
 # be a cdylib: the CI job builds each crate's staticlib and links it with `musl-gcc`, the compiler's
 # recipe. A missing native job is caught here instead of by a consumer's DllNotFoundException on
 # Alpine, x64 or arm64.
-NATIVE_PACKAGES = {
-    "lib/net11.0/M3scalinum.Text.Barcodes.dll": {
+#: The five packages that carry a Rust library of their own, and the library each RID's satellite
+#: ships. Since the split (Spec 08 §6) the managed package carries none of them: a consumer adds
+#: `M3scalinum.Text.<Format>` and `M3scalinum.Text.<Format>.Native.<Rid>`, exactly as a consumer of
+#: the compiler adds the compiler's satellite.
+FORMAT_LIBRARIES = {
+    "Barcodes": {
         "win-x64": "sharp_text_barcodes.dll",
         "win-arm64": "sharp_text_barcodes.dll",
         "linux-x64": "libsharp_text_barcodes.so",
@@ -103,17 +107,7 @@ NATIVE_PACKAGES = {
         "osx-arm64": "libsharp_text_barcodes.dylib",
         "osx-x64": "libsharp_text_barcodes.dylib",
     },
-    "lib/net11.0/M3scalinum.Text.Ocr.dll": {
-        "win-x64": "sharp_text_ocr.dll",
-        "win-arm64": "sharp_text_ocr.dll",
-        "linux-x64": "libsharp_text_ocr.so",
-        "linux-arm64": "libsharp_text_ocr.so",
-        "linux-musl-x64": "libsharp_text_ocr.so",
-        "linux-musl-arm64": "libsharp_text_ocr.so",
-        "osx-arm64": "libsharp_text_ocr.dylib",
-        "osx-x64": "libsharp_text_ocr.dylib",
-    },
-    "lib/net11.0/M3scalinum.Text.Docx.dll": {
+    "Docx": {
         "win-x64": "sharp_text_docx.dll",
         "win-arm64": "sharp_text_docx.dll",
         "linux-x64": "libsharp_text_docx.so",
@@ -123,7 +117,27 @@ NATIVE_PACKAGES = {
         "osx-arm64": "libsharp_text_docx.dylib",
         "osx-x64": "libsharp_text_docx.dylib",
     },
-    "lib/net11.0/M3scalinum.Text.Xlsx.dll": {
+    "Ocr": {
+        "win-x64": "sharp_text_ocr.dll",
+        "win-arm64": "sharp_text_ocr.dll",
+        "linux-x64": "libsharp_text_ocr.so",
+        "linux-arm64": "libsharp_text_ocr.so",
+        "linux-musl-x64": "libsharp_text_ocr.so",
+        "linux-musl-arm64": "libsharp_text_ocr.so",
+        "osx-arm64": "libsharp_text_ocr.dylib",
+        "osx-x64": "libsharp_text_ocr.dylib",
+    },
+    "Pdf": {
+        "win-x64": "sharp_text_pdf.dll",
+        "win-arm64": "sharp_text_pdf.dll",
+        "linux-x64": "libsharp_text_pdf.so",
+        "linux-arm64": "libsharp_text_pdf.so",
+        "linux-musl-x64": "libsharp_text_pdf.so",
+        "linux-musl-arm64": "libsharp_text_pdf.so",
+        "osx-arm64": "libsharp_text_pdf.dylib",
+        "osx-x64": "libsharp_text_pdf.dylib",
+    },
+    "Xlsx": {
         "win-x64": "sharp_text_xlsx.dll",
         "win-arm64": "sharp_text_xlsx.dll",
         "linux-x64": "libsharp_text_xlsx.so",
@@ -135,23 +149,22 @@ NATIVE_PACKAGES = {
     },
 }
 
-# Packages that do carry a Rust library, but that a workflow with no Rust build for them still packs:
-# ci-sharptypst's `pack` job packs every package to prove it packs and stages only `sharp-typst`, so
-# the six `sharp_text_pdf` libraries are absent there by design. Their RID list is required with
-# `--native`, which every job that does build them passes — ci-text's `examples` job and the
-# release's `pack` job — so a package that ships without one is still red somewhere.
-STAGED_NATIVE_PACKAGES = {
-    "lib/net11.0/M3scalinum.Text.Pdf.dll": {
-        "win-x64": "sharp_text_pdf.dll",
-        "win-arm64": "sharp_text_pdf.dll",
-        "linux-x64": "libsharp_text_pdf.so",
-        "linux-arm64": "libsharp_text_pdf.so",
-        "linux-musl-x64": "libsharp_text_pdf.so",
-        "linux-musl-arm64": "libsharp_text_pdf.so",
-        "osx-arm64": "libsharp_text_pdf.dylib",
-        "osx-x64": "libsharp_text_pdf.dylib",
-    },
+#: The assembly each managed format package must carry, keyed by the format suffix.
+FORMAT_ASSEMBLIES = {
+    f"lib/net11.0/M3scalinum.Text.{suffix}.dll": suffix for suffix in FORMAT_LIBRARIES
 }
+
+#: The eight RIDs every format has a satellite for.
+FORMAT_RIDS = list(next(iter(FORMAT_LIBRARIES.values())))
+
+#: `("Barcodes", "osx-arm64")` -> `M3scalinum.Text.Barcodes.Native.OsxArm64`. The same rule
+#: `src/Text.Format.Native.Package` spells out in its `NativePackageSuffix` table and
+#: `tools/pack-format-packages.py` in `package_id`; a drift between the three is a satellite a
+#: consumer cannot find, so it goes red here.
+def format_satellite_id(suffix: str, rid: str) -> str:
+    return f"M3scalinum.Text.{suffix}.Native." + "".join(
+        part[0].upper() + part[1:] for part in rid.split("-")
+    )
 
 
 def _text(root: ET.Element, name: str) -> str | None:
@@ -187,6 +200,7 @@ def check(path: str, require_native: bool = False) -> dict:
 
         ident = version = pins = None
         pins_core = False
+        declared_dependencies: dict[str, str] = {}
 
         if nuspec is None:
             problems.append("no .nuspec in the package")
@@ -199,6 +213,8 @@ def check(path: str, require_native: bool = False) -> dict:
             for element in root.iter():
                 if not element.tag.endswith("dependency"):
                     continue
+
+                declared_dependencies[element.get("id", "")] = element.get("version", "")
 
                 if element.get("id") == FORBIDDEN_DEPENDENCY:
                     problems.append(
@@ -229,13 +245,30 @@ def check(path: str, require_native: bool = False) -> dict:
             None,
         )
 
+        # A format satellite is identified by its package id: `M3scalinum.Text.Pdf.Native.OsxArm64`.
+        format_satellite = None
+        if ident:
+            match = re.fullmatch(
+                r"M3scalinum\.Text\.(Barcodes|Docx|Ocr|Pdf|Xlsx)\.Native\.([A-Za-z0-9]+)", ident
+            )
+            if match:
+                suffix, rid_suffix = match.groups()
+                rid = next(
+                    (candidate for candidate in FORMAT_RIDS
+                     if "".join(part[0].upper() + part[1:] for part in candidate.split("-")) == rid_suffix),
+                    None,
+                )
+                if rid is None:
+                    problems.append(f"unknown RID suffix '{rid_suffix}' in {ident}")
+                else:
+                    format_satellite = (suffix, rid)
+
         # Only the managed package carries the compiler; the format packages do not, and the native
         # satellites carry nothing but one library.
         is_core = ident == CORE_PACKAGE or "lib/net11.0/M3scalinum.Text.Typst.dll" in names
         is_satellite = bool(SATELLITE_ASSEMBLIES & names)
-        native_package = next((assembly for assembly in NATIVE_PACKAGES if assembly in names), None)
-        staged_package = next(
-            (assembly for assembly in STAGED_NATIVE_PACKAGES if assembly in names), None
+        format_package = next(
+            (suffix for assembly, suffix in FORMAT_ASSEMBLIES.items() if assembly in names), None
         )
 
         kind = "other"
@@ -286,37 +319,57 @@ def check(path: str, require_native: bool = False) -> dict:
 
             summary = f"ok ({rid_of_satellite} satellite, core {pins or 'unpinned'})"
 
-        elif native_package is not None:
-            kind = "native-package"
+        elif format_satellite is not None:
+            kind = "format-satellite"
+            suffix, satellite_rid = format_satellite
+            expected = f"runtimes/{satellite_rid}/native/{FORMAT_LIBRARIES[suffix][satellite_rid]}"
 
-            for rid, library in NATIVE_PACKAGES[native_package].items():
-                entry = f"runtimes/{rid}/native/{library}"
-                if entry not in names:
-                    problems.append(f"missing native asset: {entry}")
+            if expected not in names:
+                problems.append(f"missing native asset: {expected}")
+
+            for rid in sorted(_native_rids(names) - {satellite_rid}):
+                problems.append(
+                    f"carries runtimes/{rid}/native/, which ships in {format_satellite_id(suffix, rid)}"
+                )
 
             for required in REQUIRED_FILES:
                 if required not in names:
                     problems.append(f"missing file: {required}")
 
-            summary = f"ok ({len(NATIVE_PACKAGES[native_package])} RIDs, {len(REQUIRED_FILES)} required files)"
+            assemblies = sorted(
+                name for name in names if name.startswith("lib/") and name.endswith(".dll")
+            )
+            if assemblies:
+                problems.append(f"carries {assemblies[0]}: a native satellite ships no assembly")
 
-        elif staged_package is not None:
-            kind = "staged-package"
+            managed = f"M3scalinum.Text.{suffix}"
+            if managed not in declared_dependencies:
+                problems.append(f"a format satellite must depend on {managed}")
+            else:
+                declared = declared_dependencies[managed]
+                if not declared or "," in declared or declared.startswith("("):
+                    problems.append(
+                        f"depends on {managed} {declared}; name the version the satellite was built against"
+                    )
 
-            # The licence files are always required: the csproj packs them unconditionally, so their
-            # absence is a defect in the package itself and not a job's missing Rust build.
+            summary = f"ok ({suffix} satellite, {satellite_rid}, managed {declared_dependencies.get(managed, 'unpinned')})"
+
+        elif format_package is not None:
+            kind = "format-package"
+
+            # The other half of the split: a managed format package that packed its natives back in
+            # would double the download of every consumer who also adds the satellite.
+            for rid in sorted(_native_rids(names)):
+                problems.append(
+                    f"carries runtimes/{rid}/native/, which ships in "
+                    f"{format_satellite_id(format_package, rid)}: the managed package carries no native library"
+                )
+
             for required in REQUIRED_FILES:
                 if required not in names:
                     problems.append(f"missing file: {required}")
 
-            if require_native:
-                for rid, library in STAGED_NATIVE_PACKAGES[staged_package].items():
-                    entry = f"runtimes/{rid}/native/{library}"
-                    if entry not in names:
-                        problems.append(f"missing native asset: {entry}")
-
-            rid_count = len(STAGED_NATIVE_PACKAGES[staged_package]) if require_native else 0
-            summary = f"ok ({rid_count} RIDs checked, {len(REQUIRED_FILES)} required files)"
+            summary = f"ok (managed only, {len(REQUIRED_FILES)} required files)"
 
         elif is_satellite:
             kind = "satellite"
@@ -333,7 +386,12 @@ def check(path: str, require_native: bool = False) -> dict:
         "kind": kind,
         "version": version,
         "pins": pins,
-        "rid": rid_of_satellite,
+        "rid": rid_of_satellite or (format_satellite[1] if format_satellite else None),
+        "format": (format_satellite[0] if format_satellite else format_package),
+        "pins_format": (
+            declared_dependencies.get(f"M3scalinum.Text.{format_satellite[0]}")
+            if format_satellite else None
+        ),
     }
 
 
@@ -367,6 +425,35 @@ def main(paths: list[str], require_native: bool = False) -> int:
 
     elif len(paths) > 1 and satellites:
         problems.append(f"the set holds native satellites and no {CORE_PACKAGE}")
+
+    # The same rule for the five format families: a managed format package in the set must be joined
+    # by its eight satellites, and each satellite must pin the exact version it was built against.
+    format_satellites = {
+        (result["format"], result["rid"]): result
+        for result in results
+        if result["kind"] == "format-satellite"
+    }
+    format_packages = {
+        result["format"]: result for result in results if result["kind"] == "format-package"
+    }
+
+    for suffix, package in (format_packages.items() if len(paths) > 1 else []):
+        for rid in FORMAT_RIDS:
+            expected = format_satellite_id(suffix, rid)
+            satellite = format_satellites.get((suffix, rid))
+
+            if satellite is None:
+                problems.append(f"the set has no {expected} (RID {rid})")
+            elif satellite["pins_format"] and satellite["pins_format"] != package["version"]:
+                problems.append(
+                    f"{expected} pins {package['version'] and suffix} {satellite['pins_format']}, "
+                    f"the set packs {package['version']}"
+                )
+
+    if len(paths) > 1 and format_satellites and not format_packages:
+        problems.append(
+            "the set holds format satellites and no managed format package to join them to"
+        )
 
     # One line per distinct problem: a nuspec repeats its dependencies for every target framework.
     problems = list(dict.fromkeys(problems))
@@ -402,6 +489,7 @@ def _fabricate(
     natives: dict[str, str],
     ident: str = "M3scalinum.Text.Selftest",
     pins: str | None = None,
+    pins_id: str = CORE_PACKAGE,
 ) -> str:
     """Writes the smallest package `check` can judge: one assembly, the required files, a nuspec.
 
@@ -412,7 +500,7 @@ def _fabricate(
     dependencies = (
         "    <dependencies>\n"
         f'      <group targetFramework="net11.0">\n'
-        f'        <dependency id="{CORE_PACKAGE}" version="{pins}" />\n'
+        f'        <dependency id="{pins_id}" version="{pins}" />\n'
         "      </group>\n"
         "    </dependencies>\n"
         if pins is not None
@@ -448,57 +536,73 @@ def selftest() -> int:
     tables above, or the "the managed package carries no native" rule, turns the case red instead of
     quietly shrinking what a run checks.
     """
-    barcodes = NATIVE_PACKAGES["lib/net11.0/M3scalinum.Text.Barcodes.dll"]
-    pdf = STAGED_NATIVE_PACKAGES["lib/net11.0/M3scalinum.Text.Pdf.dll"]
-    barcodes_without_arm64 = {
-        rid: library for rid, library in barcodes.items() if rid != "linux-musl-arm64"
-    }
-    pdf_without_arm64 = {
-        rid: library for rid, library in pdf.items() if rid != "linux-musl-arm64"
-    }
-
+    barcodes_assembly = "lib/net11.0/M3scalinum.Text.Barcodes.dll"
     core_assembly = "lib/net11.0/M3scalinum.Text.Typst.dll"
     win_x64_satellite = NATIVE_SATELLITES["win-x64"]
+    barcodes_satellite = format_satellite_id("Barcodes", "win-x64")
 
     cases = [
         (
-            "a native package carrying every RID",
-            "lib/net11.0/M3scalinum.Text.Barcodes.dll",
-            barcodes,
+            "a managed format package carrying no native library",
+            barcodes_assembly,
+            {},
             False,
             0,
-            f"ok ({len(barcodes)} RIDs, 5 required files)",
+            "ok (managed only, 5 required files)",
+            None,
+            None,
         ),
         (
-            "a native package without its linux-musl-arm64 library",
-            "lib/net11.0/M3scalinum.Text.Barcodes.dll",
-            barcodes_without_arm64,
+            "a managed format package carrying a native library again",
+            barcodes_assembly,
+            {"win-x64": FORMAT_LIBRARIES["Barcodes"]["win-x64"]},
             False,
             1,
-            "missing native asset: runtimes/linux-musl-arm64/native/libsharp_text_barcodes.so",
+            f"carries runtimes/win-x64/native/, which ships in {barcodes_satellite}",
+            None,
+            None,
         ),
         (
-            "a staged package with --native carrying every RID",
-            "lib/net11.0/M3scalinum.Text.Pdf.dll",
-            pdf,
-            True,
-            0,
-            f"ok ({len(pdf)} RIDs checked, 5 required files)",
-        ),
-        (
-            "a staged package with --native and no linux-musl-arm64 library",
-            "lib/net11.0/M3scalinum.Text.Pdf.dll",
-            pdf_without_arm64,
-            True,
-            1,
-            "missing native asset: runtimes/linux-musl-arm64/native/libsharp_text_pdf.so",
-        ),
-        (
-            "a staged package without --native and no linux-musl-arm64 library",
-            "lib/net11.0/M3scalinum.Text.Pdf.dll",
-            pdf_without_arm64,
+            "a format satellite carrying its own RID",
+            "",
+            {"win-x64": FORMAT_LIBRARIES["Barcodes"]["win-x64"]},
             False,
             0,
+            "ok (Barcodes satellite, win-x64, managed 0.1.0)",
+            barcodes_satellite,
+            "M3scalinum.Text.Barcodes",
+        ),
+        (
+            "a format satellite without its library",
+            "",
+            {},
+            False,
+            1,
+            "missing native asset: runtimes/win-x64/native/sharp_text_barcodes.dll",
+            barcodes_satellite,
+            "M3scalinum.Text.Barcodes",
+        ),
+        (
+            "a format satellite carrying another RID's library",
+            "",
+            {
+                "win-x64": FORMAT_LIBRARIES["Barcodes"]["win-x64"],
+                "win-arm64": FORMAT_LIBRARIES["Barcodes"]["win-arm64"],
+            },
+            False,
+            1,
+            f"carries runtimes/win-arm64/native/, which ships in {format_satellite_id('Barcodes', 'win-arm64')}",
+            barcodes_satellite,
+            "M3scalinum.Text.Barcodes",
+        ),
+        (
+            "a format satellite that depends on nothing",
+            "",
+            {"win-x64": FORMAT_LIBRARIES["Barcodes"]["win-x64"]},
+            False,
+            1,
+            "a format satellite must depend on M3scalinum.Text.Barcodes",
+            barcodes_satellite,
             None,
         ),
         (
@@ -508,6 +612,8 @@ def selftest() -> int:
             False,
             0,
             "ok (managed only, 5 required files)",
+            CORE_PACKAGE,
+            None,
         ),
         (
             "the managed compiler package carrying a native library again",
@@ -516,6 +622,8 @@ def selftest() -> int:
             False,
             1,
             f"carries runtimes/win-x64/native/, which ships in {win_x64_satellite}",
+            CORE_PACKAGE,
+            None,
         ),
         (
             "a native satellite carrying its RID",
@@ -524,6 +632,8 @@ def selftest() -> int:
             False,
             0,
             "ok (win-x64 satellite, core 0.0.1)",
+            win_x64_satellite,
+            CORE_PACKAGE,
         ),
         (
             "a native satellite without its library",
@@ -532,6 +642,8 @@ def selftest() -> int:
             False,
             1,
             "missing native asset: runtimes/win-x64/native/sharp_typst.dll",
+            win_x64_satellite,
+            CORE_PACKAGE,
         ),
         (
             "a native satellite carrying another RID's library",
@@ -540,6 +652,8 @@ def selftest() -> int:
             False,
             1,
             f"carries runtimes/win-arm64/native/, which ships in {NATIVE_SATELLITES['win-arm64']}",
+            win_x64_satellite,
+            CORE_PACKAGE,
         ),
     ]
 
@@ -547,25 +661,26 @@ def selftest() -> int:
 
     with tempfile.TemporaryDirectory() as directory:
         for index, case in enumerate(cases):
-            description, assembly, natives, require_native, expected, message = case
+            description, assembly, natives, require_native, expected, message, ident, pins_id = case
 
-            ident = "M3scalinum.Text.Selftest"
-
-            if assembly == core_assembly:
-                ident = CORE_PACKAGE
-            elif assembly == "":
-                # A native satellite: its id is the only thing that says which RID it carries.
-                ident = NATIVE_SATELLITES[next(iter(natives), "win-x64")]
+            # A satellite's id is the only thing that says which RID it carries, and which package it
+            # completes: the compiler's satellites pin 0.0.1, a format satellite pins its managed
+            # package at 0.1.0.
+            package_ident = ident or "M3scalinum.Text.Selftest"
+            pins = None
+            if pins_id and package_ident in NATIVE_SATELLITES.values():
+                pins = "0.0.1"
+            elif pins_id:
+                pins = "0.1.0"
 
             path = _fabricate(
                 directory,
                 index,
                 assembly,
                 natives,
-                ident=ident,
-                # Only a satellite declares the core dependency; a fabricated native package that
-                # did would be judged by a rule it is not subject to.
-                pins="0.0.1" if assembly == "" else None,
+                ident=package_ident,
+                pins=pins,
+                pins_id=pins_id or CORE_PACKAGE,
             )
             captured = io.StringIO()
 
@@ -629,6 +744,39 @@ def _selftest_set(directory: str) -> tuple[int, int]:
     with_mismatch = dict(complete)
     with_mismatch["osx-x64"] = pinned_elsewhere
 
+    barcodes = _fabricate(
+        directory, 400, "lib/net11.0/M3scalinum.Text.Barcodes.dll", {}, ident="M3scalinum.Text.Barcodes"
+    )
+    barcodes_satellites = {
+        rid: _fabricate(
+            directory,
+            401 + index,
+            "",
+            {rid: library},
+            ident=format_satellite_id("Barcodes", rid),
+            pins="0.0.1",
+            pins_id="M3scalinum.Text.Barcodes",
+        )
+        for index, (rid, library) in enumerate(FORMAT_LIBRARIES["Barcodes"].items())
+    }
+    barcodes_with_hole = dict(barcodes_satellites)
+    del barcodes_with_hole["osx-arm64"]
+
+    format_cases = [
+        (
+            "a complete format set",
+            [barcodes, *barcodes_satellites.values()],
+            0,
+            "ok (Barcodes satellite, win-x64, managed 0.0.1)",
+        ),
+        (
+            "a format set without its osx-arm64 satellite",
+            [barcodes, *barcodes_with_hole.values()],
+            1,
+            f"the set has no {format_satellite_id('Barcodes', 'osx-arm64')} (RID osx-arm64)",
+        ),
+    ]
+
     cases = [
         (
             "a complete set",
@@ -652,7 +800,7 @@ def _selftest_set(directory: str) -> tuple[int, int]:
 
     failures = 0
 
-    for description, paths, expected, message in cases:
+    for description, paths, expected, message in cases + format_cases:
         captured = io.StringIO()
 
         with contextlib.redirect_stdout(captured), contextlib.redirect_stderr(captured):
@@ -667,7 +815,7 @@ def _selftest_set(directory: str) -> tuple[int, int]:
             )
             failures += 1
 
-    return failures, len(cases)
+    return failures, len(cases) + len(format_cases)
 
 
 if __name__ == "__main__":

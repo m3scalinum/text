@@ -64,6 +64,19 @@ Two trains carry them: a package that embeds the compiler takes its version from
 rest release on their own schedule — a signing fix must not read as a compiler release. See
 [Versioning](#versioning).
 
+Six of them have a Rust library of their own, and none of those libraries ships in the package:
+`Barcodes`, `Docx`, `Ocr`, `Pdf` and `Xlsx` each have a `…<Format>.Native.<Rid>` satellite, and the
+compiler has its own seven. Add the managed package and the satellite for your runtime:
+
+```bash
+dotnet add package M3scalinum.Text.Pdf
+dotnet add package M3scalinum.Text.Pdf.Native.WinX64     # WinArm64, LinuxX64, LinuxArm64,
+                                                          # LinuxMuslX64, OsxArm64, OsxX64
+```
+
+`Docx`, `Xlsx` and the layout pack also compile, so they need the compiler's satellite as well as their
+own. The exception is `M3scalinum.Text.Documents`, which is managed code and nothing else.
+
 ## M3scalinum.Text.Typst
 
 Hosts the Typst compiler **in-process** behind a managed .NET API.
