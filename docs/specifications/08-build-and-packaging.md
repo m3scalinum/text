@@ -255,7 +255,10 @@ this is Alpine", and a package that carries all seven has to be as large as all 
 The split is a change to the install story, not to the packaging alone, and it ships with the
 documentation of it: `README.md`, `wiki/Typst-Getting-Started.md` and `samples/examples/run.sh` all
 show the two lines, and the examples restore the satellite for the RID they run on, so the recipe a
-consumer reads is the recipe CI exercises.
+consumer reads is the recipe CI exercises. A satellite's version is the compiler train's, not the
+version of the package whose example compiles through it — `M3scalinum.Text.Templates` 0.1.0 restores
+`M3scalinum.Text.Typst.Native.LinuxX64` 0.15.1.N — so `run.sh` reads it from the feed rather than
+reusing the version it was given.
 
 **Rejected — a meta-package per platform family** (`M3scalinum.Text.Typst.Native.Windows` depending on
 both Windows satellites). It halves the number of ids to remember and doubles the download for the
@@ -805,7 +808,7 @@ Rules:
 | `cargo test --manifest-path native/sharp-typst/Cargo.toml` | ABI and exporter tests |
 | `dotnet test -p:BuildNative=true` | Full build including Cargo, then all tests |
 | `dotnet run --project samples/Text.Typst.Samples` | Generates the sample outputs into `artifacts/samples/` |
-| `samples/examples/run.sh <example> <package> <version> <feed>` | Compiles and runs one example against a packed package; `--build-only` stops after the compile, and an example of `M3scalinum.Text.Typst` restores the satellite for its RID |
+| `samples/examples/run.sh <example> <package> <version> <feed>` | Compiles and runs one example against a packed package; `--build-only` stops after the compile, and an example that compiles through the compiler (`M3scalinum.Text.Typst`, `M3scalinum.Text.Templates`) restores the satellite for its RID |
 | `python3 tools/pack-typst-packages.py --output out` | Packs `Text.Documents`, the managed compiler and the seven satellites (§6.3) |
 | `python3 tools/bench-compare.py run --a <rev> --b <rev>` | Alternates the benchmark between two revisions and reports a verdict with a measured noise floor (§13) |
 
