@@ -432,7 +432,10 @@ jobs:
         working-directory: native/${{ matrix.crate }}
         run: cargo clippy $CRT_TARGET --all-targets -- -D warnings
       - name: Documentation
-        if: steps.natives.outputs.cache-hit != 'true'
+        # Documentation does not depend on the target, and the musl cells carry
+        # `RUSTFLAGS=-C linker=musl-gcc`: a `cargo doc` without `--target` then builds the host's build
+        # scripts with the musl linker and dies in `collect2`. One cell per crate is enough.
+        if: steps.natives.outputs.cache-hit != 'true' && matrix.target == ''
         working-directory: native/${{ matrix.crate }}
         # A rustdoc warning is not a compiler warning: an intra-doc link to an item that was renamed,
         # or a doc comment whose code is not escaped, builds and tests green while the published
@@ -794,12 +797,14 @@ jobs:
           Typst M3scalinum.Text.Typst
           Documents M3scalinum.Text.Documents
           TABLE
-      - name: Verify the Pdf package
-        # The one package whose native library is packed for all eight RIDs, checked against the same
-        # list `native-extras` builds: a missing entry fails here rather than as a
-        # DllNotFoundException in a consumer's application. `--native` is what asks for the eight,
-        # because the compiler workflow's pack job packs this package without them.
-        run: python3 tests/verify-package.py artifacts/packages-examples/M3scalinum.Text.Pdf.*.nupkg --native
+      - name: Verify the Pdf packages
+        # One at a time, because this job holds the linux-x64 satellite and nothing else: handed the
+        # two files together, the verifier asks for the whole eight-RID set and reports the seven
+        # satellites that a single-runner feed can never contain. The managed package carries no
+        # library since the split, so `--native` has nothing to check and is gone with it.
+        run: |
+          python3 tests/verify-package.py artifacts/packages-examples/M3scalinum.Text.Pdf.[0-9]*.nupkg
+          python3 tests/verify-package.py artifacts/packages-examples/M3scalinum.Text.Pdf.Native.LinuxX64.*.nupkg
       - uses: actions/upload-artifact@v7
         # The `sbom` job reads the very packages the examples ran against, so the SBOM it checks
         # describes what a consumer installs rather than a second build that might differ.
