@@ -72,12 +72,14 @@ host_rid() {
 
 # The satellite package a package's native library ships in, for a RID. Only the compiler wrapper is
 # split by RID (Spec 08 §6); every other package carries its natives in the same .nupkg and this
-# prints nothing.
+# prints nothing. `M3scalinum.Text.Templates` is named beside it because its example renders a
+# layout: `Template.RenderDocument` takes a `TypstCompiler`, so a consumer of the templates package
+# that compiles installs the same second package a consumer of the compiler does.
 satellite_package() {
     local id=$1 rid=$2
 
     case "$id" in
-        M3scalinum.Text.Typst) ;;
+        M3scalinum.Text.Typst|M3scalinum.Text.Templates) ;;
         *) return 0 ;;
     esac
 
@@ -120,13 +122,23 @@ if [ ! -f "$feed/$package.$version.nupkg" ]; then
     exit 1
 fi
 
-if [ -n "$satellite" ] && [ ! -f "$feed/$satellite.$version.nupkg" ]; then
-    # The package under test is here and the library it needs is not: a green run would prove
-    # nothing, because the example would fail at its first compile with a message about a feed.
-    echo "the feed $feed holds no $satellite.$version.nupkg: pack" \
-         "src/Text.Typst.Native.Package -p:NativeRid=$rid alongside the other packages" \
-         "(tools/pack-typst-packages.py packs the set)" >&2
-    exit 1
+if [ -n "$satellite" ]; then
+    # The satellite travels with the compiler train, not with the package under test: a Templates
+    # example restores `M3scalinum.Text.Templates` 0.1.0 and the library it compiles through is
+    # `M3scalinum.Text.Typst.Native.LinuxX64` 0.15.1.N. Its version is read from the feed for that
+    # reason, never derived from <version>.
+    satellite_nupkg=$(ls "$feed/$satellite".*.nupkg 2>/dev/null | head -n 1 || true)
+    if [ -z "$satellite_nupkg" ]; then
+        # The package under test is here and the library it needs is not: a green run would prove
+        # nothing, because the example would fail at its first compile with a message about a feed.
+        echo "the feed $feed holds no $satellite.<version>.nupkg: pack" \
+             "src/Text.Typst.Native.Package -p:NativeRid=$rid alongside the other packages" \
+             "(tools/pack-typst-packages.py packs the set)" >&2
+        exit 1
+    fi
+    satellite_version=$(basename "$satellite_nupkg")
+    satellite_version=${satellite_version#"$satellite".}
+    satellite_version=${satellite_version%.nupkg}
 fi
 
 rm -rf "$work"
@@ -143,7 +155,7 @@ export NUGET_PACKAGES="$work/.nuget"
 # from the RID, so the project has to name it (Spec 08 §6).
 satellite_reference=""
 if [ -n "$satellite" ]; then
-    satellite_reference="    <PackageReference Include=\"$satellite\" Version=\"$version\" />"
+    satellite_reference="    <PackageReference Include=\"$satellite\" Version=\"$satellite_version\" />"
 fi
 
 cat > "$work/Example.csproj" <<EOF

@@ -309,6 +309,30 @@ Returns a JSON array of the family names the world can resolve, sorted and dedup
 The list covers the embedded fonts plus everything registered through `tn_world_add_font` and the
 `fonts` section of the world config. It is the diagnostic for an "unknown font family" warning.
 
+### 3.9.1 Font faces and their axes
+
+```c
+int32_t tn_world_font_faces(const TnWorld *world,
+                            TnBuffer *out,
+                            TnError **out_error);
+```
+
+Returns a JSON array describing every face the world resolves — one entry per file, with the family,
+the style, the weight and the variable axes that face declares:
+
+```json
+[{"family": "Bahnschrift", "weight": 400, "stretch": 100.0, "style": "normal", "variable": true,
+  "axes": [{"tag": "wdth", "min": 75.0, "max": 100.0, "default": 100.0},
+           {"tag": "wght", "min": 300.0, "max": 700.0, "default": 400.0}]}]
+```
+
+`variable` is true when the face carries an `fvar` table, and `axes` is empty for a static face. A
+static face has no axis to interpolate: `#set text(weight: 350)` renders its nearest cut instead, and
+`variable` is how a caller knows before promising intermediate weights. Typst clamps a requested
+weight to the range the face declares and interpolates inside it, so the axis list is what decides
+whether 350 and 550 are distinct drawings or the same one. The metadata costs a read of each face's
+tables and parses no glyphs.
+
 ### 3.10 Page text
 
 ```c
