@@ -95,7 +95,7 @@ jobs:
       # Scoped `-suite-` on purpose: this job only *builds*, the compiler workflow's linux-x64 entry
       # also runs fmt, clippy and the crate's tests. A shared key would let whichever ran first skip
       # the other's gates. Restored after the checkout, because `hashFiles` reads the workspace.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         id: natives
         with:
           path: native/artifacts/linux-x64
@@ -133,7 +133,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         id: natives
         with:
           path: native/artifacts/linux-x64
@@ -404,7 +404,7 @@ jobs:
       # Forty Rust builds that no managed change can invalidate: each crate is hashed on its own,
       # so a pull request touching only C# restores all forty libraries instead of compiling them.
       # Restored after the checkout, because `hashFiles` reads the workspace.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         id: natives
         with:
           path: native/artifacts/${{ matrix.rid }}
