@@ -79,7 +79,7 @@ jobs:
       # The registry and the instrumented build. The committed root `Cargo.lock` pins the harness,
       # and the four native manifests are hashed because the fuzz crate depends on them by path; a
       # cache keyed on the lock alone would serve a binary built from older parser sources.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry

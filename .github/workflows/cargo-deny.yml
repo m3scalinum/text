@@ -52,7 +52,7 @@ jobs:
       # The advisory database is a git clone of ~50 MB. Restoring the previous run's copy makes the
       # fetch incremental; the per-run key means a run always saves its own snapshot, so the cache
       # cannot pin the database to a month-old commit.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/.cargo/advisory-dbs
           key: cargo-deny-advisory-db-${{ github.run_id }}
